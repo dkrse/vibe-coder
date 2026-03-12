@@ -7,7 +7,7 @@ graph TB
     subgraph MainWindow
         direction TB
         HM[Hamburger Menu]
-        SB[Status Bar: file info | SSH profile combo | progress bar | info]
+        SB["Status Bar: file info | SSH profile combo | progress bar | info"]
 
         subgraph MainSplitter[Main Splitter - Horizontal]
             direction LR
@@ -349,8 +349,8 @@ graph TD
     IJ --> GR[git_remote]
     IJ --> PROMPTS[prompts array]
     IJ --> SP[saved_prompts array - IDs]
-    PROMPTS --> P1["#1 {id, timestamp, prompt, ...}"]
-    PROMPTS --> P2["#2 {id, timestamp, prompt, ...}"]
+    PROMPTS --> P1["#1 id, timestamp, prompt, ..."]
+    PROMPTS --> P2["#2 id, timestamp, prompt, ..."]
     PROMPTS --> PN2["#N ..."]
 ```
 
@@ -366,7 +366,7 @@ flowchart TD
     PWD -.->|NEVER| DISK[QSettings / disk]
 
     INPUT[User/Host input] --> VAL[isValidSshIdentifier]
-    VAL -->|reject| META[Shell metacharacters: ; & pipe etc.]
+    VAL -->|reject| META["Shell metacharacters: ; & pipe etc."]
 
     COMMIT[Git Commit] --> GITIGNORE[Auto-add to .gitignore]
     GITIGNORE --> ENV[.env / .env.*]
