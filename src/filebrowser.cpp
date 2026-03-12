@@ -18,10 +18,15 @@ void FileItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
 {
     painter->save();
 
-    auto *model = qobject_cast<const QFileSystemModel *>(index.model());
-    bool isDir = model && model->isDir(index);
     QString name = index.data(Qt::DisplayRole).toString();
-    QString fullPath = model ? model->filePath(index) : "";
+    QString fullPath;
+    bool isDir = false;
+
+    // Get path and isDir from whichever model is active
+    if (m_fb) {
+        fullPath = m_fb->filePath(index);
+        isDir = m_fb->isDir(index);
+    }
 
     bool dark = m_fb && m_fb->isDark();
 
@@ -102,15 +107,17 @@ QSize FileItemDelegate::sizeHint(const QStyleOptionViewItem &option,
 FileBrowser::FileBrowser(QWidget *parent)
     : QWidget(parent)
 {
-    m_model = new QFileSystemModel(this);
-    m_model->setReadOnly(false);
-    m_model->setFilter(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot);
+    m_fsModel = new QFileSystemModel(this);
+    m_fsModel->setReadOnly(false);
+    m_fsModel->setFilter(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot);
+
+    m_sshModel = new QStandardItemModel(this);
 
     m_delegate = new FileItemDelegate(this);
     m_delegate->setFileBrowser(this);
 
     m_treeView = new QTreeView(this);
-    m_treeView->setModel(m_model);
+    m_treeView->setModel(m_fsModel);
     m_treeView->setItemDelegate(m_delegate);
     m_treeView->setAnimated(false);
     m_treeView->setSortingEnabled(true);
@@ -153,37 +160,48 @@ FileBrowser::FileBrowser(QWidget *parent)
     // Async git process
     m_gitProc = new QProcess(this);
 
-    // Git status refresh timer
+    // Git status refresh timer — 5s interval to reduce CPU usage
     m_gitTimer = new QTimer(this);
-    m_gitTimer->setInterval(2000);
+    m_gitTimer->setInterval(5000);
     connect(m_gitTimer, &QTimer::timeout, this, &FileBrowser::startGitRefresh);
     m_gitTimer->start();
 
     connect(m_openBtn, &QPushButton::clicked, this, [this]() {
+        if (isSshActive()) return; // no local dialog for SSH
         QString dir = QFileDialog::getExistingDirectory(this, "Open Directory", m_pathEdit->text());
         if (!dir.isEmpty())
             setRootPath(dir);
     });
 
     connect(m_pathEdit, &QLineEdit::returnPressed, this, [this]() {
-        setRootPath(m_pathEdit->text());
+        QString text = m_pathEdit->text();
+        if (isSshActive()) {
+            // User types remote path like /opt — translate to local mount
+            if (text.startsWith("/"))
+                text = m_sshMountPoint + text;
+        }
+        setRootPath(text);
     });
 
     connect(m_treeView, &QTreeView::clicked, this, [this](const QModelIndex &index) {
-        QString path = m_model->filePath(index);
-        if (m_model->isDir(index)) {
+        if (isDir(index)) {
             if (m_treeView->isExpanded(index))
                 m_treeView->collapse(index);
             else
                 m_treeView->expand(index);
         } else {
-            emit fileOpened(path);
+            emit fileOpened(filePath(index));
         }
     });
 
+    connect(m_treeView, &QTreeView::expanded, this, [this](const QModelIndex &index) {
+        if (isSshActive())
+            onSshItemExpanded(index);
+    });
+
     connect(m_treeView, &QTreeView::doubleClicked, this, [this](const QModelIndex &index) {
-        if (m_model->isDir(index))
-            setRootPath(m_model->filePath(index));
+        if (isDir(index))
+            setRootPath(filePath(index));
     });
 
     connect(m_treeView, &QTreeView::customContextMenuRequested,
@@ -191,6 +209,71 @@ FileBrowser::FileBrowser(QWidget *parent)
 
     setRootPath(QDir::homePath());
 }
+
+// ── Unified accessors ───────────────────────────────────────────────
+
+QString FileBrowser::filePath(const QModelIndex &index) const
+{
+    if (isSshActive())
+        return index.data(FilePathRole).toString();
+    return m_fsModel->filePath(index);
+}
+
+bool FileBrowser::isDir(const QModelIndex &index) const
+{
+    if (isSshActive())
+        return index.data(IsDirRole).toBool();
+    return m_fsModel->isDir(index);
+}
+
+QString FileBrowser::fileName(const QModelIndex &index) const
+{
+    return index.data(Qt::DisplayRole).toString();
+}
+
+// ── SSH model population ────────────────────────────────────────────
+
+void FileBrowser::sshPopulateDir(QStandardItem *parentItem, const QString &dirPath)
+{
+    // Remove old children
+    parentItem->removeRows(0, parentItem->rowCount());
+
+    QDir dir(dirPath);
+    auto entries = dir.entryInfoList(
+        QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot,
+        QDir::DirsFirst | QDir::Name | QDir::IgnoreCase);
+
+    for (const auto &info : entries) {
+        auto *item = new QStandardItem(info.fileName());
+        item->setData(info.absoluteFilePath(), FilePathRole);
+        item->setData(info.isDir(), IsDirRole);
+        item->setEditable(false);
+
+        if (info.isDir()) {
+            // Add a dummy child so the expand arrow shows
+            auto *dummy = new QStandardItem();
+            item->appendRow(dummy);
+        }
+
+        parentItem->appendRow(item);
+    }
+}
+
+void FileBrowser::onSshItemExpanded(const QModelIndex &index)
+{
+    auto *item = m_sshModel->itemFromIndex(index);
+    if (!item) return;
+
+    QString path = item->data(FilePathRole).toString();
+    if (path.isEmpty()) return;
+
+    // Check if children are just a dummy placeholder
+    if (item->rowCount() == 1 && item->child(0)->data(FilePathRole).toString().isEmpty()) {
+        sshPopulateDir(item, path);
+    }
+}
+
+// ── Style ───────────────────────────────────────────────────────────
 
 void FileBrowser::applyStyle()
 {
@@ -230,14 +313,12 @@ void FileBrowser::applyStyle()
 
 void FileBrowser::startGitRefresh()
 {
-    if (m_gitBusy) return; // previous refresh still running
-    QString root = m_model->rootPath();
-    if (root.isEmpty()) return;
+    if (m_gitBusy) return;
+    if (m_currentRoot.isEmpty()) return;
 
     m_gitBusy = true;
-    m_gitProc->setWorkingDirectory(root);
+    m_gitProc->setWorkingDirectory(m_currentRoot);
 
-    // Step 1: check if git repo
     disconnect(m_gitProc, nullptr, this, nullptr);
     connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, &FileBrowser::onGitCheckFinished);
@@ -265,7 +346,6 @@ void FileBrowser::onGitCheckFinished(int exitCode, QProcess::ExitStatus)
 
     m_hasGit = true;
 
-    // Step 2: get git root
     connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, &FileBrowser::onGitRootFinished);
     m_gitProc->start("git", {"rev-parse", "--show-toplevel"});
@@ -282,7 +362,6 @@ void FileBrowser::onGitRootFinished(int exitCode, QProcess::ExitStatus)
 
     m_gitRoot = QString::fromUtf8(m_gitProc->readAllStandardOutput()).trimmed();
 
-    // Step 3: get status (use -unormal instead of -uall for performance)
     connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, &FileBrowser::onGitStatusFinished);
     m_gitProc->start("git", {"status", "--porcelain", "-unormal"});
@@ -345,7 +424,7 @@ void FileBrowser::rebuildDirCache()
         for (const auto &f : files) {
             QString dir = QFileInfo(f).absolutePath();
             while (!dir.isEmpty() && dir != "/") {
-                if (dirs.contains(dir)) break; // already cached upward
+                if (dirs.contains(dir)) break;
                 dirs.insert(dir);
                 dir = QFileInfo(dir).absolutePath();
             }
@@ -357,28 +436,28 @@ void FileBrowser::rebuildDirCache()
     addParents(m_added, m_dirAdded);
 }
 
-FileBrowser::GitStatus FileBrowser::gitStatus(const QString &filePath) const
+FileBrowser::GitStatus FileBrowser::gitStatus(const QString &fp) const
 {
-    // Direct file lookup — O(1)
-    if (m_modified.contains(filePath)) return Modified;
-    if (m_untracked.contains(filePath)) return Untracked;
-    if (m_added.contains(filePath)) return Added;
+    if (m_modified.contains(fp)) return Modified;
+    if (m_untracked.contains(fp)) return Untracked;
+    if (m_added.contains(fp)) return Added;
 
-    // Directory lookup from cache — O(1)
-    if (m_dirModified.contains(filePath)) return Modified;
-    if (m_dirUntracked.contains(filePath)) return Untracked;
-    if (m_dirAdded.contains(filePath)) return Added;
+    if (m_dirModified.contains(fp)) return Modified;
+    if (m_dirUntracked.contains(fp)) return Untracked;
+    if (m_dirAdded.contains(fp)) return Added;
 
     return Clean;
 }
+
+// ── Context menu ────────────────────────────────────────────────────
 
 QString FileBrowser::selectedDirPath() const
 {
     QModelIndex idx = m_treeView->currentIndex();
     if (!idx.isValid())
-        return m_model->rootPath();
-    QString path = m_model->filePath(idx);
-    if (m_model->isDir(idx))
+        return m_currentRoot;
+    QString path = filePath(idx);
+    if (isDir(idx))
         return path;
     return QFileInfo(path).absolutePath();
 }
@@ -410,13 +489,13 @@ void FileBrowser::showContextMenu(const QPoint &pos)
         QString name = QInputDialog::getText(this, "New File", "File name:",
                                               QLineEdit::Normal, "", &ok);
         if (ok && !name.isEmpty()) {
-            // Prevent path traversal
             if (name.contains('/') || name.contains("..")) {
                 QMessageBox::warning(this, "Error", "Invalid file name.");
                 return;
             }
             QFile file(dirPath + "/" + name);
             if (file.open(QIODevice::WriteOnly)) file.close();
+            if (isSshActive()) setRootPath(m_currentRoot); // refresh
         }
     });
 
@@ -430,38 +509,39 @@ void FileBrowser::showContextMenu(const QPoint &pos)
                 return;
             }
             QDir(dirPath).mkdir(name);
+            if (isSshActive()) setRootPath(m_currentRoot); // refresh
         }
     });
 
     menu.addSeparator();
 
     if (idx.isValid()) {
-        menu.addAction("Rename...", this, [this, idx]() {
-            QString oldName = m_model->fileName(idx);
+        QString itemPath = filePath(idx);
+        QString itemName = fileName(idx);
+
+        menu.addAction("Rename...", this, [this, idx, itemPath, itemName]() {
             bool ok;
             QString newName = QInputDialog::getText(this, "Rename", "New name:",
-                                                     QLineEdit::Normal, oldName, &ok);
-            if (ok && !newName.isEmpty() && newName != oldName) {
+                                                     QLineEdit::Normal, itemName, &ok);
+            if (ok && !newName.isEmpty() && newName != itemName) {
                 if (newName.contains('/') || newName.contains("..")) {
                     QMessageBox::warning(this, "Error", "Invalid name.");
                     return;
                 }
-                QString oldPath = m_model->filePath(idx);
-                QString dir = QFileInfo(oldPath).absolutePath();
-                QFile::rename(oldPath, dir + "/" + newName);
+                QString dir = QFileInfo(itemPath).absolutePath();
+                QFile::rename(itemPath, dir + "/" + newName);
+                if (isSshActive()) setRootPath(m_currentRoot);
             }
         });
 
-        // Fix 5: show full path in delete confirmation
-        menu.addAction("Delete", this, [this, idx]() {
-            QString path = m_model->filePath(idx);
-            QString name = m_model->fileName(idx);
+        menu.addAction("Delete", this, [this, idx, itemPath, itemName]() {
             auto reply = QMessageBox::warning(this, "Delete",
-                QString("Delete '%1'?\n\nFull path: %2").arg(name, path),
+                QString("Delete '%1'?\n\nFull path: %2").arg(itemName, itemPath),
                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
             if (reply == QMessageBox::Yes) {
-                if (m_model->isDir(idx)) QDir(path).removeRecursively();
-                else QFile::remove(path);
+                if (isDir(idx)) QDir(itemPath).removeRecursively();
+                else QFile::remove(itemPath);
+                if (isSshActive()) setRootPath(m_currentRoot);
             }
         });
     }
@@ -469,13 +549,61 @@ void FileBrowser::showContextMenu(const QPoint &pos)
     menu.exec(m_treeView->viewport()->mapToGlobal(pos));
 }
 
+// ── Root path ───────────────────────────────────────────────────────
+
 void FileBrowser::setRootPath(const QString &path)
 {
-    QModelIndex rootIndex = m_model->setRootPath(path);
-    m_treeView->setRootIndex(rootIndex);
-    m_pathEdit->setText(path);
+    m_currentRoot = path;
+
+    if (isSshActive()) {
+        // Use QStandardItemModel with synchronous QDir reads
+        m_treeView->setModel(m_sshModel);
+        m_sshModel->clear();
+
+        auto *root = m_sshModel->invisibleRootItem();
+        sshPopulateDir(root, path);
+
+        m_treeView->setRootIndex(QModelIndex());
+    } else {
+        // Use normal QFileSystemModel
+        if (m_treeView->model() != m_fsModel) {
+            m_treeView->setModel(m_fsModel);
+            m_treeView->hideColumn(1);
+            m_treeView->hideColumn(2);
+            m_treeView->hideColumn(3);
+        }
+        QModelIndex rootIndex = m_fsModel->setRootPath(path);
+        m_treeView->setRootIndex(rootIndex);
+    }
+
+    m_pathEdit->setText(isSshActive() ? toRemotePath(path) : path);
     startGitRefresh();
     emit rootPathChanged(path);
+}
+
+void FileBrowser::setSshMount(const QString &mountPoint, const QString &remotePrefix)
+{
+    m_sshMountPoint = mountPoint;
+    m_sshRemotePrefix = remotePrefix;
+}
+
+void FileBrowser::clearSshMount()
+{
+    m_sshMountPoint.clear();
+    m_sshRemotePrefix.clear();
+}
+
+QString FileBrowser::toRemotePath(const QString &localPath) const
+{
+    if (m_sshMountPoint.isEmpty())
+        return localPath;
+    if (localPath.startsWith(m_sshMountPoint)) {
+        QString relative = localPath.mid(m_sshMountPoint.length());
+        if (relative.isEmpty())
+            return "/";
+        return relative; // already starts with /
+    }
+    return localPath;
 }
 
 void FileBrowser::setFont(const QFont &font)
@@ -500,5 +628,5 @@ void FileBrowser::setTheme(const QString &theme)
 
 QString FileBrowser::rootPath() const
 {
-    return m_model->rootPath();
+    return m_currentRoot;
 }

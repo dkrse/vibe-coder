@@ -82,6 +82,7 @@ bool Project::load(const QString &dirPath)
     m_model = root.value("model").toString();
     m_gitRemote = root.value("git_remote").toString();
     m_prompts = root.value("prompts").toArray();
+    m_savedPrompts = root.value("saved_prompts").toArray();
     m_loaded = true;
     return true;
 }
@@ -100,6 +101,60 @@ void Project::addPrompt(const QString &promptText)
 
     m_prompts.append(entry);
     save();
+}
+
+QString Project::promptTextById(int id) const
+{
+    for (const auto &v : m_prompts) {
+        QJsonObject obj = v.toObject();
+        if (obj.value("id").toInt() == id)
+            return obj.value("prompt").toString();
+    }
+    return {};
+}
+
+QStringList Project::savedPrompts() const
+{
+    QStringList list;
+    for (const auto &v : m_savedPrompts) {
+        int id = v.toInt();
+        QString text = promptTextById(id);
+        if (!text.isEmpty())
+            list.append(text);
+    }
+    return list;
+}
+
+QList<int> Project::savedPromptIds() const
+{
+    QList<int> list;
+    for (const auto &v : m_savedPrompts)
+        list.append(v.toInt());
+    return list;
+}
+
+void Project::addSavedPrompt(int promptId)
+{
+    if (!m_loaded) return;
+    // Avoid duplicates
+    for (const auto &v : m_savedPrompts) {
+        if (v.toInt() == promptId) return;
+    }
+    m_savedPrompts.append(promptId);
+    save();
+}
+
+void Project::removeSavedPrompt(int index)
+{
+    if (!m_loaded || index < 0 || index >= m_savedPrompts.size()) return;
+    m_savedPrompts.removeAt(index);
+    save();
+}
+
+int Project::lastPromptId() const
+{
+    if (m_prompts.isEmpty()) return -1;
+    return m_prompts.last().toObject().value("id").toInt();
 }
 
 void Project::setModel(const QString &model)
@@ -152,6 +207,7 @@ void Project::save()
         ? QDateTime::currentDateTime().toString(Qt::ISODate)
         : m_prompts.first().toObject().value("timestamp").toString();
     root["prompts"] = m_prompts;
+    root["saved_prompts"] = m_savedPrompts;
 
     QFile file(instructionsPath());
     if (file.open(QIODevice::WriteOnly)) {

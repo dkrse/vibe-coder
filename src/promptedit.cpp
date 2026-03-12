@@ -14,20 +14,25 @@ void PromptEdit::keyPressEvent(QKeyEvent *event)
 {
     bool isEnter = (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter);
     bool ctrlHeld = event->modifiers() & Qt::ControlModifier;
+    bool shiftHeld = event->modifiers() & Qt::ShiftModifier;
 
     if (m_sendOnEnter) {
-        // Enter sends, Shift+Enter = newline
-        if (isEnter && !ctrlHeld && !(event->modifiers() & Qt::ShiftModifier)) {
+        // Enter sends, Shift+Enter = send+save, Ctrl+Enter/other = newline
+        if (isEnter && shiftHeld && !ctrlHeld) {
+            emit saveAndSendRequested();
+            return;
+        }
+        if (isEnter && !ctrlHeld && !shiftHeld) {
             emit sendRequested();
             return;
         }
-        if (isEnter && (event->modifiers() & Qt::ShiftModifier)) {
-            QPlainTextEdit::keyPressEvent(event);
+    } else {
+        // Ctrl+Enter sends, Ctrl+Shift+Enter = send+save, Enter = newline
+        if (isEnter && ctrlHeld && shiftHeld) {
+            emit saveAndSendRequested();
             return;
         }
-    } else {
-        // Ctrl+Enter sends, Enter = newline
-        if (isEnter && ctrlHeld) {
+        if (isEnter && ctrlHeld && !shiftHeld) {
             emit sendRequested();
             return;
         }

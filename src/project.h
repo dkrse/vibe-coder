@@ -16,6 +16,13 @@ public:
 
     void addPrompt(const QString &promptText);
 
+    // Saved (recurring) prompts — stores IDs referencing the prompts array
+    QStringList savedPrompts() const;       // returns prompt texts for display
+    QList<int> savedPromptIds() const;
+    void addSavedPrompt(int promptId);
+    void removeSavedPrompt(int index);
+    int lastPromptId() const;
+
     QString model() const { return m_model; }
     void setModel(const QString &model);
 
@@ -38,6 +45,7 @@ public:
 private:
     void save();
     static QString generateHash(const QString &name);
+    QString promptTextById(int id) const;
 
     bool m_loaded = false;
     QString m_projectDir;
@@ -47,4 +55,5 @@ private:
     QString m_model;
     QString m_gitRemote;
     QJsonArray m_prompts;
+    QJsonArray m_savedPrompts;
 };

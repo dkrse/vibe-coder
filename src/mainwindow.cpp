@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "sshtunneldialog.h"
 
 #include <QSplitter>
 #include <QVBoxLayout>
@@ -14,6 +15,9 @@
 #include <QMenuBar>
 #include <QDateTime>
 #include <QShortcut>
+#include <QDir>
+#include <QFileDialog>
+#include <QInputDialog>
 
 static QString langFromSuffix(const QString &suffix)
 {
@@ -37,16 +41,14 @@ MainWindow::MainWindow(QWidget *parent)
     resize(1200, 800);
 
     m_settings.load();
+    m_sshManager = new SshManager(this);
 
-    // No menu bar - use hamburger button instead
     menuBar()->hide();
 
-    // Central widget
     auto *central = new QWidget(this);
     setCentralWidget(central);
 
     m_mainSplitter = new QSplitter(Qt::Horizontal, central);
-
     m_rightSplitter = new QSplitter(Qt::Vertical);
 
     // Tab widget with hamburger button in corner
@@ -57,12 +59,14 @@ MainWindow::MainWindow(QWidget *parent)
         QString path = m_tabWidget->tabToolTip(index);
         if (!path.isEmpty())
             m_fileWatcher->removePath(path);
+        QWidget *w = m_tabWidget->widget(index);
         m_tabWidget->removeTab(index);
+        w->deleteLater(); // P0: fix memory leak — removeTab does not delete the widget
     });
 
-    // Hamburger menu button in top-right corner of tab widget
+    // Hamburger menu
     m_menuBtn = new QToolButton;
-    m_menuBtn->setText("\u2630"); // ☰ hamburger icon
+    m_menuBtn->setText("\u2630");
     m_menuBtn->setAutoRaise(true);
     m_menuBtn->setPopupMode(QToolButton::InstantPopup);
     m_menuBtn->setStyleSheet("QToolButton { font-size: 16px; padding: 4px 8px; }"
@@ -72,20 +76,46 @@ MainWindow::MainWindow(QWidget *parent)
     hamburgerMenu->addAction("Create Project...", this, &MainWindow::onCreateProject);
     hamburgerMenu->addAction("Edit Project...", this, &MainWindow::onEditProject);
     hamburgerMenu->addSeparator();
+    m_sshConnectAction = hamburgerMenu->addAction("SSH Connect...", this, &MainWindow::onSshConnect);
+    m_sshDisconnectAction = hamburgerMenu->addAction("SSH Disconnect", this, &MainWindow::onSshDisconnect);
+    m_sshDisconnectAction->setEnabled(false);
+    m_sshTunnelsAction = hamburgerMenu->addAction("SSH Tunnels...", this, &MainWindow::onSshTunnels);
+    m_sshTunnelsAction->setEnabled(false);
+    m_sshUploadAction = hamburgerMenu->addAction("SSH Upload File...", this, &MainWindow::onSshUpload);
+    m_sshUploadAction->setEnabled(false);
+    m_sshDownloadAction = hamburgerMenu->addAction("SSH Download File...", this, &MainWindow::onSshDownload);
+    m_sshDownloadAction->setEnabled(false);
+    hamburgerMenu->addSeparator();
     hamburgerMenu->addAction("Settings...", this, &MainWindow::onSettingsTriggered);
     m_menuBtn->setMenu(hamburgerMenu);
 
     m_tabWidget->setCornerWidget(m_menuBtn, Qt::TopRightCorner);
 
     m_terminal = new TerminalWidget;
-    m_tabWidget->addTab(m_terminal, "Terminal");
+    m_tabWidget->addTab(m_terminal, "AI-terminal");
     m_tabWidget->tabBar()->setTabButton(0, QTabBar::RightSide, nullptr);
     m_tabWidget->tabBar()->setTabButton(0, QTabBar::LeftSide, nullptr);
 
-    // Editor + buttons
-    auto *editorContainer = new QWidget;
-    auto *editorLayout = new QVBoxLayout(editorContainer);
-    editorLayout->setContentsMargins(0, 0, 0, 0);
+    // Bottom tab widget with Prompt and Terminal tabs
+    m_bottomTabWidget = new QTabWidget;
+
+    // Prompt tab
+    auto *promptTab = new QWidget;
+    auto *promptLayout = new QVBoxLayout(promptTab);
+    promptLayout->setContentsMargins(0, 0, 0, 0);
+
+    // Saved prompts selector
+    auto *savedLayout = new QHBoxLayout;
+    m_savedPromptsCombo = new QComboBox;
+    m_savedPromptsCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_savedPromptsCombo->addItem("-- Saved prompts --");
+    savedLayout->addWidget(m_savedPromptsCombo, 1);
+
+    auto *deletePromptBtn = new QPushButton("X");
+    deletePromptBtn->setFixedWidth(28);
+    deletePromptBtn->setToolTip("Delete selected saved prompt");
+    savedLayout->addWidget(deletePromptBtn);
+    promptLayout->addLayout(savedLayout);
 
     m_editor = new PromptEdit;
     m_editor->setPlaceholderText("Type prompt here...");
@@ -93,15 +123,23 @@ MainWindow::MainWindow(QWidget *parent)
     auto *btnLayout = new QHBoxLayout;
     m_sendBtn = new QPushButton("Send");
     m_commitBtn = new QPushButton("Commit");
+    m_savePromptBtn = new QPushButton("Save Prompt");
+    m_savePromptBtn->setToolTip("Save current prompt for reuse");
     btnLayout->addWidget(m_sendBtn);
     btnLayout->addWidget(m_commitBtn);
+    btnLayout->addWidget(m_savePromptBtn);
     btnLayout->addStretch();
 
-    editorLayout->addWidget(m_editor, 1);
-    editorLayout->addLayout(btnLayout);
+    promptLayout->addWidget(m_editor, 1);
+    promptLayout->addLayout(btnLayout);
+
+    m_bottomTabWidget->addTab(promptTab, "Prompt");
+
+    m_bottomTerminal = new TerminalWidget;
+    m_bottomTabWidget->addTab(m_bottomTerminal, "Terminal");
 
     m_rightSplitter->addWidget(m_tabWidget);
-    m_rightSplitter->addWidget(editorContainer);
+    m_rightSplitter->addWidget(m_bottomTabWidget);
     m_rightSplitter->setStretchFactor(0, 3);
     m_rightSplitter->setStretchFactor(1, 1);
 
@@ -116,13 +154,24 @@ MainWindow::MainWindow(QWidget *parent)
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->addWidget(m_mainSplitter);
 
-    // Status bar
+    // Status bar: file label | SSH profile combo | transfer progress | info label
     m_statusFileLabel = new QLabel("Ready");
     m_statusInfoLabel = new QLabel;
+    m_sshProfileCombo = new QComboBox;
+    m_sshProfileCombo->setFixedWidth(180);
+    m_sshProfileCombo->addItem("No SSH");
+    m_sshProfileCombo->hide();
+    m_transferProgress = new QProgressBar;
+    m_transferProgress->setFixedWidth(150);
+    m_transferProgress->setTextVisible(true);
+    m_transferProgress->hide();
+
     statusBar()->addWidget(m_statusFileLabel, 1);
+    statusBar()->addPermanentWidget(m_sshProfileCombo);
+    statusBar()->addPermanentWidget(m_transferProgress);
     statusBar()->addPermanentWidget(m_statusInfoLabel);
 
-    // File watcher for open tabs
+    // File watcher
     m_fileWatcher = new QFileSystemWatcher(this);
     connect(m_fileWatcher, &QFileSystemWatcher::fileChanged,
             this, &MainWindow::onFileChanged);
@@ -131,57 +180,353 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_sendBtn, &QPushButton::clicked, this, &MainWindow::onSendClicked);
     connect(m_commitBtn, &QPushButton::clicked, this, &MainWindow::onCommitClicked);
     connect(m_editor, &PromptEdit::sendRequested, this, &MainWindow::onSendClicked);
+    connect(m_editor, &PromptEdit::saveAndSendRequested, this, [this]() {
+        QString text = m_editor->toPlainText().trimmed();
+        if (text.isEmpty()) return;
+        if (m_project.isLoaded()) {
+            m_project.addPrompt(text);
+            int id = m_project.lastPromptId();
+            m_project.addSavedPrompt(id);
+            refreshSavedPrompts();
+        }
+        m_terminal->sendText(text);
+        m_editor->clear();
+        m_tabWidget->setCurrentIndex(0);
+    });
+
+    // Saved prompts
+    connect(m_savePromptBtn, &QPushButton::clicked, this, [this]() {
+        QString text = m_editor->toPlainText().trimmed();
+        if (text.isEmpty()) return;
+        if (!m_project.isLoaded()) {
+            QMessageBox::information(this, "Save Prompt", "No project loaded. Create a project first.");
+            return;
+        }
+        m_project.addPrompt(text);
+        int id = m_project.lastPromptId();
+        m_project.addSavedPrompt(id);
+        refreshSavedPrompts();
+        m_statusFileLabel->setText(QString("Prompt saved (id %1)").arg(id));
+    });
+
+    connect(m_savedPromptsCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int index) {
+        if (index <= 0) return;
+        QStringList prompts = m_project.savedPrompts();
+        if (index - 1 < prompts.size())
+            m_editor->setPlainText(prompts[index - 1]);
+    });
+
+    connect(deletePromptBtn, &QPushButton::clicked, this, [this]() {
+        int index = m_savedPromptsCombo->currentIndex();
+        if (index <= 0) return;
+        m_project.removeSavedPrompt(index - 1);
+        refreshSavedPrompts();
+    });
 
     connect(m_tabWidget, &QTabWidget::currentChanged, this, [this](int) {
         updateStatusBar();
     });
 
-    // When file browser directory changes, cd terminal and try load project
+    // File browser directory changes
     connect(m_fileBrowser, &FileBrowser::rootPathChanged, this, [this](const QString &path) {
-        m_terminal->terminal()->changeDir(path);
+        if (m_sshManager->activeProfileIndex() >= 0) {
+            QString remotePath = m_fileBrowser->toRemotePath(path);
+            m_terminal->sendText("cd " + remotePath);
+            m_bottomTerminal->sendText("cd " + remotePath);
+        } else {
+            m_terminal->terminal()->changeDir(path);
+            m_bottomTerminal->terminal()->changeDir(path);
+        }
         tryLoadProject(path);
     });
 
-    // Ctrl+S to save current file
+    // SSH profile combo switching
+    connect(m_sshProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int index) {
+        if (index <= 0) return; // "No SSH" header
+        switchToSshProfile(index - 1);
+    });
+
+    // SshManager signals
+    connect(m_sshManager, &SshManager::profileConnected, this, [this](int idx) {
+        updateSshProfileCombo();
+        m_sshDisconnectAction->setEnabled(true);
+        m_sshTunnelsAction->setEnabled(true);
+        m_sshUploadAction->setEnabled(true);
+        m_sshDownloadAction->setEnabled(true);
+        m_sshProfileCombo->show();
+        m_statusFileLabel->setText(QString("SSH: %1").arg(m_sshManager->profileLabel(idx)));
+
+        // Complete async connection: setup file browser + terminals
+        switchToSshProfile(idx);
+        sshConnectTerminals(m_sshManager->profileConfig(idx));
+    });
+
+    connect(m_sshManager, &SshManager::connectFailed, this, [this](int idx, const QString &err) {
+        m_sshManager->removeProfile(idx);
+        m_statusFileLabel->setText("SSH connect failed");
+        QMessageBox::warning(this, "SSH Error", err);
+    });
+
+    connect(m_sshManager, &SshManager::profileDisconnected, this, [this](int) {
+        updateSshProfileCombo();
+        if (m_sshManager->activeProfileIndex() < 0) {
+            m_sshDisconnectAction->setEnabled(false);
+            m_sshTunnelsAction->setEnabled(false);
+            m_sshUploadAction->setEnabled(false);
+            m_sshDownloadAction->setEnabled(false);
+            m_sshProfileCombo->hide();
+            m_fileBrowser->clearSshMount();
+            if (!m_localRootBeforeSsh.isEmpty())
+                m_fileBrowser->setRootPath(m_localRootBeforeSsh);
+            m_statusFileLabel->setText("Ready");
+        }
+    });
+
+    connect(m_sshManager, &SshManager::connectionLost, this, [this](int idx) {
+        m_statusFileLabel->setText(QString("SSH LOST: %1 - reconnecting...")
+                                       .arg(m_sshManager->profileLabel(idx)));
+    });
+
+    connect(m_sshManager, &SshManager::reconnected, this, [this](int idx) {
+        m_statusFileLabel->setText(QString("SSH reconnected: %1").arg(m_sshManager->profileLabel(idx)));
+        // Re-setup file browser if this is the active profile
+        if (idx == m_sshManager->activeProfileIndex()) {
+            m_fileBrowser->setSshMount(m_sshManager->mountPoint(idx), "");
+            m_fileBrowser->setRootPath(m_fileBrowser->rootPath()); // refresh
+        }
+    });
+
+    connect(m_sshManager, &SshManager::transferProgress, this, [this](const QString &name, int pct) {
+        m_transferProgress->show();
+        m_transferProgress->setValue(pct);
+        m_transferProgress->setFormat(name + " %p%");
+    });
+
+    connect(m_sshManager, &SshManager::transferFinished, this,
+            [this](const QString &name, bool ok, const QString &err) {
+        m_transferProgress->hide();
+        if (ok)
+            m_statusFileLabel->setText("Transfer complete: " + name);
+        else
+            QMessageBox::warning(this, "Transfer Error", "Failed: " + name + "\n" + err);
+    });
+
+    connect(m_sshManager, &SshManager::sshError, this, [this](const QString &msg) {
+        m_statusFileLabel->setText("SSH Error: " + msg);
+    });
+
+    // Ctrl+S
     auto *saveShortcut = new QShortcut(QKeySequence::Save, this);
     connect(saveShortcut, &QShortcut::activated, this, &MainWindow::saveCurrentFile);
 
     applySettings();
     restoreSession();
 
-    // Set initial terminal directory and try loading project
     m_terminal->terminal()->changeDir(m_fileBrowser->rootPath());
+    m_bottomTerminal->terminal()->changeDir(m_fileBrowser->rootPath());
     tryLoadProject(m_fileBrowser->rootPath());
 }
 
 MainWindow::~MainWindow()
 {
+    m_sshManager->disconnectAll();
     saveSession();
 }
+
+// ── SSH ─────────────────────────────────────────────────────────────
+
+void MainWindow::onSshConnect()
+{
+    SshConfig lastCfg;
+    if (m_sshManager->activeProfileIndex() >= 0)
+        lastCfg = m_sshManager->profileConfig(m_sshManager->activeProfileIndex());
+
+    SshDialog dlg(lastCfg, this);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+
+    SshConfig cfg = dlg.result();
+    if (cfg.host.isEmpty() || cfg.user.isEmpty()) {
+        QMessageBox::warning(this, "SSH", "User and host are required.");
+        return;
+    }
+
+    // Validate against command injection
+    if (!SshManager::isValidSshIdentifier(cfg.user) || !SshManager::isValidSshIdentifier(cfg.host)) {
+        QMessageBox::warning(this, "SSH", "Invalid characters in user or host.");
+        return;
+    }
+
+    // Save local root before first SSH connection
+    if (m_sshManager->profileCount() == 0)
+        m_localRootBeforeSsh = m_fileBrowser->rootPath();
+
+    int idx = m_sshManager->addProfile(cfg);
+    m_statusFileLabel->setText("Connecting...");
+    m_sshManager->connectProfile(idx); // async — result via profileConnected/connectFailed signals
+}
+
+void MainWindow::onSshDisconnect()
+{
+    int idx = m_sshManager->activeProfileIndex();
+    if (idx < 0) return;
+
+    sshDisconnectTerminals();
+    m_sshManager->disconnectProfile(idx);
+}
+
+void MainWindow::switchToSshProfile(int index)
+{
+    if (!m_sshManager->isConnected(index)) return;
+    m_sshManager->setActiveProfile(index);
+
+    const auto &cfg = m_sshManager->profileConfig(index);
+    QString mp = m_sshManager->mountPoint(index);
+
+    m_fileBrowser->setSshMount(mp, "");
+    QString startPath = cfg.remotePath;
+    if (startPath == "~" || startPath.isEmpty())
+        startPath = "/home/" + cfg.user;
+    m_fileBrowser->setRootPath(mp + startPath);
+
+    m_statusFileLabel->setText(QString("SSH: %1").arg(m_sshManager->profileLabel(index)));
+
+    // Update combo without triggering signal
+    m_sshProfileCombo->blockSignals(true);
+    m_sshProfileCombo->setCurrentIndex(index + 1);
+    m_sshProfileCombo->blockSignals(false);
+}
+
+void MainWindow::sshConnectTerminals(const SshConfig &cfg)
+{
+    QString sshLine = QString("ssh -o StrictHostKeyChecking=accept-new %1@%2 -p %3")
+                          .arg(cfg.user, cfg.host, QString::number(cfg.port));
+    if (!cfg.identityFile.isEmpty())
+        sshLine += " -i " + cfg.identityFile;
+
+    m_terminal->sendText(sshLine);
+    m_bottomTerminal->sendText(sshLine);
+
+    if (!cfg.password.isEmpty()) {
+        // Send password directly to terminal PTY (ssh prompts with echo off,
+        // so the password is not visible in terminal output)
+        QString pwd = cfg.password;
+        QTimer::singleShot(2000, this, [this, pwd]() {
+            m_terminal->terminal()->sendText(pwd + "\r");
+            m_bottomTerminal->terminal()->sendText(pwd + "\r");
+        });
+    }
+
+    int cdDelay = cfg.password.isEmpty() ? 3000 : 4000;
+    QString remotePath = cfg.remotePath;
+    if (remotePath != "~" && !remotePath.isEmpty()) {
+        QTimer::singleShot(cdDelay, this, [this, remotePath]() {
+            m_terminal->sendText("cd " + remotePath);
+            m_bottomTerminal->sendText("cd " + remotePath);
+        });
+    }
+}
+
+void MainWindow::sshDisconnectTerminals()
+{
+    m_terminal->sendText("exit");
+    m_bottomTerminal->sendText("exit");
+}
+
+void MainWindow::updateSshProfileCombo()
+{
+    m_sshProfileCombo->blockSignals(true);
+    m_sshProfileCombo->clear();
+    m_sshProfileCombo->addItem("No SSH");
+
+    for (int i = 0; i < m_sshManager->profileCount(); ++i) {
+        QString label = m_sshManager->profileLabel(i);
+        if (m_sshManager->isConnected(i))
+            label += " [connected]";
+        m_sshProfileCombo->addItem(label);
+    }
+
+    int active = m_sshManager->activeProfileIndex();
+    m_sshProfileCombo->setCurrentIndex(active >= 0 ? active + 1 : 0);
+    m_sshProfileCombo->blockSignals(false);
+}
+
+void MainWindow::onSshTunnels()
+{
+    int idx = m_sshManager->activeProfileIndex();
+    if (idx < 0) {
+        QMessageBox::information(this, "SSH Tunnels", "No active SSH connection.");
+        return;
+    }
+    SshTunnelDialog dlg(m_sshManager, idx, this);
+    dlg.exec();
+}
+
+void MainWindow::onSshUpload()
+{
+    int idx = m_sshManager->activeProfileIndex();
+    if (idx < 0) return;
+
+    QString localFile = QFileDialog::getOpenFileName(this, "Select file to upload");
+    if (localFile.isEmpty()) return;
+
+    // Upload to current remote directory
+    QString remotePath = m_fileBrowser->toRemotePath(m_fileBrowser->rootPath());
+    remotePath += "/" + QFileInfo(localFile).fileName();
+
+    m_sshManager->uploadFile(idx, localFile, remotePath);
+}
+
+void MainWindow::onSshDownload()
+{
+    int idx = m_sshManager->activeProfileIndex();
+    if (idx < 0) return;
+
+    // Ask for remote path
+    bool ok;
+    QString remotePath = QInputDialog::getText(this, "Download File",
+        "Remote file path:", QLineEdit::Normal,
+        m_fileBrowser->toRemotePath(m_fileBrowser->rootPath()) + "/", &ok);
+    if (!ok || remotePath.isEmpty()) return;
+
+    QString localFile = QFileDialog::getSaveFileName(this, "Save as",
+        QDir::homePath() + "/" + QFileInfo(remotePath).fileName());
+    if (localFile.isEmpty()) return;
+
+    m_sshManager->downloadFile(idx, remotePath, localFile);
+}
+
+// ── Non-SSH methods (unchanged) ─────────────────────────────────────
 
 void MainWindow::applySettingsToEditor(CodeEditor *editor, const QString &lang)
 {
     QFont font(m_settings.editorFontFamily, m_settings.editorFontSize);
     editor->setFont(font);
     editor->setShowLineNumbers(m_settings.showLineNumbers);
-    editor->setEditorColorScheme(m_settings.editorColorScheme);
 
+    // Set language first (no rehighlight), then color scheme triggers single rehighlight
     if (m_settings.syntaxHighlighting && !lang.isEmpty()) {
         editor->highlighter()->setLanguage(lang);
     } else {
         editor->highlighter()->setLanguage("");
     }
+    editor->setEditorColorScheme(m_settings.editorColorScheme);
 }
 
 void MainWindow::updateStatusBar()
 {
     int idx = m_tabWidget->currentIndex();
     if (idx == 0) {
-        m_statusFileLabel->setText("Terminal");
+        m_statusFileLabel->setText("AI-terminal");
         m_statusInfoLabel->clear();
     } else {
         QString filePath = m_tabWidget->tabToolTip(idx);
-        m_statusFileLabel->setText(filePath);
+        if (m_sshManager->activeProfileIndex() >= 0)
+            m_statusFileLabel->setText(m_fileBrowser->toRemotePath(filePath));
+        else
+            m_statusFileLabel->setText(filePath);
         auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(idx));
         if (editor) {
             int line = editor->textCursor().blockNumber() + 1;
@@ -195,12 +540,12 @@ void MainWindow::updateStatusBar()
 
 void MainWindow::applySettings()
 {
-    // Terminal
     QFont termFont(m_settings.termFontFamily, m_settings.termFontSize);
     m_terminal->terminal()->setTerminalFont(termFont);
     m_terminal->terminal()->setColorScheme(m_settings.terminalColorScheme);
+    m_bottomTerminal->terminal()->setTerminalFont(termFont);
+    m_bottomTerminal->terminal()->setColorScheme(m_settings.terminalColorScheme);
 
-    // Prompt
     QFont promptFont(m_settings.promptFontFamily, m_settings.promptFontSize);
     m_editor->setFont(promptFont);
     m_editor->setStyleSheet(
@@ -209,12 +554,10 @@ void MainWindow::applySettings()
             .arg(m_settings.promptTextColor.name()));
     m_editor->setSendOnEnter(m_settings.promptSendKey == "Enter");
 
-    // File browser
     QFont browserFont(m_settings.browserFontFamily, m_settings.browserFontSize);
     m_fileBrowser->setFont(browserFont);
     m_fileBrowser->setTheme(m_settings.browserTheme);
 
-    // All open file tabs
     for (int i = 1; i < m_tabWidget->count(); ++i) {
         auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(i));
         if (editor) {
@@ -237,7 +580,6 @@ void MainWindow::onSettingsTriggered()
 
 void MainWindow::onFileOpened(const QString &filePath)
 {
-    // Check if already open
     for (int i = 1; i < m_tabWidget->count(); ++i) {
         if (m_tabWidget->tabToolTip(i) == filePath) {
             m_tabWidget->setCurrentIndex(i);
@@ -247,7 +589,6 @@ void MainWindow::onFileOpened(const QString &filePath)
 
     QFileInfo info(filePath);
 
-    // Fix 2: warn on large files (>5MB)
     static const qint64 MAX_FILE_SIZE = 5 * 1024 * 1024;
     if (info.size() > MAX_FILE_SIZE) {
         auto reply = QMessageBox::question(this, "Large File",
@@ -275,8 +616,17 @@ void MainWindow::onFileOpened(const QString &filePath)
     m_tabWidget->setTabToolTip(idx, filePath);
     m_tabWidget->setCurrentIndex(idx);
 
-    // Watch for external changes
     m_fileWatcher->addPath(filePath);
+
+    QString fileDir = info.absolutePath();
+    if (m_sshManager->activeProfileIndex() >= 0) {
+        QString remoteDir = m_fileBrowser->toRemotePath(fileDir);
+        m_terminal->sendText("cd " + remoteDir);
+        m_bottomTerminal->sendText("cd " + remoteDir);
+    } else {
+        m_terminal->terminal()->changeDir(fileDir);
+        m_bottomTerminal->terminal()->changeDir(fileDir);
+    }
 
     connect(editor, &QPlainTextEdit::cursorPositionChanged, this, &MainWindow::updateStatusBar);
     updateStatusBar();
@@ -285,7 +635,7 @@ void MainWindow::onFileOpened(const QString &filePath)
 void MainWindow::saveCurrentFile()
 {
     int idx = m_tabWidget->currentIndex();
-    if (idx < 1) return; // tab 0 is terminal
+    if (idx < 1) return;
 
     auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(idx));
     if (!editor) return;
@@ -293,7 +643,6 @@ void MainWindow::saveCurrentFile()
     QString filePath = m_tabWidget->tabToolTip(idx);
     if (filePath.isEmpty()) return;
 
-    // Temporarily remove from watcher to avoid reload loop
     m_fileWatcher->removePath(filePath);
 
     QFile file(filePath);
@@ -318,10 +667,8 @@ void MainWindow::onSendClicked()
 {
     QString text = m_editor->toPlainText();
     if (!text.isEmpty()) {
-        // Log prompt to project if loaded
-        if (m_project.isLoaded()) {
+        if (m_project.isLoaded())
             m_project.addPrompt(text);
-        }
         m_terminal->sendText(text);
         m_editor->clear();
         m_tabWidget->setCurrentIndex(0);
@@ -331,41 +678,85 @@ void MainWindow::onSendClicked()
 void MainWindow::onCommitClicked()
 {
     QString dir = m_fileBrowser->rootPath();
-    QString output;
+    m_commitBtn->setEnabled(false);
+    m_statusFileLabel->setText("Committing...");
 
-    QProcess git;
-    git.setWorkingDirectory(dir);
+    // Run git operations async in a chain
+    auto *git = new QProcess(this);
+    git->setWorkingDirectory(dir);
+    auto *output = new QString;
 
-    // Init git if not yet initialized
-    if (!QDir(dir + "/.git").exists()) {
-        git.start("git", {"init"});
-        git.waitForFinished(5000);
-        output += git.readAllStandardOutput() + git.readAllStandardError();
-
-        // Set up remote if project has one
-        if (m_project.isLoaded() && !m_project.gitRemote().isEmpty()) {
-            git.start("git", {"remote", "add", "origin", m_project.gitRemote()});
-            git.waitForFinished(5000);
-            output += git.readAllStandardOutput() + git.readAllStandardError();
+    // Step 1: ensure .gitignore has sensitive file patterns
+    static const QStringList sensitivePatterns = {".env", ".env.*", "*.pem", "*.key",
+        "credentials.json", "id_rsa", "id_ed25519"};
+    QString gitignorePath = dir + "/.gitignore";
+    QString giContent;
+    if (QFile::exists(gitignorePath)) {
+        QFile gi(gitignorePath);
+        if (gi.open(QIODevice::ReadOnly)) { giContent = gi.readAll(); gi.close(); }
+    }
+    bool giChanged = false;
+    for (const auto &pat : sensitivePatterns) {
+        if (!giContent.contains(pat)) {
+            if (!giContent.isEmpty() && !giContent.endsWith('\n'))
+                giContent += '\n';
+            giContent += pat + '\n';
+            giChanged = true;
+        }
+    }
+    if (giChanged) {
+        QFile gi(gitignorePath);
+        if (gi.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            gi.write(giContent.toUtf8());
+            gi.close();
         }
     }
 
-    // git add -A (respects .gitignore)
-    git.start("git", {"add", "-A"});
-    git.waitForFinished(5000);
-    output += git.readAllStandardError();
+    // Lambda chain: init → add → commit
+    auto doAdd = [this, git, output, dir]() {
+        connect(git, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                this, [this, git, output, dir](int, QProcess::ExitStatus) {
+            *output += git->readAllStandardOutput() + git->readAllStandardError();
+            // Step 3: commit
+            disconnect(git, nullptr, this, nullptr);
+            connect(git, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                    this, [this, git, output](int, QProcess::ExitStatus) {
+                *output += git->readAllStandardOutput() + git->readAllStandardError();
+                QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
+                m_statusFileLabel->setText(QString("Committed: %1").arg(timestamp));
+                m_commitBtn->setEnabled(true);
+                if (!output->trimmed().isEmpty())
+                    m_statusFileLabel->setText(output->trimmed().left(100));
+                git->deleteLater();
+                delete output;
+            });
+            QString ts = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
+            git->start("git", {"commit", "-m", ts});
+        });
+        git->start("git", {"add", "-A"});
+    };
 
-    // Commit with timestamp
-    QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
-    QString message = timestamp;
+    if (!QDir(dir + "/.git").exists()) {
+        connect(git, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                this, [this, git, output, dir, doAdd](int, QProcess::ExitStatus) {
+            *output += git->readAllStandardOutput() + git->readAllStandardError();
+            disconnect(git, nullptr, this, nullptr);
 
-    git.start("git", {"commit", "-m", message});
-    git.waitForFinished(5000);
-    output += git.readAllStandardOutput() + git.readAllStandardError();
-
-    m_statusFileLabel->setText(QString("Committed: %1").arg(timestamp));
-    if (!output.trimmed().isEmpty()) {
-        QMessageBox::information(this, "Commit", output.trimmed());
+            if (m_project.isLoaded() && !m_project.gitRemote().isEmpty()) {
+                connect(git, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                        this, [git, output, doAdd](int, QProcess::ExitStatus) {
+                    *output += git->readAllStandardOutput() + git->readAllStandardError();
+                    disconnect(git, nullptr, nullptr, nullptr);
+                    doAdd();
+                });
+                git->start("git", {"remote", "add", "origin", m_project.gitRemote()});
+            } else {
+                doAdd();
+            }
+        });
+        git->start("git", {"init"});
+    } else {
+        doAdd();
     }
 }
 
@@ -423,7 +814,6 @@ void MainWindow::onEditProject()
     cfg = dlg.result();
     m_project.update(cfg.name, cfg.description, cfg.model, cfg.gitRemote);
 
-    // Update git remote if changed
     if (!cfg.gitRemote.isEmpty()) {
         QString dir = m_fileBrowser->rootPath();
         if (QDir(dir + "/.git").exists()) {
@@ -432,7 +822,6 @@ void MainWindow::onEditProject()
             git.start("git", {"remote", "set-url", "origin", cfg.gitRemote});
             git.waitForFinished(3000);
             if (git.exitCode() != 0) {
-                // remote might not exist yet
                 git.start("git", {"remote", "add", "origin", cfg.gitRemote});
                 git.waitForFinished(3000);
             }
@@ -445,7 +834,6 @@ void MainWindow::onEditProject()
 
 void MainWindow::onFileChanged(const QString &path)
 {
-    // Reload content of any open tab matching this path
     for (int i = 1; i < m_tabWidget->count(); ++i) {
         if (m_tabWidget->tabToolTip(i) == path) {
             auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(i));
@@ -458,10 +846,8 @@ void MainWindow::onFileChanged(const QString &path)
             QTextStream in(&file);
             QString content = in.readAll();
 
-            // Only reload if content actually changed (avoid overwriting user edits)
             if (editor->toPlainText() == content) break;
 
-            // Preserve cursor position
             int cursorPos = editor->textCursor().position();
             editor->setPlainText(content);
 
@@ -469,7 +855,6 @@ void MainWindow::onFileChanged(const QString &path)
             cursor.setPosition(qMin(cursorPos, editor->document()->characterCount() - 1));
             editor->setTextCursor(cursor);
 
-            // Re-add to watcher (some systems remove after change)
             if (!m_fileWatcher->files().contains(path))
                 m_fileWatcher->addPath(path);
 
@@ -483,7 +868,24 @@ void MainWindow::tryLoadProject(const QString &path)
     if (m_project.load(path)) {
         m_statusFileLabel->setText(
             QString("Project: %1 [%2]").arg(m_project.projectName(), m_project.model()));
+        refreshSavedPrompts();
     }
+}
+
+void MainWindow::refreshSavedPrompts()
+{
+    m_savedPromptsCombo->blockSignals(true);
+    m_savedPromptsCombo->clear();
+    m_savedPromptsCombo->addItem("-- Saved prompts --");
+    if (m_project.isLoaded()) {
+        for (const auto &p : m_project.savedPrompts()) {
+            QString label = p.left(60).simplified();
+            if (p.length() > 60) label += "...";
+            m_savedPromptsCombo->addItem(label);
+        }
+    }
+    m_savedPromptsCombo->setCurrentIndex(0);
+    m_savedPromptsCombo->blockSignals(false);
 }
 
 void MainWindow::saveSession()
@@ -495,7 +897,6 @@ void MainWindow::saveSession()
     s.setValue("session/rightSplitter", m_rightSplitter->saveState());
     s.setValue("session/browserPath", m_fileBrowser->rootPath());
 
-    // Save open file tabs
     QStringList openFiles;
     for (int i = 1; i < m_tabWidget->count(); ++i) {
         QString path = m_tabWidget->tabToolTip(i);
@@ -525,7 +926,6 @@ void MainWindow::restoreSession()
             m_fileBrowser->setRootPath(path);
     }
 
-    // Restore open files
     QStringList openFiles = s.value("session/openFiles").toStringList();
     for (const QString &path : openFiles) {
         if (QFile::exists(path))

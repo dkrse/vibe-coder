@@ -3,6 +3,7 @@
 #include <QWidget>
 #include <QTreeView>
 #include <QFileSystemModel>
+#include <QStandardItemModel>
 #include <QPushButton>
 #include <QLineEdit>
 #include <QMenu>
@@ -13,6 +14,12 @@
 #include <QProcess>
 
 class FileBrowser;
+
+// Custom roles for SSH model items
+enum SshModelRoles {
+    FilePathRole = Qt::UserRole + 100,
+    IsDirRole    = Qt::UserRole + 101
+};
 
 // Zed-style delegate with git status colors
 class FileItemDelegate : public QStyledItemDelegate {
@@ -39,7 +46,19 @@ public:
     QString rootPath() const;
     void setFont(const QFont &font);
     void setTheme(const QString &theme); // "Dark" or "Light"
+
+    // SSH mount mapping
+    void setSshMount(const QString &mountPoint, const QString &remotePrefix);
+    void clearSshMount();
+    bool isSshActive() const { return !m_sshMountPoint.isEmpty(); }
+    QString toRemotePath(const QString &localPath) const;
+    QString sshMountPoint() const { return m_sshMountPoint; }
     bool isDark() const { return m_dark; }
+
+    // Unified accessors — work with both models
+    QString filePath(const QModelIndex &index) const;
+    bool isDir(const QModelIndex &index) const;
+    QString fileName(const QModelIndex &index) const;
 
     // Git status
     enum GitStatus { Clean, Modified, Untracked, Added };
@@ -61,7 +80,14 @@ private:
     void parseGitOutput();
     void rebuildDirCache();
 
-    QFileSystemModel *m_model;
+    // SSH model helpers
+    void sshPopulateDir(QStandardItem *parentItem, const QString &dirPath);
+    void onSshItemExpanded(const QModelIndex &index);
+
+    QFileSystemModel *m_fsModel;
+    QStandardItemModel *m_sshModel;
+    QString m_currentRoot;
+
     QTreeView *m_treeView;
     QLineEdit *m_pathEdit;
     QPushButton *m_openBtn;
@@ -77,7 +103,6 @@ private:
     QSet<QString> m_modified;
     QSet<QString> m_untracked;
     QSet<QString> m_added;
-    // Cache: directories that contain changed files
     QSet<QString> m_dirModified;
     QSet<QString> m_dirUntracked;
     QSet<QString> m_dirAdded;
@@ -85,4 +110,8 @@ private:
     QProcess *m_gitProc;
     QString m_gitStatusOutput;
     QString m_gitRoot;
+
+    // SSH
+    QString m_sshMountPoint;
+    QString m_sshRemotePrefix;
 };

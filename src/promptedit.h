@@ -13,6 +13,7 @@ public:
 
 signals:
     void sendRequested();
+    void saveAndSendRequested();
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;

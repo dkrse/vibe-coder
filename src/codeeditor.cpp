@@ -30,14 +30,14 @@ void SyntaxHighlighter::setLanguage(const QString &lang)
 {
     m_language = lang.toLower();
     buildRules();
-    rehighlight();
+    // Don't rehighlight here — setDarkTheme or caller will trigger it
 }
 
 void SyntaxHighlighter::setDarkTheme(bool dark)
 {
     m_dark = dark;
     buildRules();
-    rehighlight();
+    rehighlight(); // single rehighlight after both language and theme are set
 }
 
 void SyntaxHighlighter::buildRules()

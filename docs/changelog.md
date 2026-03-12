@@ -2,6 +2,59 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.5.0] - 2026-03-12
+
+### Performance
+- sshfs mount is now fully async — UI never blocks during SSH connect
+- SSH health check runs async sequentially (one profile at a time, non-blocking)
+- Git commit runs async via chained QProcess callbacks (no UI freeze)
+- `which rsync` result cached — called only once per session
+- Single rehighlight pass when opening files (setLanguage builds rules, setDarkTheme triggers rehighlight)
+- Git status polling interval increased from 2s to 5s to reduce CPU usage
+- Terminal shell start deferred until widget is placed in layout
+
+### Security
+- SSH passwords never appear in process argument lists (no sshpass -p)
+- Transfers use sshfs mount (cp/rsync locally) — no SSH password needed
+- Tunnels use SSH_ASKPASS mechanism with temporary script for password auth
+- SSH user/host validated against shell metacharacters before use (command injection prevention)
+- Git commit auto-adds .env, *.pem, *.key, credentials.json, id_rsa, id_ed25519 to .gitignore
+
+### Memory
+- Tab close properly deletes CodeEditor widget via deleteLater() (was leaking on every tab close)
+
+## [0.4.0] - 2026-03-12
+
+### Added
+- SSH reconnect on connection loss: health timer (5s) with stat-based mount check, up to 3 auto-retry attempts
+- Multiple simultaneous SSH profiles with profile switcher combo in status bar
+- SFTP upload/download with rsync progress bar in status bar
+- SSH port forwarding management: Local (-L) and Remote (-R) tunnels via SshTunnelDialog
+- SshManager class: centralized SSH profile, health, transfer, and tunnel management
+- SshTunnelDialog: create/view/remove active tunnels with QTableWidget
+
+### Added (Prompts)
+- Saved/recurring prompts per project (stored as IDs in instructions.json)
+- Shift+Enter (or Ctrl+Shift+Enter) = send + save prompt
+- Save Prompt button + delete (X) button for saved prompts
+- Saved prompts combo with selection to fill prompt editor
+
+### Added (SSH)
+- SSH password support (masked input, never persisted)
+- Saved SSH connections via QSettings (password excluded)
+- Terminals auto-cd when opening remote files
+- Path bar shows and accepts remote paths
+
+### Added (File Browser)
+- Dual model: QFileSystemModel (local) + QStandardItemModel (SSH)
+- SSH file browsing via synchronous QDir reads over sshfs (reliable over FUSE)
+- Lazy-load subdirectories on expand (dummy placeholder → real contents)
+- sshfs mounts remote root (/) so all remote paths are accessible
+
+### Added (UI)
+- Bottom tab widget with Prompt and Terminal tabs
+- AI-terminal (top) + Terminal (bottom) dual terminal layout
+
 ## [0.3.0] - 2026-03-12
 
 ### Performance

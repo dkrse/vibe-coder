@@ -25,6 +25,12 @@ add_executable(vibe-coder
     src/project.h
     src/projectdialog.cpp
     src/projectdialog.h
+    src/sshdialog.cpp
+    src/sshdialog.h
+    src/sshmanager.cpp
+    src/sshmanager.h
+    src/sshtunneldialog.cpp
+    src/sshtunneldialog.h
 )
 
 # Link qtermwidget manually to avoid missing libutf8proc.so symlink

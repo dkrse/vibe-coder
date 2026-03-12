@@ -7,7 +7,9 @@
 #include <QMenu>
 #include <QStatusBar>
 #include <QLabel>
+#include <QComboBox>
 #include <QFileSystemWatcher>
+#include <QProgressBar>
 
 #include "terminalwidget.h"
 #include "filebrowser.h"
@@ -16,6 +18,8 @@
 #include "settings.h"
 #include "project.h"
 #include "projectdialog.h"
+#include "sshdialog.h"
+#include "sshmanager.h"
 
 class QSplitter;
 
@@ -32,6 +36,11 @@ private slots:
     void onSettingsTriggered();
     void onCreateProject();
     void onEditProject();
+    void onSshConnect();
+    void onSshDisconnect();
+    void onSshTunnels();
+    void onSshUpload();
+    void onSshDownload();
 
 private:
     void applySettings();
@@ -39,10 +48,15 @@ private:
 
     QTabWidget *m_tabWidget;
     TerminalWidget *m_terminal;
+    TerminalWidget *m_bottomTerminal;
+    QTabWidget *m_bottomTabWidget;
     FileBrowser *m_fileBrowser;
     PromptEdit *m_editor;
     QPushButton *m_sendBtn;
     QPushButton *m_commitBtn;
+    QPushButton *m_savePromptBtn;
+    QComboBox *m_savedPromptsCombo;
+    void refreshSavedPrompts();
     QToolButton *m_menuBtn;
 
     AppSettings m_settings;
@@ -63,4 +77,20 @@ private:
     void saveCurrentFile();
     void saveSession();
     void restoreSession();
+
+    // SSH
+    SshManager *m_sshManager;
+    QComboBox *m_sshProfileCombo;
+    QProgressBar *m_transferProgress;
+    QAction *m_sshConnectAction = nullptr;
+    QAction *m_sshDisconnectAction = nullptr;
+    QAction *m_sshTunnelsAction = nullptr;
+    QAction *m_sshUploadAction = nullptr;
+    QAction *m_sshDownloadAction = nullptr;
+    QString m_localRootBeforeSsh;
+
+    void sshConnectTerminals(const SshConfig &cfg);
+    void sshDisconnectTerminals();
+    void switchToSshProfile(int index);
+    void updateSshProfileCombo();
 };
