@@ -8,8 +8,12 @@
 #include <QSettings>
 #include <QColor>
 #include <QPushButton>
+#include <QTabWidget>
 
 struct AppSettings {
+    // Global theme: "Dark", "Light", "Monokai", "Solarized Dark", "Solarized Light", "Nord"
+    QString globalTheme = "Dark";
+
     // Terminal
     QString termFontFamily = "Monospace";
     int termFontSize = 10;
@@ -19,7 +23,7 @@ struct AppSettings {
     QString editorFontFamily = "Monospace";
     int editorFontSize = 10;
     bool showLineNumbers = true;
-    QString editorColorScheme = "Light";
+    QString editorColorScheme = "Dark";
     bool syntaxHighlighting = true;
 
     // File browser
@@ -30,12 +34,25 @@ struct AppSettings {
     // Prompt
     QString promptFontFamily = "Monospace";
     int promptFontSize = 10;
-    QColor promptBgColor = QColor("#ffffff");
-    QColor promptTextColor = QColor("#000000");
+    QColor promptBgColor = QColor("#1e1e1e");
+    QColor promptTextColor = QColor("#d4d4d4");
     QString promptSendKey = "Ctrl+Enter"; // "Ctrl+Enter" or "Enter"
+
+    // Diff viewer
+    QString diffFontFamily = "Monospace";
+    int diffFontSize = 10;
+    QColor diffBgColor = QColor("#1e1e1e");
+    QColor diffTextColor = QColor("#d4d4d4");
+
+    // Changes monitor
+    QString changesFontFamily = "Monospace";
+    int changesFontSize = 10;
+    QColor changesBgColor = QColor("#1e1e1e");
+    QColor changesTextColor = QColor("#d4d4d4");
 
     void load();
     void save();
+    void applyThemeDefaults();
 };
 
 class ColorButton : public QPushButton {
@@ -57,6 +74,9 @@ public:
     AppSettings result() const;
 
 private:
+    // Global theme
+    QComboBox *m_globalThemeCombo;
+
     // Terminal
     QFontComboBox *m_termFontCombo;
     QSpinBox *m_termFontSizeSpin;
@@ -80,4 +100,16 @@ private:
     ColorButton *m_promptBgColorBtn;
     ColorButton *m_promptTextColorBtn;
     QComboBox *m_promptSendKeyCombo;
+
+    // Diff
+    QFontComboBox *m_diffFontCombo;
+    QSpinBox *m_diffFontSizeSpin;
+    ColorButton *m_diffBgColorBtn;
+    ColorButton *m_diffTextColorBtn;
+
+    // Changes
+    QFontComboBox *m_changesFontCombo;
+    QSpinBox *m_changesFontSizeSpin;
+    ColorButton *m_changesBgColorBtn;
+    ColorButton *m_changesTextColorBtn;
 };

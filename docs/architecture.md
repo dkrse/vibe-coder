@@ -23,35 +23,45 @@ src/
 ├── codeeditor.h/cpp      Text editor with line numbers + syntax highlighting
 ├── terminalwidget.h/cpp  QTermWidget wrapper for embedded terminal
 ├── promptedit.h/cpp      Prompt input with configurable send key + save-and-send
-├── settings.h/cpp        AppSettings struct, SettingsDialog, ColorButton
+├── settings.h/cpp        AppSettings struct, SettingsDialog (tabbed), ColorButton, global themes
 ├── project.h/cpp         .LLM/instructions.json project management + saved prompts
 ├── projectdialog.h/cpp   Create/Edit project dialog
 ├── sshdialog.h/cpp       SSH connection dialog with saved connections
 ├── sshmanager.h/cpp      Central SSH management: profiles, health, transfers, tunnels
-└── sshtunneldialog.h/cpp Port forwarding management dialog
+├── sshtunneldialog.h/cpp Port forwarding management dialog
+├── commandpalette.h/cpp  VS Code-style command palette (Ctrl+Shift+P)
+├── diffviewer.h/cpp      Git diff viewer with syntax highlighting
+├── changesmonitor.h/cpp  Real-time file change tracker with diff preview + revert
+└── notificationpanel.h/cpp  Log panel with Info/Warning/Error/Success levels
 ```
 
 ## Component Responsibilities
 
 ### MainWindow
 - Top-level layout: horizontal splitter (file browser | right panel)
-- Right panel: vertical splitter (tab widget | bottom tab widget)
+- Right panel: vertical splitter (editor splitter | bottom tab widget)
+- Editor splitter: wraps main tab widget, supports horizontal/vertical split view for side-by-side editing
 - Tab widget: AI-terminal (tab 0, non-closable) + editor tabs
-- Bottom tab widget: Prompt tab + Terminal tab
-- Hamburger menu (top-right): Create/Edit Project, SSH Connect/Disconnect/Tunnels/Upload/Download, Settings
+- Bottom tab widget: Prompt tab + Terminal tab + Notifications tab + Diff Viewer tab + Changes tab
+- Hamburger menu (top-right): Create/Edit Project, SSH Connect/Disconnect/Tunnels/Upload/Download, Split Horizontal/Vertical/Unsplit, Settings
+- Command palette (Ctrl+Shift+P): fuzzy-searchable list of all registered commands (split, focus, theme switching, diff refresh)
+- Global theme system: Dark, Light, Monokai, Solarized Dark, Solarized Light, Nord — applies QSS stylesheet for all chrome
 - Status bar: file info, SSH profile combo, transfer progress bar
 - Session persistence: window geometry, splitter states, open files
 - File watcher: auto-reload externally changed files
-- Keyboard shortcuts: Ctrl+S save
+- Keyboard shortcuts: Ctrl+S save, Ctrl+Shift+P command palette
 - Tab close properly deletes CodeEditor widget (no memory leak)
 - Async git commit via chained QProcess callbacks
+- Notification system: centralized logging with unread badge count
+- Changes monitor integration: tracks file changes per project, badge count on tab
 
 ### FileBrowser
 - Dual model: QFileSystemModel for local, QStandardItemModel for SSH (synchronous QDir reads over sshfs)
 - QTreeView with custom FileItemDelegate for Zed editor-style rendering
-- File type colors, directory arrows, git status colors (modified, untracked, added)
-- Async git status via 3-step QProcess pipeline (non-blocking, 5s interval)
-- Directory git status via precomputed cache (O(1) lookup)
+- File type colors, directory arrows, git status colors (modified, untracked, added, ignored)
+- Async git status via 3-step QProcess pipeline (non-blocking, 5s interval, includes `--ignored`)
+- Ignored files: dimmed color rendering (dark: #5a5a5a, light: #b0b0b0)
+- Directory git status via precomputed cache (O(1) lookup) — covers modified, untracked, added, ignored
 - Context menu: New File, New Directory, Rename, Delete
 - SSH path translation: toRemotePath() maps mount paths to remote paths
 - Path bar accepts remote paths when SSH is active
@@ -103,10 +113,45 @@ src/
 - Auto-creates `.gitignore` with `.LLM/` entry
 - Async git commit with automatic sensitive file filtering
 
+### CommandPalette
+- Overlay widget with search input + filtered list of commands
+- Commands registered with name, shortcut string, and action callback
+- Fuzzy filtering on keystroke, Enter to execute selected command
+- Event filter handles Escape to dismiss, arrow keys for navigation
+- Built-in commands: split/unsplit, focus panels, theme switching, diff refresh
+
+### DiffViewer
+- QPlainTextEdit with DiffHighlighter (added/removed/hunk header coloring)
+- Mode combo for switching diff views (e.g. staged vs unstaged)
+- Refresh button triggers `git diff` on current working directory
+- Configurable font and colors via Settings (diff section)
+- Embeds as a tab in the bottom tab widget
+
+### ChangesMonitor
+- Real-time file change tracker using QFileSystemWatcher + periodic scan (3s)
+- Split layout: file list (left, max 300px) + diff preview (right) with DiffBlockHighlighter
+- Toolbar: info label, Open, Revert, Refresh, Clear buttons
+- Watches up to 2000 files and 500 directories (skips .git, .LLM, node_modules, __pycache__)
+- Deduplicates changes (same file replaces previous entry, newest first)
+- 1-second debounce to avoid duplicate signals
+- Revert: runs `git checkout -- <file>` asynchronously, marks entry as reverted
+- Open: emits `openFileRequested` signal to open file in editor
+- Diff preview: runs `git diff` for tracked files, shows content for new files
+- Re-adds watched files after signal (QFileSystemWatcher removes on some platforms)
+- Badge count on bottom tab: "Changes (N)"
+- Configurable font and colors via Settings (changes section)
+
+### NotificationPanel
+- Timestamped log entries with 4 severity levels: Info, Warning, Error, Success
+- QListWidget with color-coded entries and level icons
+- Unread count with `unreadChanged` signal for badge updates
+- Clear button to reset the log
+
 ### Settings
 - AppSettings struct with load/save via QSettings("vibe-coder", "vibe-coder")
-- Sections: Terminal, Editor, File Browser, Prompt
-- SettingsDialog with grouped QFormLayout sections
+- **Global theme:** Dark (default), Light, Monokai, Solarized Dark, Solarized Light, Nord — `applyThemeDefaults()` sets component colors (editor, browser, terminal scheme, prompt, diff, changes)
+- Theme change cascades: SettingsDialog combo updates dependent fields live; MainWindow applies QSS stylesheet for all chrome (tabs, splitters, status bar, menus, buttons)
+- Tabbed SettingsDialog: Global Theme (top), Terminal, Editor, File Browser, Prompt, Diff Viewer, Changes Monitor tabs
 - ColorButton widget with QColorDialog picker
 
 ## Data Flow
@@ -116,11 +161,14 @@ src/
 3. **Save+Send:** PromptEdit emits `saveAndSendRequested` -> MainWindow saves prompt ID + sends to Terminal
 4. **Git Commit:** Commit button -> async QProcess chain: init -> add -A -> commit (non-blocking)
 5. **Settings:** SettingsDialog -> MainWindow applies to all components (language set before theme for single rehighlight)
-6. **Git Status:** Timer (5s) -> async QProcess pipeline -> cache rebuild -> viewport update
+6. **Git Status:** Timer (5s) -> async QProcess pipeline (includes --ignored) -> cache rebuild -> viewport update
 7. **SSH Connect:** SshDialog -> MainWindow adds profile -> SshManager async mount -> profileConnected signal -> setup file browser + terminals
 8. **SSH Reconnect:** Health timer -> async stat check -> connectionLost -> async fusermount + remount -> reconnected
 9. **File Transfer:** Upload/Download via sshfs mount (rsync --progress or cp) -> transferProgress/transferFinished signals
 10. **Tab Close:** removeTab + widget->deleteLater() prevents memory leak
+11. **Notifications:** Components call MainWindow::notify() -> NotificationPanel logs entry, updates unread badge (SSH events, transfers, git commits)
+12. **Command Palette:** Ctrl+Shift+P -> CommandPalette.show() -> user selects command -> action callback executed
+13. **Changes Monitor:** QFileSystemWatcher + scan timer (3s) -> changeDetected -> badge update on tab; user selects file -> git diff preview; Revert -> git checkout
 
 ## Session Persistence
 

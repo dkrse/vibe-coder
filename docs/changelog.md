@@ -2,6 +2,33 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.6.0] - 2026-03-12
+
+### Added
+- **Changes Monitor** — real-time file change tracker as bottom tab
+  - QFileSystemWatcher + periodic scan (3s) detects modifications, new files, deletions
+  - Split view: file list with timestamps + diff preview with syntax highlighting
+  - Revert button: `git checkout -- <file>` to restore git version
+  - Open button: opens changed file in editor tab
+  - Badge count on tab: "Changes (N)"
+  - Skips .git, .LLM, node_modules, __pycache__ directories
+  - Watches up to 2000 files / 500 directories
+- **Git ignored file coloring** — ignored files shown in dimmed color (dark: #5a5a5a, light: #b0b0b0) in file browser
+- Git status now includes `--ignored` flag for full status visibility
+- **Tabbed Settings dialog** — sections reorganized into tabs (Terminal, Editor, File Browser, Prompt, Diff Viewer, Changes Monitor)
+- **Diff Viewer settings** — configurable font family, font size, background and text colors
+- **Changes Monitor settings** — configurable font family, font size, background and text colors
+- Global theme `applyThemeDefaults()` now cascades to diff viewer and changes monitor colors
+
+### Changed
+- Settings dialog default color scheme changed from Light to Dark
+- Default prompt colors changed to dark theme (#1e1e1e bg, #d4d4d4 text)
+- Settings dialog minimum size increased to 460×480 for tabbed layout
+- Editor splitter wraps main tab widget (enables proper split view)
+
+### Removed
+- OutputParser and OutputPanel (AI terminal output parsing) — removed from codebase
+
 ## [0.5.0] - 2026-03-12
 
 ### Performance

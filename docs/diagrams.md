@@ -15,15 +15,21 @@ graph TB
 
             subgraph RightSplitter[Right Splitter - Vertical]
                 direction TB
-                subgraph TabWidget[Top Tab Widget]
-                    T0[AI-terminal Tab]
-                    T1[Editor Tab 1]
-                    T2[Editor Tab N]
+                subgraph EditorSplitter[Editor Splitter - Split View]
+                    subgraph TabWidget[Top Tab Widget]
+                        T0[AI-terminal Tab]
+                        T1[Editor Tab 1]
+                        T2[Editor Tab N]
+                    end
+                    STW["Split Tab Widget (optional)"]
                 end
 
                 subgraph BottomTabWidget[Bottom Tab Widget]
                     PT[Prompt Tab: PromptEdit + Send/Commit/Save]
                     BT[Terminal Tab]
+                    NT[Notifications Tab]
+                    DV[Diff Viewer Tab]
+                    CM[Changes Tab]
                 end
             end
         end
@@ -41,7 +47,9 @@ classDiagram
     QPlainTextEdit <|-- PromptEdit
     QStyledItemDelegate <|-- FileItemDelegate
     QSyntaxHighlighter <|-- SyntaxHighlighter
+    QSyntaxHighlighter <|-- DiffBlockHighlighter
     QWidget <|-- LineNumberArea
+    QWidget <|-- ChangesMonitor
     QDialog <|-- SettingsDialog
     QDialog <|-- ProjectDialog
     QDialog <|-- SshDialog
@@ -56,6 +64,10 @@ classDiagram
     MainWindow --> AppSettings
     MainWindow --> Project
     MainWindow --> SshManager
+    MainWindow --> ChangesMonitor
+    MainWindow --> CommandPalette
+    MainWindow --> NotificationPanel
+    MainWindow --> DiffViewer
 
     FileBrowser --> FileItemDelegate
     FileBrowser --> QFileSystemModel : local mode
@@ -65,13 +77,20 @@ classDiagram
     TerminalWidget --> QTermWidget
     SshManager --> SshDialog : saveConnection
     SshTunnelDialog --> SshManager
+    ChangesMonitor --> DiffBlockHighlighter
+    ChangesMonitor --> QFileSystemWatcher
 
     class MainWindow {
         -QTabWidget* m_tabWidget
         -QTabWidget* m_bottomTabWidget
         -QSplitter* m_mainSplitter
         -QSplitter* m_rightSplitter
+        -QSplitter* m_editorSplitter
         -SshManager* m_sshManager
+        -ChangesMonitor* m_changesMonitor
+        -CommandPalette* m_commandPalette
+        -NotificationPanel* m_notificationPanel
+        -DiffViewer* m_diffViewer
         -QComboBox* m_sshProfileCombo
         -QProgressBar* m_transferProgress
         +onFileOpened(QString)
@@ -83,6 +102,10 @@ classDiagram
         +onSshTunnels()
         +onSshUpload()
         +onSshDownload()
+        +splitEditorHorizontal()
+        +splitEditorVertical()
+        +unsplitEditor()
+        +applyGlobalTheme()
     }
 
     class FileBrowser {
@@ -90,11 +113,26 @@ classDiagram
         -QStandardItemModel* m_sshModel
         -QProcess* m_gitProc
         -QString m_sshMountPoint
+        -QSet~QString~ m_ignored
+        -QSet~QString~ m_dirIgnored
         +gitStatus(QString) GitStatus
         +setTheme(QString)
         +setSshMount(QString, QString)
         +clearSshMount()
         +toRemotePath(QString) QString
+    }
+
+    class ChangesMonitor {
+        -QFileSystemWatcher* m_watcher
+        -QTimer* m_scanTimer
+        -QListWidget* m_fileList
+        -QPlainTextEdit* m_diffPreview
+        -QVector~FileChange~ m_changes
+        -QMap~QString,QDateTime~ m_knownFiles
+        +setProjectDir(QString)
+        +changeCount() int
+        +setViewerFont(QFont)
+        +setViewerColors(QColor, QColor)
     }
 
     class SshManager {
@@ -125,6 +163,17 @@ classDiagram
         +addPrompt(QString)
         +addSavedPrompt(int)
         +savedPrompts() QStringList
+    }
+
+    class AppSettings {
+        +QString globalTheme
+        +QString diffFontFamily
+        +QColor diffBgColor
+        +QString changesFontFamily
+        +QColor changesBgColor
+        +applyThemeDefaults()
+        +load()
+        +save()
     }
 ```
 
@@ -265,12 +314,44 @@ sequenceDiagram
     FileBrowser->>GitProc: git rev-parse --show-toplevel
     GitProc-->>FileBrowser: onGitRootFinished()
 
-    FileBrowser->>GitProc: git status --porcelain -unormal
+    FileBrowser->>GitProc: git status --porcelain -unormal --ignored
     GitProc-->>FileBrowser: onGitStatusFinished()
 
     FileBrowser->>FileBrowser: parseGitOutput()
     FileBrowser->>FileBrowser: rebuildDirCache()
     FileBrowser->>FileBrowser: viewport()->update()
+```
+
+## Changes Monitor Flow
+
+```mermaid
+sequenceDiagram
+    participant FS as QFileSystemWatcher
+    participant Timer as Scan Timer (3s)
+    participant CM as ChangesMonitor
+    participant MainWindow
+    participant Git as git process
+
+    alt File modified
+        FS-->>CM: fileChanged(path)
+        CM->>CM: Check mtime, deduplicate
+        CM->>CM: Prepend to m_changes
+        CM-->>MainWindow: changeDetected(path)
+        MainWindow->>MainWindow: Update tab badge "Changes (N)"
+    else New file detected
+        Timer->>CM: scanForNewFiles()
+        CM->>CM: Compare against m_knownFiles
+        CM-->>MainWindow: changeDetected(path)
+    end
+
+    CM->>Git: git diff -- relPath [async]
+    Git-->>CM: diff output → m_diffPreview
+
+    alt User clicks Revert
+        CM->>Git: git checkout -- relPath [async]
+        Git-->>CM: success
+        CM-->>MainWindow: fileReverted(path)
+    end
 ```
 
 ## File Transfer via sshfs Mount
@@ -324,12 +405,16 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    A[SettingsDialog] -->|OK| B[AppSettings struct]
+    A[SettingsDialog - Tabbed] -->|OK| B[AppSettings struct]
+    B -->|applyThemeDefaults| TH[Global Theme Cascade]
+    TH --> D & E & F & G & DV & CM2
     B -->|save| C[QSettings file]
     B -->|apply| D[Terminal font/scheme]
     B -->|apply| E[Editor font/scheme/lineNumbers]
     B -->|apply| F[FileBrowser font/theme]
     B -->|apply| G[PromptEdit font/colors/sendKey]
+    B -->|apply| DV[DiffViewer font/colors]
+    B -->|apply| CM2[ChangesMonitor font/colors]
     C -->|load on startup| B
 ```
 

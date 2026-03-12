@@ -31,11 +31,28 @@ add_executable(vibe-coder
     src/sshmanager.h
     src/sshtunneldialog.cpp
     src/sshtunneldialog.h
+    src/commandpalette.cpp
+    src/commandpalette.h
+    src/notificationpanel.cpp
+    src/notificationpanel.h
+    src/diffviewer.cpp
+    src/diffviewer.h
+    src/changesmonitor.cpp
+    src/changesmonitor.h
 )
 
-# Link qtermwidget manually to avoid missing libutf8proc.so symlink
+# Find qtermwidget library (works on Fedora, Debian/Ubuntu, Arch, etc.)
+find_library(QTERMWIDGET_LIB
+    NAMES qtermwidget6 qtermwidget6.so.2
+    HINTS /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib
+)
+if(NOT QTERMWIDGET_LIB)
+    message(FATAL_ERROR "libqtermwidget6 not found. Install qtermwidget-devel (Fedora) or libqtermwidget6-1-dev (Debian/Ubuntu).")
+endif()
+message(STATUS "Found qtermwidget: ${QTERMWIDGET_LIB}")
+
 target_include_directories(vibe-coder PRIVATE /usr/include)
 target_link_libraries(vibe-coder PRIVATE
     Qt6::Widgets Qt6::Core Qt6::Gui
-    /usr/lib/x86_64-linux-gnu/libqtermwidget6.so.2
+    ${QTERMWIDGET_LIB}
 )

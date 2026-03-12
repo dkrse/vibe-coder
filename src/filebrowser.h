@@ -61,7 +61,7 @@ public:
     QString fileName(const QModelIndex &index) const;
 
     // Git status
-    enum GitStatus { Clean, Modified, Untracked, Added };
+    enum GitStatus { Clean, Modified, Untracked, Added, Ignored };
     GitStatus gitStatus(const QString &filePath) const;
     bool hasGit() const { return m_hasGit; }
 
@@ -106,6 +106,8 @@ private:
     QSet<QString> m_dirModified;
     QSet<QString> m_dirUntracked;
     QSet<QString> m_dirAdded;
+    QSet<QString> m_ignored;
+    QSet<QString> m_dirIgnored;
 
     QProcess *m_gitProc;
     QString m_gitStatusOutput;

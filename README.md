@@ -8,12 +8,13 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 
 ## Features
 
-- **File Browser** — Zed editor-style tree view with git status colors (modified, untracked, added), dark/light theme, context menu (new file/dir, rename, delete). Works over SSH via sshfs
-- **Code Editor** — Tabbed editor with syntax highlighting for C/C++, Python, JavaScript/TypeScript, Rust. Line numbers, dark/light scheme, Ctrl+S save
+- **File Browser** — Zed editor-style tree view with git status colors (modified, untracked, added, ignored), dark/light theme, context menu (new file/dir, rename, delete). Works over SSH via sshfs
+- **Code Editor** — Tabbed editor with syntax highlighting for C/C++, Python, JavaScript/TypeScript, Rust. Line numbers, dark/light scheme, Ctrl+S save. Split view (horizontal/vertical)
 - **Dual Terminals** — AI-terminal (top, sends prompts) + general Terminal (bottom tab). Both follow file browser directory and support SSH
 - **Prompt System** — Prompt input with configurable send key (Enter / Ctrl+Enter). Shift modifier = send + save. Saved/recurring prompts per project
 - **Project Management** — `.LLM/instructions.json` stores project metadata, numbered prompt history, and saved prompt IDs. Auto-creates `.gitignore`
-- **Git Integration** — Async one-click commit (auto-init + add + commit). Auto-filters sensitive files (.env, *.pem, *.key). Async git status polling for file browser colors
+- **Git Integration** — Async one-click commit (auto-init + add + commit). Auto-filters sensitive files (.env, *.pem, *.key). Async git status polling for file browser colors (including ignored files)
+- **Changes Monitor** — Real-time file change tracking with diff preview and one-click revert to git version
 - **SSH Remote Development**
   - Multiple simultaneous SSH profiles with profile switcher
   - sshfs-based file browsing (synchronous QStandardItemModel for reliability)
@@ -22,7 +23,10 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
   - SSH port forwarding management (local -L / remote -R tunnels)
   - Saved connections (passwords never persisted)
   - Terminals auto-cd when opening remote files
-- **Settings** — Configurable fonts, sizes, color schemes, and themes for all components
+- **Command Palette** — Ctrl+Shift+P for fuzzy-searchable commands (split view, focus, themes, diff refresh)
+- **Notifications** — Centralized log with Info/Warning/Error/Success levels and unread badge
+- **Global Themes** — Dark, Light, Monokai, Solarized Dark, Solarized Light, Nord — cascades to all components
+- **Settings** — Tabbed dialog with configurable fonts, sizes, color schemes, and themes for all components (terminal, editor, file browser, prompt, diff viewer, changes monitor)
 - **Session Persistence** — Remembers window size, splitter positions, open files, and active tab
 
 ## Installation
@@ -98,7 +102,9 @@ make -j$(nproc)
 8. **SSH Tunnels** — Hamburger menu (☰) → SSH Tunnels. Create local (-L) or remote (-R) port forwards
 9. **Upload/Download** — Hamburger menu (☰) → SSH Upload/Download. Transfers via sshfs mount with progress
 10. **Commit** — Click Commit button. Auto-initializes git if needed, stages files (filters sensitive), commits with timestamp
-11. **Settings** — Hamburger menu (☰) → Settings. Configure fonts, themes, and behavior for all components
+11. **Command Palette** — Ctrl+Shift+P to search and execute commands (split view, focus panels, switch themes)
+12. **Changes Monitor** — Bottom "Changes" tab shows real-time file modifications with diff preview and revert
+13. **Settings** — Hamburger menu (☰) → Settings. Tabbed dialog for fonts, themes, and behavior
 
 ## Documentation
 

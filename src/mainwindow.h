@@ -20,6 +20,10 @@
 #include "projectdialog.h"
 #include "sshdialog.h"
 #include "sshmanager.h"
+#include "commandpalette.h"
+#include "notificationpanel.h"
+#include "diffviewer.h"
+#include "changesmonitor.h"
 
 class QSplitter;
 
@@ -93,4 +97,28 @@ private:
     void sshDisconnectTerminals();
     void switchToSshProfile(int index);
     void updateSshProfileCombo();
+
+    // Split view
+    void splitEditorHorizontal();
+    void splitEditorVertical();
+    void unsplitEditor();
+    QSplitter *m_editorSplitter;
+    QTabWidget *m_splitTabWidget = nullptr;
+
+    // Command palette
+    CommandPalette *m_commandPalette;
+    void setupCommandPalette();
+
+    // Notifications
+    NotificationPanel *m_notificationPanel;
+    void notify(const QString &msg, int level = 0); // 0=info,1=warn,2=err,3=ok
+
+    // Diff viewer
+    DiffViewer *m_diffViewer;
+
+    // Changes monitor
+    ChangesMonitor *m_changesMonitor;
+
+    // Global theme
+    void applyGlobalTheme();
 };

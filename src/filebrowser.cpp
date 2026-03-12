@@ -47,7 +47,10 @@ void FileItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
     bool gitColored = false;
     if (m_fb && m_fb->hasGit() && !fullPath.isEmpty()) {
         auto status = m_fb->gitStatus(fullPath);
-        if (status == FileBrowser::Modified) {
+        if (status == FileBrowser::Ignored) {
+            textColor = dark ? QColor("#5a5a5a") : QColor("#b0b0b0");
+            gitColored = true;
+        } else if (status == FileBrowser::Modified) {
             textColor = dark ? QColor("#e2c08d") : QColor("#986801");
             gitColored = true;
         } else if (status == FileBrowser::Untracked) {
@@ -331,13 +334,15 @@ void FileBrowser::onGitCheckFinished(int exitCode, QProcess::ExitStatus)
 
     if (exitCode != 0) {
         m_hasGit = false;
-        bool changed = !m_modified.isEmpty() || !m_untracked.isEmpty() || !m_added.isEmpty();
+        bool changed = !m_modified.isEmpty() || !m_untracked.isEmpty() || !m_added.isEmpty() || !m_ignored.isEmpty();
         m_modified.clear();
         m_untracked.clear();
         m_added.clear();
+        m_ignored.clear();
         m_dirModified.clear();
         m_dirUntracked.clear();
         m_dirAdded.clear();
+        m_dirIgnored.clear();
         m_gitBusy = false;
         if (changed)
             m_treeView->viewport()->update();
@@ -364,7 +369,7 @@ void FileBrowser::onGitRootFinished(int exitCode, QProcess::ExitStatus)
 
     connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, &FileBrowser::onGitStatusFinished);
-    m_gitProc->start("git", {"status", "--porcelain", "-unormal"});
+    m_gitProc->start("git", {"status", "--porcelain", "-unormal", "--ignored"});
 }
 
 void FileBrowser::onGitStatusFinished(int exitCode, QProcess::ExitStatus)
@@ -380,7 +385,7 @@ void FileBrowser::onGitStatusFinished(int exitCode, QProcess::ExitStatus)
 
 void FileBrowser::parseGitOutput()
 {
-    QSet<QString> newModified, newUntracked, newAdded;
+    QSet<QString> newModified, newUntracked, newAdded, newIgnored;
 
     for (const QString &line : m_gitStatusOutput.split('\n', Qt::SkipEmptyParts)) {
         if (line.length() < 4) continue;
@@ -390,9 +395,15 @@ void FileBrowser::parseGitOutput()
         if (file.contains(" -> "))
             file = file.split(" -> ").last();
 
+        // Remove trailing slash for ignored directories
+        if (file.endsWith('/'))
+            file.chop(1);
+
         QString fullPath = m_gitRoot + "/" + file;
 
-        if (x == '?' && y == '?') {
+        if (x == '!' && y == '!') {
+            newIgnored.insert(fullPath);
+        } else if (x == '?' && y == '?') {
             newUntracked.insert(fullPath);
         } else if (x == 'A') {
             newAdded.insert(fullPath);
@@ -403,10 +414,12 @@ void FileBrowser::parseGitOutput()
         }
     }
 
-    bool changed = (newModified != m_modified || newUntracked != m_untracked || newAdded != m_added);
+    bool changed = (newModified != m_modified || newUntracked != m_untracked
+                     || newAdded != m_added || newIgnored != m_ignored);
     m_modified = newModified;
     m_untracked = newUntracked;
     m_added = newAdded;
+    m_ignored = newIgnored;
 
     if (changed) {
         rebuildDirCache();
@@ -419,6 +432,7 @@ void FileBrowser::rebuildDirCache()
     m_dirModified.clear();
     m_dirUntracked.clear();
     m_dirAdded.clear();
+    m_dirIgnored.clear();
 
     auto addParents = [](const QSet<QString> &files, QSet<QString> &dirs) {
         for (const auto &f : files) {
@@ -434,10 +448,13 @@ void FileBrowser::rebuildDirCache()
     addParents(m_modified, m_dirModified);
     addParents(m_untracked, m_dirUntracked);
     addParents(m_added, m_dirAdded);
+    addParents(m_ignored, m_dirIgnored);
 }
 
 FileBrowser::GitStatus FileBrowser::gitStatus(const QString &fp) const
 {
+    if (m_ignored.contains(fp)) return Ignored;
+    if (m_dirIgnored.contains(fp)) return Ignored;
     if (m_modified.contains(fp)) return Modified;
     if (m_untracked.contains(fp)) return Untracked;
     if (m_added.contains(fp)) return Added;

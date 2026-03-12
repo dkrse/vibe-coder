@@ -18,6 +18,7 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QTimer>
 
 static QString langFromSuffix(const QString &suffix)
 {
@@ -86,6 +87,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_sshDownloadAction = hamburgerMenu->addAction("SSH Download File...", this, &MainWindow::onSshDownload);
     m_sshDownloadAction->setEnabled(false);
     hamburgerMenu->addSeparator();
+    hamburgerMenu->addAction("Split Horizontal", this, &MainWindow::splitEditorHorizontal);
+    hamburgerMenu->addAction("Split Vertical", this, &MainWindow::splitEditorVertical);
+    hamburgerMenu->addAction("Unsplit", this, &MainWindow::unsplitEditor);
+    hamburgerMenu->addSeparator();
     hamburgerMenu->addAction("Settings...", this, &MainWindow::onSettingsTriggered);
     m_menuBtn->setMenu(hamburgerMenu);
 
@@ -138,7 +143,64 @@ MainWindow::MainWindow(QWidget *parent)
     m_bottomTerminal = new TerminalWidget;
     m_bottomTabWidget->addTab(m_bottomTerminal, "Terminal");
 
-    m_rightSplitter->addWidget(m_tabWidget);
+    // Notifications tab
+    m_notificationPanel = new NotificationPanel;
+    m_bottomTabWidget->addTab(m_notificationPanel, "Notifications");
+    connect(m_notificationPanel, &NotificationPanel::unreadChanged, this, [this](int count) {
+        int idx = m_bottomTabWidget->indexOf(m_notificationPanel);
+        if (count > 0)
+            m_bottomTabWidget->setTabText(idx, QString("Notifications (%1)").arg(count));
+        else
+            m_bottomTabWidget->setTabText(idx, "Notifications");
+    });
+
+    // Diff viewer tab
+    m_diffViewer = new DiffViewer;
+    m_bottomTabWidget->addTab(m_diffViewer, "Diff");
+
+    // Changes monitor — tracks file changes in project
+    m_changesMonitor = new ChangesMonitor;
+    m_bottomTabWidget->addTab(m_changesMonitor, "Changes");
+
+    connect(m_changesMonitor, &ChangesMonitor::changeDetected, this, [this](const QString &path) {
+        QString rel = path;
+        if (rel.startsWith(m_fileBrowser->rootPath()))
+            rel = rel.mid(m_fileBrowser->rootPath().length() + 1);
+        int idx = m_bottomTabWidget->indexOf(m_changesMonitor);
+        int count = m_changesMonitor->changeCount();
+        m_bottomTabWidget->setTabText(idx, QString("Changes (%1)").arg(count));
+        notify("File changed: " + rel, 0);
+
+        // Auto-reload if file is open in editor
+        onFileChanged(path);
+    });
+
+    connect(m_changesMonitor, &ChangesMonitor::fileReverted, this, [this](const QString &path) {
+        QString rel = path;
+        if (rel.startsWith(m_fileBrowser->rootPath()))
+            rel = rel.mid(m_fileBrowser->rootPath().length() + 1);
+        notify("Reverted: " + rel, 3);
+        onFileChanged(path);
+    });
+
+    connect(m_changesMonitor, &ChangesMonitor::openFileRequested,
+            this, &MainWindow::onFileOpened);
+
+    // Auto-refresh Diff when switching to its tab
+    connect(m_bottomTabWidget, &QTabWidget::currentChanged, this, [this](int idx) {
+        if (m_bottomTabWidget->widget(idx) == m_diffViewer) {
+            m_diffViewer->refresh(m_fileBrowser->rootPath());
+        } else if (m_bottomTabWidget->widget(idx) == m_changesMonitor) {
+            // Clear badge
+            m_bottomTabWidget->setTabText(idx, "Changes");
+        }
+    });
+
+    // Editor splitter wraps the main tab widget (split view adds second tab widget here)
+    m_editorSplitter = new QSplitter(Qt::Horizontal);
+    m_editorSplitter->addWidget(m_tabWidget);
+
+    m_rightSplitter->addWidget(m_editorSplitter);
     m_rightSplitter->addWidget(m_bottomTabWidget);
     m_rightSplitter->setStretchFactor(0, 3);
     m_rightSplitter->setStretchFactor(1, 1);
@@ -228,8 +290,9 @@ MainWindow::MainWindow(QWidget *parent)
         updateStatusBar();
     });
 
-    // File browser directory changes
+    // File browser directory changes — also update changes monitor
     connect(m_fileBrowser, &FileBrowser::rootPathChanged, this, [this](const QString &path) {
+        m_changesMonitor->setProjectDir(path);
         if (m_sshManager->activeProfileIndex() >= 0) {
             QString remotePath = m_fileBrowser->toRemotePath(path);
             m_terminal->sendText("cd " + remotePath);
@@ -266,6 +329,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_sshManager, &SshManager::connectFailed, this, [this](int idx, const QString &err) {
         m_sshManager->removeProfile(idx);
         m_statusFileLabel->setText("SSH connect failed");
+        notify("SSH connect failed: " + err, 2);
         QMessageBox::warning(this, "SSH Error", err);
     });
 
@@ -287,10 +351,12 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_sshManager, &SshManager::connectionLost, this, [this](int idx) {
         m_statusFileLabel->setText(QString("SSH LOST: %1 - reconnecting...")
                                        .arg(m_sshManager->profileLabel(idx)));
+        notify("SSH connection lost: " + m_sshManager->profileLabel(idx), 1);
     });
 
     connect(m_sshManager, &SshManager::reconnected, this, [this](int idx) {
         m_statusFileLabel->setText(QString("SSH reconnected: %1").arg(m_sshManager->profileLabel(idx)));
+        notify("SSH reconnected: " + m_sshManager->profileLabel(idx), 3);
         // Re-setup file browser if this is the active profile
         if (idx == m_sshManager->activeProfileIndex()) {
             m_fileBrowser->setSshMount(m_sshManager->mountPoint(idx), "");
@@ -307,10 +373,13 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_sshManager, &SshManager::transferFinished, this,
             [this](const QString &name, bool ok, const QString &err) {
         m_transferProgress->hide();
-        if (ok)
+        if (ok) {
             m_statusFileLabel->setText("Transfer complete: " + name);
-        else
+            notify("Transfer complete: " + name, 3);
+        } else {
+            notify("Transfer failed: " + name + " - " + err, 2);
             QMessageBox::warning(this, "Transfer Error", "Failed: " + name + "\n" + err);
+        }
     });
 
     connect(m_sshManager, &SshManager::sshError, this, [this](const QString &msg) {
@@ -321,12 +390,20 @@ MainWindow::MainWindow(QWidget *parent)
     auto *saveShortcut = new QShortcut(QKeySequence::Save, this);
     connect(saveShortcut, &QShortcut::activated, this, &MainWindow::saveCurrentFile);
 
+    // Command palette
+    m_commandPalette = new CommandPalette(this);
+    setupCommandPalette();
+    auto *paletteShortcut = new QShortcut(QKeySequence("Ctrl+Shift+P"), this);
+    connect(paletteShortcut, &QShortcut::activated, m_commandPalette, &CommandPalette::show);
+
     applySettings();
+    applyGlobalTheme();
     restoreSession();
 
     m_terminal->terminal()->changeDir(m_fileBrowser->rootPath());
     m_bottomTerminal->terminal()->changeDir(m_fileBrowser->rootPath());
     tryLoadProject(m_fileBrowser->rootPath());
+    m_changesMonitor->setProjectDir(m_fileBrowser->rootPath());
 }
 
 MainWindow::~MainWindow()
@@ -558,12 +635,32 @@ void MainWindow::applySettings()
     m_fileBrowser->setFont(browserFont);
     m_fileBrowser->setTheme(m_settings.browserTheme);
 
+    // Diff viewer
+    QFont diffFont(m_settings.diffFontFamily, m_settings.diffFontSize);
+    m_diffViewer->setViewerFont(diffFont);
+    m_diffViewer->setViewerColors(m_settings.diffBgColor, m_settings.diffTextColor);
+
+    // Changes monitor
+    QFont changesFont(m_settings.changesFontFamily, m_settings.changesFontSize);
+    m_changesMonitor->setViewerFont(changesFont);
+    m_changesMonitor->setViewerColors(m_settings.changesBgColor, m_settings.changesTextColor);
+
     for (int i = 1; i < m_tabWidget->count(); ++i) {
         auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(i));
         if (editor) {
             QString filePath = m_tabWidget->tabToolTip(i);
             QString lang = langFromSuffix(QFileInfo(filePath).suffix());
             applySettingsToEditor(editor, lang);
+        }
+    }
+    if (m_splitTabWidget) {
+        for (int i = 0; i < m_splitTabWidget->count(); ++i) {
+            auto *editor = qobject_cast<CodeEditor *>(m_splitTabWidget->widget(i));
+            if (editor) {
+                QString filePath = m_splitTabWidget->tabToolTip(i);
+                QString lang = langFromSuffix(QFileInfo(filePath).suffix());
+                applySettingsToEditor(editor, lang);
+            }
         }
     }
 }
@@ -575,15 +672,26 @@ void MainWindow::onSettingsTriggered()
         m_settings = dlg.result();
         m_settings.save();
         applySettings();
+        applyGlobalTheme();
     }
 }
 
 void MainWindow::onFileOpened(const QString &filePath)
 {
+    // Check main tabs
     for (int i = 1; i < m_tabWidget->count(); ++i) {
         if (m_tabWidget->tabToolTip(i) == filePath) {
             m_tabWidget->setCurrentIndex(i);
             return;
+        }
+    }
+    // Check split tabs
+    if (m_splitTabWidget) {
+        for (int i = 0; i < m_splitTabWidget->count(); ++i) {
+            if (m_splitTabWidget->tabToolTip(i) == filePath) {
+                m_splitTabWidget->setCurrentIndex(i);
+                return;
+            }
         }
     }
 
@@ -724,6 +832,7 @@ void MainWindow::onCommitClicked()
                 *output += git->readAllStandardOutput() + git->readAllStandardError();
                 QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
                 m_statusFileLabel->setText(QString("Committed: %1").arg(timestamp));
+                notify("Git commit: " + timestamp, 3);
                 m_commitBtn->setEnabled(true);
                 if (!output->trimmed().isEmpty())
                     m_statusFileLabel->setText(output->trimmed().left(100));
@@ -870,6 +979,219 @@ void MainWindow::tryLoadProject(const QString &path)
             QString("Project: %1 [%2]").arg(m_project.projectName(), m_project.model()));
         refreshSavedPrompts();
     }
+}
+
+// ── Notifications ───────────────────────────────────────────────────
+
+void MainWindow::notify(const QString &msg, int level)
+{
+    switch (level) {
+    case 1: m_notificationPanel->addWarning(msg); break;
+    case 2: m_notificationPanel->addError(msg); break;
+    case 3: m_notificationPanel->addSuccess(msg); break;
+    default: m_notificationPanel->addInfo(msg); break;
+    }
+}
+
+// ── Split View ──────────────────────────────────────────────────────
+
+void MainWindow::splitEditorHorizontal()
+{
+    if (m_splitTabWidget) return;
+
+    m_editorSplitter->setOrientation(Qt::Vertical);
+
+    m_splitTabWidget = new QTabWidget;
+    m_splitTabWidget->setTabsClosable(true);
+    connect(m_splitTabWidget, &QTabWidget::tabCloseRequested, this, [this](int index) {
+        QWidget *w = m_splitTabWidget->widget(index);
+        QString path = m_splitTabWidget->tabToolTip(index);
+        if (!path.isEmpty())
+            m_fileWatcher->removePath(path);
+        m_splitTabWidget->removeTab(index);
+        w->deleteLater();
+        if (m_splitTabWidget->count() == 0)
+            unsplitEditor();
+    });
+
+    m_editorSplitter->addWidget(m_splitTabWidget);
+
+    // Move current file to split pane if one is open
+    int idx = m_tabWidget->currentIndex();
+    if (idx >= 1) {
+        QString filePath = m_tabWidget->tabToolTip(idx);
+        if (!filePath.isEmpty()) {
+            QFile file(filePath);
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                QTextStream in(&file);
+                QString lang = langFromSuffix(QFileInfo(filePath).suffix());
+                auto *editor = new CodeEditor;
+                editor->setPlainText(in.readAll());
+                applySettingsToEditor(editor, lang);
+                int newIdx = m_splitTabWidget->addTab(editor, QFileInfo(filePath).fileName());
+                m_splitTabWidget->setTabToolTip(newIdx, filePath);
+                connect(editor, &QPlainTextEdit::cursorPositionChanged, this, &MainWindow::updateStatusBar);
+            }
+        }
+    }
+}
+
+void MainWindow::splitEditorVertical()
+{
+    if (m_splitTabWidget) return;
+
+    m_editorSplitter->setOrientation(Qt::Horizontal);
+
+    m_splitTabWidget = new QTabWidget;
+    m_splitTabWidget->setTabsClosable(true);
+    connect(m_splitTabWidget, &QTabWidget::tabCloseRequested, this, [this](int index) {
+        QWidget *w = m_splitTabWidget->widget(index);
+        QString path = m_splitTabWidget->tabToolTip(index);
+        if (!path.isEmpty())
+            m_fileWatcher->removePath(path);
+        m_splitTabWidget->removeTab(index);
+        w->deleteLater();
+        if (m_splitTabWidget->count() == 0)
+            unsplitEditor();
+    });
+
+    m_editorSplitter->addWidget(m_splitTabWidget);
+
+    int idx = m_tabWidget->currentIndex();
+    if (idx >= 1) {
+        QString filePath = m_tabWidget->tabToolTip(idx);
+        if (!filePath.isEmpty()) {
+            QFile file(filePath);
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                QTextStream in(&file);
+                QString lang = langFromSuffix(QFileInfo(filePath).suffix());
+                auto *editor = new CodeEditor;
+                editor->setPlainText(in.readAll());
+                applySettingsToEditor(editor, lang);
+                int newIdx = m_splitTabWidget->addTab(editor, QFileInfo(filePath).fileName());
+                m_splitTabWidget->setTabToolTip(newIdx, filePath);
+                connect(editor, &QPlainTextEdit::cursorPositionChanged, this, &MainWindow::updateStatusBar);
+            }
+        }
+    }
+}
+
+void MainWindow::unsplitEditor()
+{
+    if (!m_splitTabWidget) return;
+
+    // Close all tabs in split pane
+    while (m_splitTabWidget->count() > 0) {
+        QWidget *w = m_splitTabWidget->widget(0);
+        m_splitTabWidget->removeTab(0);
+        w->deleteLater();
+    }
+
+    m_splitTabWidget->deleteLater();
+    m_splitTabWidget = nullptr;
+}
+
+// ── Command Palette ─────────────────────────────────────────────────
+
+void MainWindow::setupCommandPalette()
+{
+    m_commandPalette->addCommand("Save File", "Ctrl+S", [this]() { saveCurrentFile(); });
+    m_commandPalette->addCommand("Settings", "", [this]() { onSettingsTriggered(); });
+    m_commandPalette->addCommand("Create Project", "", [this]() { onCreateProject(); });
+    m_commandPalette->addCommand("Edit Project", "", [this]() { onEditProject(); });
+    m_commandPalette->addCommand("Git Commit", "", [this]() { onCommitClicked(); });
+    m_commandPalette->addCommand("SSH Connect", "", [this]() { onSshConnect(); });
+    m_commandPalette->addCommand("SSH Disconnect", "", [this]() { onSshDisconnect(); });
+    m_commandPalette->addCommand("SSH Tunnels", "", [this]() { onSshTunnels(); });
+    m_commandPalette->addCommand("SSH Upload File", "", [this]() { onSshUpload(); });
+    m_commandPalette->addCommand("SSH Download File", "", [this]() { onSshDownload(); });
+    m_commandPalette->addCommand("Split Editor Horizontal", "", [this]() { splitEditorHorizontal(); });
+    m_commandPalette->addCommand("Split Editor Vertical", "", [this]() { splitEditorVertical(); });
+    m_commandPalette->addCommand("Unsplit Editor", "", [this]() { unsplitEditor(); });
+    m_commandPalette->addCommand("Show Diff", "", [this]() {
+        m_diffViewer->refresh(m_fileBrowser->rootPath());
+        m_bottomTabWidget->setCurrentWidget(m_diffViewer);
+    });
+    m_commandPalette->addCommand("Show Notifications", "", [this]() {
+        m_bottomTabWidget->setCurrentWidget(m_notificationPanel);
+    });
+    m_commandPalette->addCommand("Show Terminal", "", [this]() {
+        m_bottomTabWidget->setCurrentIndex(1);
+    });
+    m_commandPalette->addCommand("Show Prompt", "", [this]() {
+        m_bottomTabWidget->setCurrentIndex(0);
+    });
+    m_commandPalette->addCommand("Focus AI Terminal", "", [this]() {
+        m_tabWidget->setCurrentIndex(0);
+    });
+    m_commandPalette->addCommand("Show Changes", "", [this]() {
+        m_bottomTabWidget->setCurrentWidget(m_changesMonitor);
+    });
+
+    // Theme switching commands
+    for (const QString &theme : {"Dark", "Light", "Monokai", "Solarized Dark", "Solarized Light", "Nord"}) {
+        m_commandPalette->addCommand("Theme: " + theme, "", [this, theme]() {
+            m_settings.globalTheme = theme;
+            m_settings.applyThemeDefaults();
+            m_settings.save();
+            applySettings();
+            applyGlobalTheme();
+        });
+    }
+}
+
+
+// ── Global Theme ────────────────────────────────────────────────────
+
+void MainWindow::applyGlobalTheme()
+{
+    bool dark = (m_settings.globalTheme != "Light" && m_settings.globalTheme != "Solarized Light");
+
+    QString bgColor, textColor, altBg, borderColor, hoverBg, selectedBg;
+
+    if (m_settings.globalTheme == "Dark") {
+        bgColor = "#1e1e1e"; textColor = "#d4d4d4"; altBg = "#252526";
+        borderColor = "#3c3c3c"; hoverBg = "#2a2d2e"; selectedBg = "#094771";
+    } else if (m_settings.globalTheme == "Light") {
+        bgColor = "#ffffff"; textColor = "#333333"; altBg = "#f3f3f3";
+        borderColor = "#e0e0e0"; hoverBg = "#e8e8e8"; selectedBg = "#0060c0";
+    } else if (m_settings.globalTheme == "Monokai") {
+        bgColor = "#272822"; textColor = "#f8f8f2"; altBg = "#2e2f2a";
+        borderColor = "#49483e"; hoverBg = "#3e3d32"; selectedBg = "#49483e";
+    } else if (m_settings.globalTheme == "Solarized Dark") {
+        bgColor = "#002b36"; textColor = "#839496"; altBg = "#073642";
+        borderColor = "#586e75"; hoverBg = "#073642"; selectedBg = "#2aa198";
+    } else if (m_settings.globalTheme == "Solarized Light") {
+        bgColor = "#fdf6e3"; textColor = "#657b83"; altBg = "#eee8d5";
+        borderColor = "#93a1a1"; hoverBg = "#eee8d5"; selectedBg = "#2aa198";
+    } else if (m_settings.globalTheme == "Nord") {
+        bgColor = "#2e3440"; textColor = "#d8dee9"; altBg = "#3b4252";
+        borderColor = "#4c566a"; hoverBg = "#434c5e"; selectedBg = "#5e81ac";
+    } else {
+        return;
+    }
+
+    QString ss = QString(
+        "QMainWindow { background: %1; }"
+        "QTabWidget::pane { border: 1px solid %4; background: %1; }"
+        "QTabBar::tab { background: %3; color: %2; padding: 6px 12px; border: 1px solid %4; }"
+        "QTabBar::tab:selected { background: %1; }"
+        "QTabBar::tab:hover { background: %5; }"
+        "QSplitter::handle { background: %4; }"
+        "QStatusBar { background: %3; color: %2; border-top: 1px solid %4; }"
+        "QStatusBar QLabel { color: %2; }"
+        "QComboBox { background: %3; color: %2; border: 1px solid %4; padding: 3px; }"
+        "QComboBox QAbstractItemView { background: %1; color: %2; selection-background-color: %6; }"
+        "QPushButton { background: %3; color: %2; border: 1px solid %4; padding: 4px 12px; border-radius: 3px; }"
+        "QPushButton:hover { background: %5; }"
+        "QToolButton { color: %2; }"
+        "QMenu { background: %1; color: %2; border: 1px solid %4; }"
+        "QMenu::item:selected { background: %6; }"
+        "QProgressBar { background: %3; color: %2; border: 1px solid %4; }"
+        "QProgressBar::chunk { background: %6; }"
+    ).arg(bgColor, textColor, altBg, borderColor, hoverBg, selectedBg);
+
+    setStyleSheet(ss);
 }
 
 void MainWindow::refreshSavedPrompts()

@@ -12,6 +12,7 @@
 void AppSettings::load()
 {
     QSettings s("vibe-coder", "vibe-coder");
+    globalTheme = s.value("global/theme", globalTheme).toString();
     termFontFamily = s.value("terminal/fontFamily", termFontFamily).toString();
     termFontSize = s.value("terminal/fontSize", termFontSize).toInt();
     terminalColorScheme = s.value("terminal/colorScheme", terminalColorScheme).toString();
@@ -28,11 +29,62 @@ void AppSettings::load()
     promptBgColor = QColor(s.value("prompt/bgColor", promptBgColor.name()).toString());
     promptTextColor = QColor(s.value("prompt/textColor", promptTextColor.name()).toString());
     promptSendKey = s.value("prompt/sendKey", promptSendKey).toString();
+    diffFontFamily = s.value("diff/fontFamily", diffFontFamily).toString();
+    diffFontSize = s.value("diff/fontSize", diffFontSize).toInt();
+    diffBgColor = QColor(s.value("diff/bgColor", diffBgColor.name()).toString());
+    diffTextColor = QColor(s.value("diff/textColor", diffTextColor.name()).toString());
+    changesFontFamily = s.value("changes/fontFamily", changesFontFamily).toString();
+    changesFontSize = s.value("changes/fontSize", changesFontSize).toInt();
+    changesBgColor = QColor(s.value("changes/bgColor", changesBgColor.name()).toString());
+    changesTextColor = QColor(s.value("changes/textColor", changesTextColor.name()).toString());
+}
+
+void AppSettings::applyThemeDefaults()
+{
+    QColor darkBg("#1e1e1e"), darkFg("#d4d4d4");
+    QColor lightBg("#ffffff"), lightFg("#333333");
+
+    if (globalTheme == "Dark") {
+        editorColorScheme = "Dark"; browserTheme = "Dark"; terminalColorScheme = "Linux";
+        promptBgColor = darkBg; promptTextColor = darkFg;
+        diffBgColor = darkBg; diffTextColor = darkFg;
+        changesBgColor = darkBg; changesTextColor = darkFg;
+    } else if (globalTheme == "Light") {
+        editorColorScheme = "Light"; browserTheme = "Light"; terminalColorScheme = "WhiteOnBlack";
+        promptBgColor = lightBg; promptTextColor = lightFg;
+        diffBgColor = lightBg; diffTextColor = lightFg;
+        changesBgColor = lightBg; changesTextColor = lightFg;
+    } else if (globalTheme == "Monokai") {
+        editorColorScheme = "Dark"; browserTheme = "Dark"; terminalColorScheme = "Linux";
+        QColor bg("#272822"), fg("#f8f8f2");
+        promptBgColor = bg; promptTextColor = fg;
+        diffBgColor = bg; diffTextColor = fg;
+        changesBgColor = bg; changesTextColor = fg;
+    } else if (globalTheme == "Solarized Dark") {
+        editorColorScheme = "Dark"; browserTheme = "Dark"; terminalColorScheme = "Solarized";
+        QColor bg("#002b36"), fg("#839496");
+        promptBgColor = bg; promptTextColor = fg;
+        diffBgColor = bg; diffTextColor = fg;
+        changesBgColor = bg; changesTextColor = fg;
+    } else if (globalTheme == "Solarized Light") {
+        editorColorScheme = "Light"; browserTheme = "Light"; terminalColorScheme = "Solarized";
+        QColor bg("#fdf6e3"), fg("#657b83");
+        promptBgColor = bg; promptTextColor = fg;
+        diffBgColor = bg; diffTextColor = fg;
+        changesBgColor = bg; changesTextColor = fg;
+    } else if (globalTheme == "Nord") {
+        editorColorScheme = "Dark"; browserTheme = "Dark"; terminalColorScheme = "Linux";
+        QColor bg("#2e3440"), fg("#d8dee9");
+        promptBgColor = bg; promptTextColor = fg;
+        diffBgColor = bg; diffTextColor = fg;
+        changesBgColor = bg; changesTextColor = fg;
+    }
 }
 
 void AppSettings::save()
 {
     QSettings s("vibe-coder", "vibe-coder");
+    s.setValue("global/theme", globalTheme);
     s.setValue("terminal/fontFamily", termFontFamily);
     s.setValue("terminal/fontSize", termFontSize);
     s.setValue("terminal/colorScheme", terminalColorScheme);
@@ -49,6 +101,14 @@ void AppSettings::save()
     s.setValue("prompt/bgColor", promptBgColor.name());
     s.setValue("prompt/textColor", promptTextColor.name());
     s.setValue("prompt/sendKey", promptSendKey);
+    s.setValue("diff/fontFamily", diffFontFamily);
+    s.setValue("diff/fontSize", diffFontSize);
+    s.setValue("diff/bgColor", diffBgColor.name());
+    s.setValue("diff/textColor", diffTextColor.name());
+    s.setValue("changes/fontFamily", changesFontFamily);
+    s.setValue("changes/fontSize", changesFontSize);
+    s.setValue("changes/bgColor", changesBgColor.name());
+    s.setValue("changes/textColor", changesTextColor.name());
 }
 
 // --- ColorButton ---
@@ -81,13 +141,24 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle("Settings");
-    setMinimumWidth(420);
+    setMinimumSize(460, 480);
 
     auto *mainLayout = new QVBoxLayout(this);
 
-    // Terminal
-    auto *termGroup = new QGroupBox("Terminal");
-    auto *termLayout = new QFormLayout(termGroup);
+    // Global Theme at the top (always visible)
+    auto *themeLayout = new QFormLayout;
+    m_globalThemeCombo = new QComboBox;
+    m_globalThemeCombo->addItems({"Dark", "Light", "Monokai", "Solarized Dark", "Solarized Light", "Nord"});
+    m_globalThemeCombo->setCurrentText(current.globalTheme);
+    themeLayout->addRow("Global theme:", m_globalThemeCombo);
+    mainLayout->addLayout(themeLayout);
+
+    // Tab widget for sections
+    auto *tabs = new QTabWidget;
+
+    // ── Terminal tab ────────────────────────────────────────────────
+    auto *termPage = new QWidget;
+    auto *termLayout = new QFormLayout(termPage);
 
     m_termFontCombo = new QFontComboBox;
     m_termFontCombo->setFontFilters(QFontComboBox::MonospacedFonts);
@@ -107,10 +178,11 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     termLayout->addRow("Font family:", m_termFontCombo);
     termLayout->addRow("Font size:", m_termFontSizeSpin);
     termLayout->addRow("Color scheme:", m_termColorSchemeCombo);
+    tabs->addTab(termPage, "Terminal");
 
-    // Editor
-    auto *editorGroup = new QGroupBox("Editor");
-    auto *editorLayout = new QFormLayout(editorGroup);
+    // ── Editor tab ──────────────────────────────────────────────────
+    auto *editorPage = new QWidget;
+    auto *editorLayout = new QFormLayout(editorPage);
 
     m_editorFontCombo = new QFontComboBox;
     m_editorFontCombo->setFontFilters(QFontComboBox::MonospacedFonts);
@@ -135,10 +207,11 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     editorLayout->addRow(m_lineNumbersCheck);
     editorLayout->addRow("Color scheme:", m_editorColorSchemeCombo);
     editorLayout->addRow(m_syntaxHighlightCheck);
+    tabs->addTab(editorPage, "Editor");
 
-    // File browser
-    auto *browserGroup = new QGroupBox("File Browser");
-    auto *browserLayout = new QFormLayout(browserGroup);
+    // ── File Browser tab ────────────────────────────────────────────
+    auto *browserPage = new QWidget;
+    auto *browserLayout = new QFormLayout(browserPage);
 
     m_browserFontCombo = new QFontComboBox;
     m_browserFontCombo->setCurrentFont(QFont(current.browserFontFamily));
@@ -154,10 +227,11 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     browserLayout->addRow("Font family:", m_browserFontCombo);
     browserLayout->addRow("Font size:", m_browserFontSizeSpin);
     browserLayout->addRow("Theme:", m_browserThemeCombo);
+    tabs->addTab(browserPage, "File Browser");
 
-    // Prompt
-    auto *promptGroup = new QGroupBox("Prompt");
-    auto *promptLayout = new QFormLayout(promptGroup);
+    // ── Prompt tab ──────────────────────────────────────────────────
+    auto *promptPage = new QWidget;
+    auto *promptLayout = new QFormLayout(promptPage);
 
     m_promptFontCombo = new QFontComboBox;
     m_promptFontCombo->setFontFilters(QFontComboBox::MonospacedFonts);
@@ -179,23 +253,78 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     promptLayout->addRow("Background:", m_promptBgColorBtn);
     promptLayout->addRow("Text color:", m_promptTextColorBtn);
     promptLayout->addRow("Send key:", m_promptSendKeyCombo);
+    tabs->addTab(promptPage, "Prompt");
+
+    // ── Diff tab ────────────────────────────────────────────────────
+    auto *diffPage = new QWidget;
+    auto *diffLayout = new QFormLayout(diffPage);
+
+    m_diffFontCombo = new QFontComboBox;
+    m_diffFontCombo->setFontFilters(QFontComboBox::MonospacedFonts);
+    m_diffFontCombo->setCurrentFont(QFont(current.diffFontFamily));
+
+    m_diffFontSizeSpin = new QSpinBox;
+    m_diffFontSizeSpin->setRange(6, 32);
+    m_diffFontSizeSpin->setValue(current.diffFontSize);
+
+    m_diffBgColorBtn = new ColorButton(current.diffBgColor);
+    m_diffTextColorBtn = new ColorButton(current.diffTextColor);
+
+    diffLayout->addRow("Font family:", m_diffFontCombo);
+    diffLayout->addRow("Font size:", m_diffFontSizeSpin);
+    diffLayout->addRow("Background:", m_diffBgColorBtn);
+    diffLayout->addRow("Text color:", m_diffTextColorBtn);
+    tabs->addTab(diffPage, "Diff");
+
+    // ── Changes tab ─────────────────────────────────────────────────
+    auto *changesPage = new QWidget;
+    auto *changesLayout = new QFormLayout(changesPage);
+
+    m_changesFontCombo = new QFontComboBox;
+    m_changesFontCombo->setFontFilters(QFontComboBox::MonospacedFonts);
+    m_changesFontCombo->setCurrentFont(QFont(current.changesFontFamily));
+
+    m_changesFontSizeSpin = new QSpinBox;
+    m_changesFontSizeSpin->setRange(6, 32);
+    m_changesFontSizeSpin->setValue(current.changesFontSize);
+
+    m_changesBgColorBtn = new ColorButton(current.changesBgColor);
+    m_changesTextColorBtn = new ColorButton(current.changesTextColor);
+
+    changesLayout->addRow("Font family:", m_changesFontCombo);
+    changesLayout->addRow("Font size:", m_changesFontSizeSpin);
+    changesLayout->addRow("Background:", m_changesBgColorBtn);
+    changesLayout->addRow("Text color:", m_changesTextColorBtn);
+    tabs->addTab(changesPage, "Changes");
+
+    mainLayout->addWidget(tabs, 1);
+
+    // When global theme changes, update dependent controls
+    connect(m_globalThemeCombo, &QComboBox::currentTextChanged, this, [this](const QString &theme) {
+        AppSettings tmp;
+        tmp.globalTheme = theme;
+        tmp.applyThemeDefaults();
+        m_editorColorSchemeCombo->setCurrentText(tmp.editorColorScheme);
+        m_browserThemeCombo->setCurrentText(tmp.browserTheme);
+        m_promptBgColorBtn->setColor(tmp.promptBgColor);
+        m_promptTextColorBtn->setColor(tmp.promptTextColor);
+        m_diffBgColorBtn->setColor(tmp.diffBgColor);
+        m_diffTextColorBtn->setColor(tmp.diffTextColor);
+        m_changesBgColorBtn->setColor(tmp.changesBgColor);
+        m_changesTextColorBtn->setColor(tmp.changesTextColor);
+    });
 
     // Buttons
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-
-    mainLayout->addWidget(termGroup);
-    mainLayout->addWidget(editorGroup);
-    mainLayout->addWidget(browserGroup);
-    mainLayout->addWidget(promptGroup);
-    mainLayout->addStretch();
     mainLayout->addWidget(buttons);
 }
 
 AppSettings SettingsDialog::result() const
 {
     AppSettings s;
+    s.globalTheme = m_globalThemeCombo->currentText();
     s.termFontFamily = m_termFontCombo->currentFont().family();
     s.termFontSize = m_termFontSizeSpin->value();
     s.terminalColorScheme = m_termColorSchemeCombo->currentText();
@@ -204,13 +333,21 @@ AppSettings SettingsDialog::result() const
     s.showLineNumbers = m_lineNumbersCheck->isChecked();
     s.editorColorScheme = m_editorColorSchemeCombo->currentText();
     s.syntaxHighlighting = m_syntaxHighlightCheck->isChecked();
-    s.promptFontFamily = m_promptFontCombo->currentFont().family();
-    s.promptFontSize = m_promptFontSizeSpin->value();
     s.browserFontFamily = m_browserFontCombo->currentFont().family();
     s.browserFontSize = m_browserFontSizeSpin->value();
     s.browserTheme = m_browserThemeCombo->currentText();
+    s.promptFontFamily = m_promptFontCombo->currentFont().family();
+    s.promptFontSize = m_promptFontSizeSpin->value();
     s.promptBgColor = m_promptBgColorBtn->color();
     s.promptTextColor = m_promptTextColorBtn->color();
     s.promptSendKey = m_promptSendKeyCombo->currentText();
+    s.diffFontFamily = m_diffFontCombo->currentFont().family();
+    s.diffFontSize = m_diffFontSizeSpin->value();
+    s.diffBgColor = m_diffBgColorBtn->color();
+    s.diffTextColor = m_diffTextColorBtn->color();
+    s.changesFontFamily = m_changesFontCombo->currentFont().family();
+    s.changesFontSize = m_changesFontSizeSpin->value();
+    s.changesBgColor = m_changesBgColorBtn->color();
+    s.changesTextColor = m_changesTextColorBtn->color();
     return s;
 }
