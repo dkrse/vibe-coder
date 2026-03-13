@@ -43,11 +43,20 @@ void FileItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
     QColor textColor;
     QString icon;
 
-    // Check git status first
+    // Check .git directory visibility (grayed)
     bool gitColored = false;
-    if (m_fb && m_fb->hasGit() && !fullPath.isEmpty()) {
+    if (m_fb && !fullPath.isEmpty()) {
+        QString baseName = QFileInfo(fullPath).fileName();
+        if (baseName == ".git" && m_fb->dotGitVisibility() == "grayed") {
+            textColor = dark ? QColor("#5a5a5a") : QColor("#b0b0b0");
+            gitColored = true;
+        }
+    }
+
+    // Check git status
+    if (!gitColored && m_fb && m_fb->hasGit() && !fullPath.isEmpty()) {
         auto status = m_fb->gitStatus(fullPath);
-        if (status == FileBrowser::Ignored) {
+        if (status == FileBrowser::Ignored && m_fb->gitignoreVisibility() != "visible") {
             textColor = dark ? QColor("#5a5a5a") : QColor("#b0b0b0");
             gitColored = true;
         } else if (status == FileBrowser::Modified) {
@@ -83,8 +92,6 @@ void FileItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
                 textColor = dark ? QColor("#a9dc76") : QColor("#116329");
             else if (suffix == "md" || suffix == "txt")
                 textColor = dark ? QColor("#c5c5c5") : QColor("#57606a");
-            else if (name.startsWith("."))
-                textColor = dark ? QColor("#858585") : QColor("#8b949e");
             else
                 textColor = dark ? QColor("#d4d4d4") : QColor("#24292f");
         }
@@ -105,6 +112,63 @@ QSize FileItemDelegate::sizeHint(const QStyleOptionViewItem &option,
     return s;
 }
 
+// ── FileBrowserProxy ────────────────────────────────────────────────
+
+FileBrowserProxy::FileBrowserProxy(FileBrowser *fb, QObject *parent)
+    : QSortFilterProxyModel(parent), m_fb(fb)
+{
+}
+
+void FileBrowserProxy::refresh()
+{
+    beginFilterChange();
+    endFilterChange();
+}
+
+void FileBrowserProxy::notifyAllChanged()
+{
+    // Force complete re-layout so delegate repaints all visible items
+    emit layoutChanged();
+}
+
+bool FileBrowserProxy::lessThan(const QModelIndex &left, const QModelIndex &right) const
+{
+    auto *fsModel = qobject_cast<QFileSystemModel *>(sourceModel());
+    if (!fsModel) return QSortFilterProxyModel::lessThan(left, right);
+
+    bool leftDir = fsModel->isDir(left);
+    bool rightDir = fsModel->isDir(right);
+
+    // Directories always come before files
+    if (leftDir != rightDir)
+        return leftDir;
+
+    // Same type: compare names case-insensitively
+    return fsModel->fileName(left).compare(fsModel->fileName(right), Qt::CaseInsensitive) < 0;
+}
+
+bool FileBrowserProxy::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const
+{
+    auto *fsModel = qobject_cast<QFileSystemModel *>(sourceModel());
+    if (!fsModel) return true;
+
+    QModelIndex idx = fsModel->index(sourceRow, 0, sourceParent);
+    QString name = fsModel->fileName(idx);
+    QString fullPath = fsModel->filePath(idx);
+
+    // .git directory
+    if (name == ".git" && m_fb->dotGitVisibility() == "hidden")
+        return false;
+
+    // Gitignored files
+    if (m_fb->gitignoreVisibility() == "hidden" && m_fb->hasGit()) {
+        if (m_fb->gitStatus(fullPath) == FileBrowser::Ignored)
+            return false;
+    }
+
+    return true;
+}
+
 // ── FileBrowser ─────────────────────────────────────────────────────
 
 FileBrowser::FileBrowser(QWidget *parent)
@@ -114,13 +178,17 @@ FileBrowser::FileBrowser(QWidget *parent)
     m_fsModel->setReadOnly(false);
     m_fsModel->setFilter(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot);
 
+    m_proxyModel = new FileBrowserProxy(this, this);
+    m_proxyModel->setSourceModel(m_fsModel);
+    m_proxyModel->setDynamicSortFilter(true);
+
     m_sshModel = new QStandardItemModel(this);
 
     m_delegate = new FileItemDelegate(this);
     m_delegate->setFileBrowser(this);
 
     m_treeView = new QTreeView(this);
-    m_treeView->setModel(m_fsModel);
+    m_treeView->setModel(m_proxyModel);
     m_treeView->setItemDelegate(m_delegate);
     m_treeView->setAnimated(false);
     m_treeView->setSortingEnabled(true);
@@ -163,11 +231,10 @@ FileBrowser::FileBrowser(QWidget *parent)
     // Async git process
     m_gitProc = new QProcess(this);
 
-    // Git status refresh timer — 5s interval to reduce CPU usage
+    // Git status refresh timer — started on demand after git repo is confirmed
     m_gitTimer = new QTimer(this);
-    m_gitTimer->setInterval(5000);
+    m_gitTimer->setInterval(10000);
     connect(m_gitTimer, &QTimer::timeout, this, &FileBrowser::startGitRefresh);
-    m_gitTimer->start();
 
     connect(m_openBtn, &QPushButton::clicked, this, [this]() {
         if (isSshActive()) return; // no local dialog for SSH
@@ -219,14 +286,16 @@ QString FileBrowser::filePath(const QModelIndex &index) const
 {
     if (isSshActive())
         return index.data(FilePathRole).toString();
-    return m_fsModel->filePath(index);
+    QModelIndex srcIdx = m_proxyModel->mapToSource(index);
+    return m_fsModel->filePath(srcIdx);
 }
 
 bool FileBrowser::isDir(const QModelIndex &index) const
 {
     if (isSshActive())
         return index.data(IsDirRole).toBool();
-    return m_fsModel->isDir(index);
+    QModelIndex srcIdx = m_proxyModel->mapToSource(index);
+    return m_fsModel->isDir(srcIdx);
 }
 
 QString FileBrowser::fileName(const QModelIndex &index) const
@@ -247,13 +316,23 @@ void FileBrowser::sshPopulateDir(QStandardItem *parentItem, const QString &dirPa
         QDir::DirsFirst | QDir::Name | QDir::IgnoreCase);
 
     for (const auto &info : entries) {
-        auto *item = new QStandardItem(info.fileName());
-        item->setData(info.absoluteFilePath(), FilePathRole);
+        QString name = info.fileName();
+        QString fullPath = info.absoluteFilePath();
+
+        // Filter .git
+        if (name == ".git" && m_dotGitVis == "hidden")
+            continue;
+
+        // Filter gitignored
+        if (m_gitignoreVis == "hidden" && m_hasGit && gitStatus(fullPath) == Ignored)
+            continue;
+
+        auto *item = new QStandardItem(name);
+        item->setData(fullPath, FilePathRole);
         item->setData(info.isDir(), IsDirRole);
         item->setEditable(false);
 
         if (info.isDir()) {
-            // Add a dummy child so the expand arrow shows
             auto *dummy = new QStandardItem();
             item->appendRow(dummy);
         }
@@ -316,8 +395,16 @@ void FileBrowser::applyStyle()
 
 void FileBrowser::startGitRefresh()
 {
-    if (m_gitBusy) return;
     if (m_currentRoot.isEmpty()) return;
+
+    // Cancel any ongoing git process (e.g. from previous root path)
+    if (m_gitBusy) {
+        disconnect(m_gitProc, nullptr, this, nullptr);
+        if (m_gitProc->state() != QProcess::NotRunning) {
+            m_gitProc->kill();
+            m_gitProc->waitForFinished(200);
+        }
+    }
 
     m_gitBusy = true;
     m_gitProc->setWorkingDirectory(m_currentRoot);
@@ -334,6 +421,7 @@ void FileBrowser::onGitCheckFinished(int exitCode, QProcess::ExitStatus)
 
     if (exitCode != 0) {
         m_hasGit = false;
+        m_gitTimer->stop();
         bool changed = !m_modified.isEmpty() || !m_untracked.isEmpty() || !m_added.isEmpty() || !m_ignored.isEmpty();
         m_modified.clear();
         m_untracked.clear();
@@ -350,6 +438,8 @@ void FileBrowser::onGitCheckFinished(int exitCode, QProcess::ExitStatus)
     }
 
     m_hasGit = true;
+    if (!m_gitTimer->isActive())
+        m_gitTimer->start();
 
     connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, &FileBrowser::onGitRootFinished);
@@ -423,7 +513,9 @@ void FileBrowser::parseGitOutput()
 
     if (changed) {
         rebuildDirCache();
-        m_treeView->viewport()->update();
+        m_proxyModel->refresh();
+        // Repaint after proxy filter change is fully processed
+        QTimer::singleShot(0, m_treeView->viewport(), QOverload<>::of(&QWidget::repaint));
     }
 }
 
@@ -582,15 +674,15 @@ void FileBrowser::setRootPath(const QString &path)
 
         m_treeView->setRootIndex(QModelIndex());
     } else {
-        // Use normal QFileSystemModel
-        if (m_treeView->model() != m_fsModel) {
-            m_treeView->setModel(m_fsModel);
+        // Use normal QFileSystemModel through proxy
+        if (m_treeView->model() != m_proxyModel) {
+            m_treeView->setModel(m_proxyModel);
             m_treeView->hideColumn(1);
             m_treeView->hideColumn(2);
             m_treeView->hideColumn(3);
         }
         QModelIndex rootIndex = m_fsModel->setRootPath(path);
-        m_treeView->setRootIndex(rootIndex);
+        m_treeView->setRootIndex(m_proxyModel->mapFromSource(rootIndex));
     }
 
     m_pathEdit->setText(isSshActive() ? toRemotePath(path) : path);
@@ -640,6 +732,20 @@ void FileBrowser::setTheme(const QString &theme)
         m_textColor = QColor("#24292f");
     }
     applyStyle();
+    m_treeView->viewport()->update();
+}
+
+void FileBrowser::setGitignoreVisibility(const QString &mode)
+{
+    m_gitignoreVis = mode;
+    m_proxyModel->refresh();
+    m_treeView->viewport()->update();
+}
+
+void FileBrowser::setDotGitVisibility(const QString &mode)
+{
+    m_dotGitVis = mode;
+    m_proxyModel->refresh();
     m_treeView->viewport()->update();
 }
 

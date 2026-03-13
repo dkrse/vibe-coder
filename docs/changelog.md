@@ -2,6 +2,63 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.7.0] - 2026-03-13
+
+### Added
+- **Stop button** — sends configurable stop sequence to terminal (default: Ctrl+C `\x03`). Configurable in Settings > Prompt as "Stop sequence" — supports escape sequences (`\x03`, `\x1b`, `\n`)
+- **Find & Replace** — Ctrl+F opens find bar, Ctrl+H opens find & replace in code editor
+  - Yellow highlight of all matches in text (via syntax highlighter overlay)
+  - Yellow markers on vertical scrollbar showing match positions (custom MarkerScrollBar)
+  - Match counter ("3 of 12"), navigate with ▲/▼ or Enter/Shift+Enter
+  - Replace one / Replace All with undo group support
+  - Escape closes find bar and clears highlights
+  - Find bar respects dark/light editor theme
+- **Undo/Redo** — built-in QPlainTextEdit support (Ctrl+Z / Ctrl+Shift+Z)
+- **Unsaved changes tracking** — `●` marker in tab title when file content differs from saved version
+  - Compares actual text content (undo back to original = marker disappears)
+  - Tab close prompts Save / Discard / Cancel dialog
+  - App close prompts Save All / Discard / Cancel when any tab has unsaved changes
+- **Current line highlighting** — configurable per-component in Settings
+  - Editor: Settings > Editor > "Highlight current line"
+  - Prompt: Settings > Prompt > "Highlight current line"
+  - Adapts highlight color to dark/light scheme
+- **Visibility settings** — new Settings > Visibility tab
+  - Gitignored files: visible / grayed / hidden
+  - .git directory: visible / grayed / hidden (default: hidden)
+  - Uses QSortFilterProxyModel for local files, filters in SSH model
+  - Gray coloring only for explicitly configured items (no implicit graying of dotfiles)
+- **Tab context menu** — right-click on tab bar shows:
+  - Close, Close Others, Close All, Close to the Right, Close to the Left
+  - All operations check for unsaved changes before closing
+
+### Performance
+- **Search debouncing** — 200ms delay before scanning document on keystroke (eliminates UI stutter during fast typing)
+- **Syntax highlighter** — `setSearchPattern()` skips `rehighlight()` if pattern unchanged
+- **Search results** — pre-allocated vector with `reserve(256)`, single-pass block iteration
+- **Line number painting** — reuses QString buffer via `setNum()`, caches font metrics and area width
+- **Git polling** — interval increased from 5s to 10s, timer only starts after git repo confirmed, stops when no repo
+- **SSH health check** — interval increased from 5s to 15s (matches sshfs ServerAliveInterval)
+- **File change debouncing** — 300ms debounce for QFileSystemWatcher signals (prevents multiple reloads per save)
+- **Changes monitor** — scan interval increased from 3s to 10s, only scans when widget is visible, directory changes debounced via timer restart
+- **Proxy model** — uses `beginFilterChange()/endFilterChange()` instead of model reset (preserves tree expansion state and scroll position)
+
+### Fixed
+- **Git status on startup** — git refresh for previous root path blocked the refresh for the restored session path (`m_gitBusy` race). Now cancels in-progress git process when root path changes
+- **File browser sorting** — directories now always appear before files (FileBrowserProxy `lessThan()` override with case-insensitive sorting)
+
+### Changed
+- Default settings updated to match current preferences:
+  - Global theme: Light (was Dark)
+  - Terminal: Adwaita Mono 14pt, BlackOnWhite (was Monospace 10pt, Linux)
+  - Editor: Monaco 14pt, Light scheme (was Monospace 10pt, Dark)
+  - File browser: Noto Sans 12pt, Light (was Sans 10pt, Dark)
+  - Prompt: Monospace 14pt, white background (was 10pt, dark background)
+  - Diff/Changes: Monospace 13pt, white background (was 10pt, dark background)
+- Terminal font applied via `setFamily()` + `setStyleHint(QFont::Monospace)` for exact font matching
+- Terminal font reapplied after event loop via `QTimer::singleShot(0)` to override QTermWidget reset
+- Burger menu disabled items now use distinct gray color (`QMenu::item:disabled`)
+- Dotfile coloring removed — files starting with `.` no longer implicitly grayed in file browser
+
 ## [0.6.0] - 2026-03-12
 
 ### Added

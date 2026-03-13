@@ -3,6 +3,12 @@
 #include <QPlainTextEdit>
 #include <QSyntaxHighlighter>
 #include <QRegularExpression>
+#include <QWidget>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QLabel>
+#include <QScrollBar>
+#include <QTimer>
 
 // --- Line number area ---
 
@@ -20,6 +26,55 @@ private:
     CodeEditor *m_editor;
 };
 
+// --- Custom scrollbar with match markers ---
+
+class MarkerScrollBar : public QScrollBar {
+    Q_OBJECT
+public:
+    explicit MarkerScrollBar(Qt::Orientation orientation, QWidget *parent = nullptr);
+    void setMatchPositions(const QVector<double> &positions); // 0.0–1.0
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
+private:
+    QVector<double> m_positions;
+};
+
+// --- Find/Replace bar ---
+
+class FindReplaceBar : public QWidget {
+    Q_OBJECT
+public:
+    explicit FindReplaceBar(QWidget *parent = nullptr);
+
+    QString searchText() const;
+    QString replaceText() const;
+    void focusSearch();
+    void setShowReplace(bool show);
+    void setMatchInfo(int current, int total);
+    void setDarkTheme(bool dark);
+
+signals:
+    void searchChanged(const QString &text);
+    void findNext();
+    void findPrev();
+    void replaceOne();
+    void replaceAll();
+    void closed();
+
+private:
+    QLineEdit *m_searchEdit;
+    QLineEdit *m_replaceEdit;
+    QPushButton *m_replaceBtn;
+    QPushButton *m_replaceAllBtn;
+    QLabel *m_matchLabel;
+    QPushButton *m_toggleReplaceBtn;
+    bool m_replaceVisible = false;
+
+    void updateReplaceVisibility();
+};
+
 // --- Syntax highlighter ---
 
 struct HighlightRule {
@@ -35,6 +90,8 @@ public:
     void setLanguage(const QString &lang);
     void setDarkTheme(bool dark);
 
+    void setSearchPattern(const QString &text);
+
 protected:
     void highlightBlock(const QString &text) override;
 
@@ -48,6 +105,9 @@ private:
     QRegularExpression m_commentStartExpr;
     QRegularExpression m_commentEndExpr;
     QTextCharFormat m_multiLineCommentFormat;
+
+    QString m_searchText;
+    QTextCharFormat m_searchFormat;
 };
 
 // --- Code editor with line numbers ---
@@ -65,9 +125,17 @@ public:
 
     void setEditorColorScheme(const QString &scheme);
     SyntaxHighlighter *highlighter() const { return m_highlighter; }
+    bool isDarkScheme() const { return m_darkScheme; }
+
+    void setHighlightCurrentLine(bool enable);
+    bool highlightCurrentLine() const { return m_highlightLine; }
+
+    void showFindBar(bool withReplace = false);
+    void hideFindBar();
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 private slots:
     void updateLineNumberAreaWidth(int newBlockCount);
@@ -77,4 +145,22 @@ private:
     LineNumberArea *m_lineNumberArea;
     SyntaxHighlighter *m_highlighter;
     bool m_showLineNumbers = true;
+    bool m_darkScheme = true;
+    bool m_highlightLine = false;
+    void updateCurrentLineHighlight();
+
+    FindReplaceBar *m_findBar;
+    MarkerScrollBar *m_markerScrollBar;
+    QTimer *m_searchDebounce;
+    QString m_pendingSearch;
+
+    void onSearchChanged(const QString &text);
+    void doSearch();
+    void onFindNext();
+    void onFindPrev();
+    void onReplaceOne();
+    void onReplaceAll();
+    void positionFindBar();
+    int m_currentMatch = -1;
+    int m_totalMatches = 0;
 };

@@ -12,8 +12,10 @@
 #include <QSet>
 #include <QColor>
 #include <QProcess>
+#include <QSortFilterProxyModel>
 
 class FileBrowser;
+class FileBrowserProxy;
 
 // Custom roles for SSH model items
 enum SshModelRoles {
@@ -65,6 +67,12 @@ public:
     GitStatus gitStatus(const QString &filePath) const;
     bool hasGit() const { return m_hasGit; }
 
+    // Visibility: "visible", "grayed", "hidden"
+    void setGitignoreVisibility(const QString &mode);
+    void setDotGitVisibility(const QString &mode);
+    QString gitignoreVisibility() const { return m_gitignoreVis; }
+    QString dotGitVisibility() const { return m_dotGitVis; }
+
 signals:
     void fileOpened(const QString &filePath);
     void rootPathChanged(const QString &path);
@@ -85,6 +93,7 @@ private:
     void onSshItemExpanded(const QModelIndex &index);
 
     QFileSystemModel *m_fsModel;
+    FileBrowserProxy *m_proxyModel;
     QStandardItemModel *m_sshModel;
     QString m_currentRoot;
 
@@ -113,7 +122,27 @@ private:
     QString m_gitStatusOutput;
     QString m_gitRoot;
 
+    // Visibility
+    QString m_gitignoreVis = "grayed";
+    QString m_dotGitVis = "hidden";
+
     // SSH
     QString m_sshMountPoint;
     QString m_sshRemotePrefix;
+};
+
+// Proxy model to filter hidden items in file browser
+class FileBrowserProxy : public QSortFilterProxyModel {
+    Q_OBJECT
+public:
+    explicit FileBrowserProxy(FileBrowser *fb, QObject *parent = nullptr);
+    void refresh();
+    void notifyAllChanged();
+
+protected:
+    bool filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const override;
+    bool lessThan(const QModelIndex &left, const QModelIndex &right) const override;
+
+private:
+    FileBrowser *m_fb;
 };

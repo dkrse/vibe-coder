@@ -8,9 +8,9 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 
 ## Features
 
-- **File Browser** — Zed editor-style tree view with git status colors (modified, untracked, added, ignored), dark/light theme, context menu (new file/dir, rename, delete). Works over SSH via sshfs
-- **Code Editor** — Tabbed editor with syntax highlighting for C/C++, Python, JavaScript/TypeScript, Rust. Line numbers, dark/light scheme, Ctrl+S save. Split view (horizontal/vertical)
-- **Dual Terminals** — AI-terminal (top, sends prompts) + general Terminal (bottom tab). Both follow file browser directory and support SSH
+- **File Browser** — Zed editor-style tree view with git status colors (modified, untracked, added, ignored), dark/light theme, context menu (new file/dir, rename, delete). Configurable visibility for gitignored files and .git directory (visible/grayed/hidden). Works over SSH via sshfs
+- **Code Editor** — Tabbed editor with syntax highlighting for C/C++, Python, JavaScript/TypeScript, Rust. Line numbers, dark/light scheme, Ctrl+S save. Split view (horizontal/vertical). Find & Replace (Ctrl+F/Ctrl+H) with yellow match highlighting and scrollbar markers. Undo/Redo. Unsaved changes tracking with `●` tab marker. Configurable current line highlighting
+- **Dual Terminals** — AI-terminal (top, sends prompts) + general Terminal (bottom tab). Both follow file browser directory and support SSH. Stop button sends configurable stop sequence (default: Ctrl+C)
 - **Prompt System** — Prompt input with configurable send key (Enter / Ctrl+Enter). Shift modifier = send + save. Saved/recurring prompts per project
 - **Project Management** — `.LLM/instructions.json` stores project metadata, numbered prompt history, and saved prompt IDs. Auto-creates `.gitignore`
 - **Git Integration** — Async one-click commit (auto-init + add + commit). Auto-filters sensitive files (.env, *.pem, *.key). Async git status polling for file browser colors (including ignored files)
@@ -18,7 +18,7 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 - **SSH Remote Development**
   - Multiple simultaneous SSH profiles with profile switcher
   - sshfs-based file browsing (synchronous QStandardItemModel for reliability)
-  - Auto-reconnect on connection loss (health check every 5s, up to 3 retries)
+  - Auto-reconnect on connection loss (health check every 15s, up to 3 retries)
   - File upload/download via sshfs mount with rsync progress bar
   - SSH port forwarding management (local -L / remote -R tunnels)
   - Saved connections (passwords never persisted)
@@ -26,7 +26,7 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 - **Command Palette** — Ctrl+Shift+P for fuzzy-searchable commands (split view, focus, themes, diff refresh)
 - **Notifications** — Centralized log with Info/Warning/Error/Success levels and unread badge
 - **Global Themes** — Dark, Light, Monokai, Solarized Dark, Solarized Light, Nord — cascades to all components
-- **Settings** — Tabbed dialog with configurable fonts, sizes, color schemes, and themes for all components (terminal, editor, file browser, prompt, diff viewer, changes monitor)
+- **Settings** — Tabbed dialog with configurable fonts, sizes, color schemes, and themes for all components (terminal, editor, file browser, prompt, diff viewer, changes monitor, visibility)
 - **Session Persistence** — Remembers window size, splitter positions, open files, and active tab
 
 ## Installation
@@ -93,7 +93,7 @@ make -j$(nproc)
 ## Usage
 
 1. **Open a directory** — Use the path bar or `...` button in the file browser
-2. **Edit files** — Click a file to open it in a new tab. Ctrl+S to save
+2. **Edit files** — Click a file to open it in a new tab. Ctrl+S to save. Ctrl+F to find, Ctrl+H to find & replace. Ctrl+Z / Ctrl+Shift+Z for undo/redo
 3. **Use the terminal** — AI-terminal (top) for prompts, Terminal tab (bottom) for general use
 4. **Send prompts** — Type in the prompt area, press Ctrl+Enter (or Enter, configurable in Settings)
 5. **Save prompts** — Shift+Enter (or Ctrl+Shift+Enter) sends and saves prompt for reuse

@@ -19,6 +19,7 @@
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QTimer>
+#include <QCloseEvent>
 
 static QString langFromSuffix(const QString &suffix)
 {
@@ -57,12 +58,44 @@ MainWindow::MainWindow(QWidget *parent)
     m_tabWidget->setTabsClosable(true);
     connect(m_tabWidget, &QTabWidget::tabCloseRequested, this, [this](int index) {
         if (index == 0) return;
+        if (!maybeSaveTab(m_tabWidget, index)) return;
         QString path = m_tabWidget->tabToolTip(index);
         if (!path.isEmpty())
             m_fileWatcher->removePath(path);
         QWidget *w = m_tabWidget->widget(index);
         m_tabWidget->removeTab(index);
-        w->deleteLater(); // P0: fix memory leak — removeTab does not delete the widget
+        w->deleteLater();
+    });
+
+    // Tab context menu
+    m_tabWidget->tabBar()->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_tabWidget->tabBar(), &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        int clickedIndex = m_tabWidget->tabBar()->tabAt(pos);
+        if (clickedIndex < 0) return;
+
+        QMenu menu(this);
+        if (clickedIndex > 0) {
+            menu.addAction("Close", this, [this, clickedIndex]() {
+                closeTab(m_tabWidget, clickedIndex);
+            });
+        }
+        menu.addAction("Close Others", this, [this, clickedIndex]() {
+            closeOtherTabs(m_tabWidget, clickedIndex);
+        });
+        menu.addAction("Close All", this, [this]() {
+            closeAllTabs(m_tabWidget);
+        });
+        if (clickedIndex < m_tabWidget->count() - 1) {
+            menu.addAction("Close to the Right", this, [this, clickedIndex]() {
+                closeTabsToTheRight(m_tabWidget, clickedIndex);
+            });
+        }
+        if (clickedIndex > 1) {
+            menu.addAction("Close to the Left", this, [this, clickedIndex]() {
+                closeTabsToTheLeft(m_tabWidget, clickedIndex);
+            });
+        }
+        menu.exec(m_tabWidget->tabBar()->mapToGlobal(pos));
     });
 
     // Hamburger menu
@@ -127,10 +160,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *btnLayout = new QHBoxLayout;
     m_sendBtn = new QPushButton("Send");
+    m_stopBtn = new QPushButton("Stop");
+    m_stopBtn->setToolTip("Stop model generation");
     m_commitBtn = new QPushButton("Commit");
     m_savePromptBtn = new QPushButton("Save Prompt");
     m_savePromptBtn->setToolTip("Save current prompt for reuse");
     btnLayout->addWidget(m_sendBtn);
+    btnLayout->addWidget(m_stopBtn);
     btnLayout->addWidget(m_commitBtn);
     btnLayout->addWidget(m_savePromptBtn);
     btnLayout->addStretch();
@@ -233,13 +269,25 @@ MainWindow::MainWindow(QWidget *parent)
     statusBar()->addPermanentWidget(m_transferProgress);
     statusBar()->addPermanentWidget(m_statusInfoLabel);
 
-    // File watcher
+    // File watcher with debouncing
     m_fileWatcher = new QFileSystemWatcher(this);
-    connect(m_fileWatcher, &QFileSystemWatcher::fileChanged,
-            this, &MainWindow::onFileChanged);
+    m_fileChangeDebounce = new QTimer(this);
+    m_fileChangeDebounce->setSingleShot(true);
+    m_fileChangeDebounce->setInterval(300);
+    connect(m_fileWatcher, &QFileSystemWatcher::fileChanged, this, [this](const QString &path) {
+        m_pendingFileChanges.insert(path);
+        m_fileChangeDebounce->start();
+    });
+    connect(m_fileChangeDebounce, &QTimer::timeout, this, [this]() {
+        QSet<QString> paths = m_pendingFileChanges;
+        m_pendingFileChanges.clear();
+        for (const QString &path : paths)
+            onFileChanged(path);
+    });
 
     connect(m_fileBrowser, &FileBrowser::fileOpened, this, &MainWindow::onFileOpened);
     connect(m_sendBtn, &QPushButton::clicked, this, &MainWindow::onSendClicked);
+    connect(m_stopBtn, &QPushButton::clicked, this, &MainWindow::onStopClicked);
     connect(m_commitBtn, &QPushButton::clicked, this, &MainWindow::onCommitClicked);
     connect(m_editor, &PromptEdit::sendRequested, this, &MainWindow::onSendClicked);
     connect(m_editor, &PromptEdit::saveAndSendRequested, this, [this]() {
@@ -399,6 +447,17 @@ MainWindow::MainWindow(QWidget *parent)
     applySettings();
     applyGlobalTheme();
     restoreSession();
+
+    // QTermWidget resets font after show/startShellProgram — reapply after event loop
+    QTimer::singleShot(0, this, [this]() {
+        QFont termFont;
+        termFont.setFamily(m_settings.termFontFamily);
+        termFont.setPointSize(m_settings.termFontSize);
+        termFont.setStyleHint(QFont::Monospace);
+        termFont.setFixedPitch(true);
+        m_terminal->terminal()->setTerminalFont(termFont);
+        m_bottomTerminal->terminal()->setTerminalFont(termFont);
+    });
 
     m_terminal->terminal()->changeDir(m_fileBrowser->rootPath());
     m_bottomTerminal->terminal()->changeDir(m_fileBrowser->rootPath());
@@ -590,6 +649,7 @@ void MainWindow::applySettingsToEditor(CodeEditor *editor, const QString &lang)
         editor->highlighter()->setLanguage("");
     }
     editor->setEditorColorScheme(m_settings.editorColorScheme);
+    editor->setHighlightCurrentLine(m_settings.editorHighlightLine);
 }
 
 void MainWindow::updateStatusBar()
@@ -617,7 +677,11 @@ void MainWindow::updateStatusBar()
 
 void MainWindow::applySettings()
 {
-    QFont termFont(m_settings.termFontFamily, m_settings.termFontSize);
+    QFont termFont;
+    termFont.setFamily(m_settings.termFontFamily);
+    termFont.setPointSize(m_settings.termFontSize);
+    termFont.setStyleHint(QFont::Monospace);
+    termFont.setFixedPitch(true);
     m_terminal->terminal()->setTerminalFont(termFont);
     m_terminal->terminal()->setColorScheme(m_settings.terminalColorScheme);
     m_bottomTerminal->terminal()->setTerminalFont(termFont);
@@ -630,10 +694,13 @@ void MainWindow::applySettings()
             .arg(m_settings.promptBgColor.name())
             .arg(m_settings.promptTextColor.name()));
     m_editor->setSendOnEnter(m_settings.promptSendKey == "Enter");
+    m_editor->setHighlightCurrentLine(m_settings.promptHighlightLine);
 
     QFont browserFont(m_settings.browserFontFamily, m_settings.browserFontSize);
     m_fileBrowser->setFont(browserFont);
     m_fileBrowser->setTheme(m_settings.browserTheme);
+    m_fileBrowser->setGitignoreVisibility(m_settings.gitignoreVisibility);
+    m_fileBrowser->setDotGitVisibility(m_settings.dotGitVisibility);
 
     // Diff viewer
     QFont diffFont(m_settings.diffFontFamily, m_settings.diffFontSize);
@@ -737,6 +804,32 @@ void MainWindow::onFileOpened(const QString &filePath)
     }
 
     connect(editor, &QPlainTextEdit::cursorPositionChanged, this, &MainWindow::updateStatusBar);
+
+    // Track modification — mark tab with ● when content differs from saved
+    editor->document()->setModified(false);
+    editor->setProperty("savedContent", editor->toPlainText());
+    connect(editor->document(), &QTextDocument::contentsChanged, this, [this, editor]() {
+        QString saved = editor->property("savedContent").toString();
+        bool dirty = (editor->toPlainText() != saved);
+        editor->document()->setModified(dirty);
+        for (int i = 1; i < m_tabWidget->count(); ++i) {
+            if (m_tabWidget->widget(i) == editor) {
+                QString name = QFileInfo(m_tabWidget->tabToolTip(i)).fileName();
+                m_tabWidget->setTabText(i, dirty ? "● " + name : name);
+                return;
+            }
+        }
+        if (m_splitTabWidget) {
+            for (int i = 0; i < m_splitTabWidget->count(); ++i) {
+                if (m_splitTabWidget->widget(i) == editor) {
+                    QString name = QFileInfo(m_splitTabWidget->tabToolTip(i)).fileName();
+                    m_splitTabWidget->setTabText(i, dirty ? "● " + name : name);
+                    return;
+                }
+            }
+        }
+    });
+
     updateStatusBar();
 }
 
@@ -762,6 +855,9 @@ void MainWindow::saveCurrentFile()
                 QString("Failed to write to '%1'.").arg(filePath));
         }
         file.close();
+        editor->setProperty("savedContent", editor->toPlainText());
+        editor->document()->setModified(false);
+        m_tabWidget->setTabText(idx, QFileInfo(filePath).fileName());
         m_statusFileLabel->setText(QString("Saved: %1").arg(filePath));
     } else {
         QMessageBox::warning(this, "Save Error",
@@ -769,6 +865,155 @@ void MainWindow::saveCurrentFile()
     }
 
     m_fileWatcher->addPath(filePath);
+}
+
+bool MainWindow::maybeSaveTab(QTabWidget *tabWidget, int index)
+{
+    auto *editor = qobject_cast<CodeEditor *>(tabWidget->widget(index));
+    if (!editor || !editor->document()->isModified())
+        return true;
+
+    QString filePath = tabWidget->tabToolTip(index);
+    QString fileName = QFileInfo(filePath).fileName();
+
+    auto reply = QMessageBox::question(this, "Unsaved Changes",
+        QString("'%1' has unsaved changes.\n\nDo you want to save before closing?").arg(fileName),
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
+        QMessageBox::Save);
+
+    if (reply == QMessageBox::Cancel)
+        return false;
+
+    if (reply == QMessageBox::Save) {
+        if (filePath.isEmpty())
+            return false;
+        m_fileWatcher->removePath(filePath);
+        QFile file(filePath);
+        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out(&file);
+            out << editor->toPlainText();
+            file.close();
+            editor->setProperty("savedContent", editor->toPlainText());
+            editor->document()->setModified(false);
+        } else {
+            QMessageBox::warning(this, "Save Error",
+                QString("Cannot save '%1':\n%2").arg(filePath, file.errorString()));
+            return false;
+        }
+        m_fileWatcher->addPath(filePath);
+    }
+
+    return true; // Discard or saved successfully
+}
+
+bool MainWindow::hasUnsavedChanges()
+{
+    for (int i = 1; i < m_tabWidget->count(); ++i) {
+        auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(i));
+        if (editor && editor->document()->isModified())
+            return true;
+    }
+    if (m_splitTabWidget) {
+        for (int i = 0; i < m_splitTabWidget->count(); ++i) {
+            auto *editor = qobject_cast<CodeEditor *>(m_splitTabWidget->widget(i));
+            if (editor && editor->document()->isModified())
+                return true;
+        }
+    }
+    return false;
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (hasUnsavedChanges()) {
+        auto reply = QMessageBox::question(this, "Unsaved Changes",
+            "You have unsaved changes. What do you want to do?",
+            QMessageBox::SaveAll | QMessageBox::Discard | QMessageBox::Cancel,
+            QMessageBox::SaveAll);
+
+        if (reply == QMessageBox::Cancel) {
+            event->ignore();
+            return;
+        }
+
+        if (reply == QMessageBox::SaveAll) {
+            // Save all modified tabs
+            for (int i = 1; i < m_tabWidget->count(); ++i) {
+                auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(i));
+                if (editor && editor->document()->isModified()) {
+                    QString filePath = m_tabWidget->tabToolTip(i);
+                    if (!filePath.isEmpty()) {
+                        QFile file(filePath);
+                        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                            QTextStream out(&file);
+                            out << editor->toPlainText();
+                            file.close();
+                            editor->document()->setModified(false);
+                        }
+                    }
+                }
+            }
+            if (m_splitTabWidget) {
+                for (int i = 0; i < m_splitTabWidget->count(); ++i) {
+                    auto *editor = qobject_cast<CodeEditor *>(m_splitTabWidget->widget(i));
+                    if (editor && editor->document()->isModified()) {
+                        QString filePath = m_splitTabWidget->tabToolTip(i);
+                        if (!filePath.isEmpty()) {
+                            QFile file(filePath);
+                            if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                                QTextStream out(&file);
+                                out << editor->toPlainText();
+                                file.close();
+                                editor->document()->setModified(false);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Discard: just continue closing
+    }
+
+    event->accept();
+}
+
+void MainWindow::closeTab(QTabWidget *tabWidget, int index)
+{
+    if (index == 0) return; // never close AI-terminal
+    if (!maybeSaveTab(tabWidget, index)) return;
+    QString path = tabWidget->tabToolTip(index);
+    if (!path.isEmpty())
+        m_fileWatcher->removePath(path);
+    QWidget *w = tabWidget->widget(index);
+    tabWidget->removeTab(index);
+    w->deleteLater();
+}
+
+void MainWindow::closeOtherTabs(QTabWidget *tabWidget, int keepIndex)
+{
+    // Close tabs after keepIndex first (reverse), then before
+    for (int i = tabWidget->count() - 1; i > keepIndex; --i)
+        closeTab(tabWidget, i);
+    for (int i = keepIndex - 1; i >= 1; --i)
+        closeTab(tabWidget, i);
+}
+
+void MainWindow::closeAllTabs(QTabWidget *tabWidget)
+{
+    for (int i = tabWidget->count() - 1; i >= 1; --i)
+        closeTab(tabWidget, i);
+}
+
+void MainWindow::closeTabsToTheRight(QTabWidget *tabWidget, int fromIndex)
+{
+    for (int i = tabWidget->count() - 1; i > fromIndex; --i)
+        closeTab(tabWidget, i);
+}
+
+void MainWindow::closeTabsToTheLeft(QTabWidget *tabWidget, int fromIndex)
+{
+    for (int i = fromIndex - 1; i >= 1; --i)
+        closeTab(tabWidget, i);
 }
 
 void MainWindow::onSendClicked()
@@ -781,6 +1026,41 @@ void MainWindow::onSendClicked()
         m_editor->clear();
         m_tabWidget->setCurrentIndex(0);
     }
+}
+
+void MainWindow::onStopClicked()
+{
+    QString seq = m_settings.modelStopSequence;
+    // Parse escape sequences: \x03 -> Ctrl+C, \x1b -> Escape, \n -> newline
+    QString resolved;
+    for (int i = 0; i < seq.size(); ++i) {
+        if (seq[i] == '\\' && i + 1 < seq.size()) {
+            QChar next = seq[i + 1];
+            if (next == 'x' && i + 3 < seq.size()) {
+                bool ok;
+                int code = seq.mid(i + 2, 2).toInt(&ok, 16);
+                if (ok) {
+                    resolved += QChar(code);
+                    i += 3;
+                    continue;
+                }
+            } else if (next == 'n') {
+                resolved += '\n';
+                ++i;
+                continue;
+            } else if (next == 't') {
+                resolved += '\t';
+                ++i;
+                continue;
+            } else if (next == '\\') {
+                resolved += '\\';
+                ++i;
+                continue;
+            }
+        }
+        resolved += seq[i];
+    }
+    m_terminal->sendText(resolved);
 }
 
 void MainWindow::onCommitClicked()
@@ -1004,6 +1284,7 @@ void MainWindow::splitEditorHorizontal()
     m_splitTabWidget = new QTabWidget;
     m_splitTabWidget->setTabsClosable(true);
     connect(m_splitTabWidget, &QTabWidget::tabCloseRequested, this, [this](int index) {
+        if (!maybeSaveTab(m_splitTabWidget, index)) return;
         QWidget *w = m_splitTabWidget->widget(index);
         QString path = m_splitTabWidget->tabToolTip(index);
         if (!path.isEmpty())
@@ -1045,6 +1326,7 @@ void MainWindow::splitEditorVertical()
     m_splitTabWidget = new QTabWidget;
     m_splitTabWidget->setTabsClosable(true);
     connect(m_splitTabWidget, &QTabWidget::tabCloseRequested, this, [this](int index) {
+        if (!maybeSaveTab(m_splitTabWidget, index)) return;
         QWidget *w = m_splitTabWidget->widget(index);
         QString path = m_splitTabWidget->tabToolTip(index);
         if (!path.isEmpty())
@@ -1187,6 +1469,7 @@ void MainWindow::applyGlobalTheme()
         "QToolButton { color: %2; }"
         "QMenu { background: %1; color: %2; border: 1px solid %4; }"
         "QMenu::item:selected { background: %6; }"
+        "QMenu::item:disabled { color: %4; }"
         "QProgressBar { background: %3; color: %2; border: 1px solid %4; }"
         "QProgressBar::chunk { background: %6; }"
     ).arg(bgColor, textColor, altBg, borderColor, hoverBg, selectedBg);

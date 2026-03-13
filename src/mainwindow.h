@@ -36,6 +36,7 @@ public:
 private slots:
     void onFileOpened(const QString &filePath);
     void onSendClicked();
+    void onStopClicked();
     void onCommitClicked();
     void onSettingsTriggered();
     void onCreateProject();
@@ -57,6 +58,7 @@ private:
     FileBrowser *m_fileBrowser;
     PromptEdit *m_editor;
     QPushButton *m_sendBtn;
+    QPushButton *m_stopBtn;
     QPushButton *m_commitBtn;
     QPushButton *m_savePromptBtn;
     QComboBox *m_savedPromptsCombo;
@@ -74,6 +76,8 @@ private:
 
     Project m_project;
     QFileSystemWatcher *m_fileWatcher;
+    QTimer *m_fileChangeDebounce;
+    QSet<QString> m_pendingFileChanges;
 
     QSplitter *m_mainSplitter;
     QSplitter *m_rightSplitter;
@@ -81,6 +85,16 @@ private:
     void saveCurrentFile();
     void saveSession();
     void restoreSession();
+    bool maybeSaveTab(QTabWidget *tabWidget, int index);
+    bool hasUnsavedChanges();
+    void closeTab(QTabWidget *tabWidget, int index);
+    void closeOtherTabs(QTabWidget *tabWidget, int keepIndex);
+    void closeAllTabs(QTabWidget *tabWidget);
+    void closeTabsToTheRight(QTabWidget *tabWidget, int fromIndex);
+    void closeTabsToTheLeft(QTabWidget *tabWidget, int fromIndex);
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
 
     // SSH
     SshManager *m_sshManager;

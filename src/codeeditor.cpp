@@ -3,6 +3,10 @@
 #include <QPainter>
 #include <QTextBlock>
 #include <QFileInfo>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QKeyEvent>
+#include <QStyleOptionSlider>
 
 // ── LineNumberArea ──────────────────────────────────────────────────
 
@@ -19,32 +23,209 @@ void LineNumberArea::paintEvent(QPaintEvent *event)
     m_editor->lineNumberAreaPaintEvent(event);
 }
 
+// ── MarkerScrollBar ─────────────────────────────────────────────────
+
+MarkerScrollBar::MarkerScrollBar(Qt::Orientation orientation, QWidget *parent)
+    : QScrollBar(orientation, parent)
+{
+}
+
+void MarkerScrollBar::setMatchPositions(const QVector<double> &positions)
+{
+    m_positions = positions;
+    update();
+}
+
+void MarkerScrollBar::paintEvent(QPaintEvent *event)
+{
+    QScrollBar::paintEvent(event);
+
+    if (m_positions.isEmpty()) return;
+
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, false);
+
+    // Get the groove area (skip buttons at top/bottom)
+    QStyleOptionSlider opt;
+    initStyleOption(&opt);
+    QRect grooveRect = style()->subControlRect(QStyle::CC_ScrollBar, &opt, QStyle::SC_ScrollBarGroove, this);
+
+    QColor markerColor(255, 230, 0, 220);
+
+    for (double pos : m_positions) {
+        int y = grooveRect.top() + static_cast<int>(pos * (grooveRect.height() - 2));
+        p.fillRect(grooveRect.left() + 1, y, grooveRect.width() - 2, 2, markerColor);
+    }
+}
+
+// ── FindReplaceBar ──────────────────────────────────────────────────
+
+FindReplaceBar::FindReplaceBar(QWidget *parent)
+    : QWidget(parent)
+{
+    auto *mainLayout = new QVBoxLayout(this);
+    mainLayout->setContentsMargins(4, 2, 4, 2);
+    mainLayout->setSpacing(2);
+
+    // Search row
+    auto *searchRow = new QHBoxLayout;
+    searchRow->setSpacing(4);
+
+    m_toggleReplaceBtn = new QPushButton("▶");
+    m_toggleReplaceBtn->setFixedSize(20, 22);
+    m_toggleReplaceBtn->setFlat(true);
+    m_toggleReplaceBtn->setToolTip("Toggle Replace");
+    connect(m_toggleReplaceBtn, &QPushButton::clicked, this, [this]() {
+        m_replaceVisible = !m_replaceVisible;
+        updateReplaceVisibility();
+    });
+
+    m_searchEdit = new QLineEdit;
+    m_searchEdit->setPlaceholderText("Find...");
+    m_searchEdit->setMinimumWidth(200);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, &FindReplaceBar::searchChanged);
+    connect(m_searchEdit, &QLineEdit::returnPressed, this, &FindReplaceBar::findNext);
+
+    m_matchLabel = new QLabel;
+    m_matchLabel->setMinimumWidth(60);
+
+    auto *prevBtn = new QPushButton("▲");
+    prevBtn->setFixedSize(24, 22);
+    prevBtn->setToolTip("Previous match (Shift+Enter)");
+    connect(prevBtn, &QPushButton::clicked, this, &FindReplaceBar::findPrev);
+
+    auto *nextBtn = new QPushButton("▼");
+    nextBtn->setFixedSize(24, 22);
+    nextBtn->setToolTip("Next match (Enter)");
+    connect(nextBtn, &QPushButton::clicked, this, &FindReplaceBar::findNext);
+
+    auto *closeBtn = new QPushButton("✕");
+    closeBtn->setFixedSize(24, 22);
+    closeBtn->setFlat(true);
+    connect(closeBtn, &QPushButton::clicked, this, &FindReplaceBar::closed);
+
+    searchRow->addWidget(m_toggleReplaceBtn);
+    searchRow->addWidget(m_searchEdit, 1);
+    searchRow->addWidget(m_matchLabel);
+    searchRow->addWidget(prevBtn);
+    searchRow->addWidget(nextBtn);
+    searchRow->addWidget(closeBtn);
+
+    mainLayout->addLayout(searchRow);
+
+    // Replace row
+    auto *replaceRow = new QHBoxLayout;
+    replaceRow->setSpacing(4);
+
+    replaceRow->addSpacing(24);
+    m_replaceEdit = new QLineEdit;
+    m_replaceEdit->setPlaceholderText("Replace...");
+    replaceRow->addWidget(m_replaceEdit, 1);
+
+    m_replaceBtn = new QPushButton("Replace");
+    m_replaceBtn->setFixedHeight(22);
+    connect(m_replaceBtn, &QPushButton::clicked, this, &FindReplaceBar::replaceOne);
+
+    m_replaceAllBtn = new QPushButton("Replace All");
+    m_replaceAllBtn->setFixedHeight(22);
+    connect(m_replaceAllBtn, &QPushButton::clicked, this, &FindReplaceBar::replaceAll);
+
+    replaceRow->addWidget(m_replaceBtn);
+    replaceRow->addWidget(m_replaceAllBtn);
+    replaceRow->addSpacing(24);
+
+    mainLayout->addLayout(replaceRow);
+
+    m_replaceVisible = false;
+    updateReplaceVisibility();
+    setDarkTheme(true);
+}
+
+QString FindReplaceBar::searchText() const { return m_searchEdit->text(); }
+QString FindReplaceBar::replaceText() const { return m_replaceEdit->text(); }
+
+void FindReplaceBar::focusSearch()
+{
+    m_searchEdit->setFocus();
+    m_searchEdit->selectAll();
+}
+
+void FindReplaceBar::setShowReplace(bool show)
+{
+    m_replaceVisible = show;
+    updateReplaceVisibility();
+}
+
+void FindReplaceBar::setMatchInfo(int current, int total)
+{
+    if (total == 0)
+        m_matchLabel->setText("No results");
+    else
+        m_matchLabel->setText(QString("%1 of %2").arg(current).arg(total));
+}
+
+void FindReplaceBar::updateReplaceVisibility()
+{
+    m_replaceEdit->setVisible(m_replaceVisible);
+    m_replaceBtn->setVisible(m_replaceVisible);
+    m_replaceAllBtn->setVisible(m_replaceVisible);
+    m_toggleReplaceBtn->setText(m_replaceVisible ? "▼" : "▶");
+}
+
+void FindReplaceBar::setDarkTheme(bool dark)
+{
+    if (dark) {
+        setStyleSheet(
+            "FindReplaceBar { background: #2d2d2d; border-bottom: 1px solid #555; }"
+            "QLineEdit { background: #3c3c3c; color: #d4d4d4; border: 1px solid #555; padding: 2px 4px; }"
+            "QPushButton { background: #3c3c3c; color: #d4d4d4; border: 1px solid #555; padding: 1px 6px; }"
+            "QPushButton:hover { background: #505050; }"
+            "QLabel { color: #999; font-size: 11px; }"
+        );
+    } else {
+        setStyleSheet(
+            "FindReplaceBar { background: #f0f0f0; border-bottom: 1px solid #ccc; }"
+            "QLineEdit { background: #ffffff; color: #333333; border: 1px solid #bbb; padding: 2px 4px; }"
+            "QPushButton { background: #e0e0e0; color: #333333; border: 1px solid #bbb; padding: 1px 6px; }"
+            "QPushButton:hover { background: #d0d0d0; }"
+            "QLabel { color: #666; font-size: 11px; }"
+        );
+    }
+}
+
 // ── SyntaxHighlighter ───────────────────────────────────────────────
 
 SyntaxHighlighter::SyntaxHighlighter(QTextDocument *parent)
     : QSyntaxHighlighter(parent)
 {
+    m_searchFormat.setBackground(QColor(255, 255, 0, 100));
+    m_searchFormat.setForeground(Qt::black);
 }
 
 void SyntaxHighlighter::setLanguage(const QString &lang)
 {
     m_language = lang.toLower();
     buildRules();
-    // Don't rehighlight here — setDarkTheme or caller will trigger it
 }
 
 void SyntaxHighlighter::setDarkTheme(bool dark)
 {
     m_dark = dark;
     buildRules();
-    rehighlight(); // single rehighlight after both language and theme are set
+    rehighlight();
+}
+
+void SyntaxHighlighter::setSearchPattern(const QString &text)
+{
+    if (m_searchText == text) return;
+    m_searchText = text;
+    rehighlight();
 }
 
 void SyntaxHighlighter::buildRules()
 {
     m_rules.clear();
 
-    // Colors depending on theme
     QColor keywordColor   = m_dark ? QColor("#569cd6") : QColor("#0000ff");
     QColor typeColor      = m_dark ? QColor("#4ec9b0") : QColor("#267f99");
     QColor stringColor    = m_dark ? QColor("#ce9178") : QColor("#a31515");
@@ -78,7 +259,6 @@ void SyntaxHighlighter::buildRules()
 
     m_multiLineCommentFormat = commentFmt;
 
-    // C/C++ keywords
     if (m_language == "c" || m_language == "cpp" || m_language == "h" || m_language == "hpp") {
         QStringList keywords = {
             "auto", "break", "case", "catch", "class", "const", "constexpr",
@@ -104,13 +284,11 @@ void SyntaxHighlighter::buildRules()
         for (const auto &t : types)
             m_rules.append({QRegularExpression("\\b" + t + "\\b"), typeFmt});
 
-        // Preprocessor
         m_rules.append({QRegularExpression("^\\s*#\\s*\\w+.*"), preprocFmt});
 
         m_commentStartExpr = QRegularExpression("/\\*");
         m_commentEndExpr = QRegularExpression("\\*/");
     }
-    // Python
     else if (m_language == "py") {
         QStringList keywords = {
             "and", "as", "assert", "async", "await", "break", "class",
@@ -125,7 +303,6 @@ void SyntaxHighlighter::buildRules()
         m_commentStartExpr = QRegularExpression();
         m_commentEndExpr = QRegularExpression();
     }
-    // JavaScript/TypeScript
     else if (m_language == "js" || m_language == "ts" || m_language == "jsx" || m_language == "tsx") {
         QStringList keywords = {
             "break", "case", "catch", "class", "const", "continue", "debugger",
@@ -141,7 +318,6 @@ void SyntaxHighlighter::buildRules()
         m_commentStartExpr = QRegularExpression("/\\*");
         m_commentEndExpr = QRegularExpression("\\*/");
     }
-    // Rust
     else if (m_language == "rs") {
         QStringList keywords = {
             "as", "break", "const", "continue", "crate", "else", "enum",
@@ -157,22 +333,13 @@ void SyntaxHighlighter::buildRules()
         m_commentEndExpr = QRegularExpression("\\*/");
     }
 
-    // Common rules for all languages
-
-    // Function calls
+    // Common rules
     m_rules.append({QRegularExpression("\\b([a-zA-Z_]\\w*)\\s*(?=\\()"), funcFmt});
-
-    // Numbers
     m_rules.append({QRegularExpression("\\b[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?\\b"), numFmt});
     m_rules.append({QRegularExpression("\\b0[xX][0-9a-fA-F]+\\b"), numFmt});
-
-    // Strings
     m_rules.append({QRegularExpression("\"([^\"\\\\]|\\\\.)*\""), strFmt});
     m_rules.append({QRegularExpression("'([^'\\\\]|\\\\.)*'"), strFmt});
-
-    // Single-line comment
     m_rules.append({QRegularExpression("//[^\n]*"), commentFmt});
-    // Python comment
     if (m_language == "py")
         m_rules.append({QRegularExpression("#[^\n]*"), commentFmt});
 }
@@ -188,27 +355,35 @@ void SyntaxHighlighter::highlightBlock(const QString &text)
     }
 
     // Multi-line comments
-    if (!m_commentStartExpr.isValid() || m_commentStartExpr.pattern().isEmpty())
-        return;
+    if (m_commentStartExpr.isValid() && !m_commentStartExpr.pattern().isEmpty()) {
+        setCurrentBlockState(0);
 
-    setCurrentBlockState(0);
+        int startIndex = 0;
+        if (previousBlockState() != 1)
+            startIndex = text.indexOf(m_commentStartExpr);
 
-    int startIndex = 0;
-    if (previousBlockState() != 1)
-        startIndex = text.indexOf(m_commentStartExpr);
-
-    while (startIndex >= 0) {
-        auto endMatch = m_commentEndExpr.match(text, startIndex + 2);
-        int endIndex = endMatch.capturedStart();
-        int commentLength;
-        if (endIndex == -1 || !endMatch.hasMatch()) {
-            setCurrentBlockState(1);
-            commentLength = text.length() - startIndex;
-        } else {
-            commentLength = endIndex - startIndex + endMatch.capturedLength();
+        while (startIndex >= 0) {
+            auto endMatch = m_commentEndExpr.match(text, startIndex + 2);
+            int endIndex = endMatch.capturedStart();
+            int commentLength;
+            if (endIndex == -1 || !endMatch.hasMatch()) {
+                setCurrentBlockState(1);
+                commentLength = text.length() - startIndex;
+            } else {
+                commentLength = endIndex - startIndex + endMatch.capturedLength();
+            }
+            setFormat(startIndex, commentLength, m_multiLineCommentFormat);
+            startIndex = text.indexOf(m_commentStartExpr, startIndex + commentLength);
         }
-        setFormat(startIndex, commentLength, m_multiLineCommentFormat);
-        startIndex = text.indexOf(m_commentStartExpr, startIndex + commentLength);
+    }
+
+    // Search highlight (on top of everything)
+    if (!m_searchText.isEmpty()) {
+        int idx = 0;
+        while ((idx = text.indexOf(m_searchText, idx, Qt::CaseInsensitive)) != -1) {
+            setFormat(idx, m_searchText.length(), m_searchFormat);
+            idx += m_searchText.length();
+        }
     }
 }
 
@@ -226,6 +401,29 @@ CodeEditor::CodeEditor(QWidget *parent)
             this, &CodeEditor::updateLineNumberArea);
 
     updateLineNumberAreaWidth(0);
+
+    connect(this, &QPlainTextEdit::cursorPositionChanged, this, &CodeEditor::updateCurrentLineHighlight);
+
+    // Replace default vertical scrollbar with our marker scrollbar
+    m_markerScrollBar = new MarkerScrollBar(Qt::Vertical, this);
+    setVerticalScrollBar(m_markerScrollBar);
+
+    // Search debounce timer
+    m_searchDebounce = new QTimer(this);
+    m_searchDebounce->setSingleShot(true);
+    m_searchDebounce->setInterval(200);
+    connect(m_searchDebounce, &QTimer::timeout, this, &CodeEditor::doSearch);
+
+    // Find bar
+    m_findBar = new FindReplaceBar(this);
+    m_findBar->setVisible(false);
+
+    connect(m_findBar, &FindReplaceBar::searchChanged, this, &CodeEditor::onSearchChanged);
+    connect(m_findBar, &FindReplaceBar::findNext, this, &CodeEditor::onFindNext);
+    connect(m_findBar, &FindReplaceBar::findPrev, this, &CodeEditor::onFindPrev);
+    connect(m_findBar, &FindReplaceBar::replaceOne, this, &CodeEditor::onReplaceOne);
+    connect(m_findBar, &FindReplaceBar::replaceAll, this, &CodeEditor::onReplaceAll);
+    connect(m_findBar, &FindReplaceBar::closed, this, &CodeEditor::hideFindBar);
 }
 
 int CodeEditor::lineNumberAreaWidth()
@@ -260,6 +458,24 @@ void CodeEditor::resizeEvent(QResizeEvent *event)
     QRect cr = contentsRect();
     m_lineNumberArea->setGeometry(QRect(cr.left(), cr.top(),
                                          lineNumberAreaWidth(), cr.height()));
+    positionFindBar();
+}
+
+void CodeEditor::keyPressEvent(QKeyEvent *event)
+{
+    if (event->modifiers() == Qt::ControlModifier && event->key() == Qt::Key_F) {
+        showFindBar(false);
+        return;
+    }
+    if (event->modifiers() == Qt::ControlModifier && event->key() == Qt::Key_H) {
+        showFindBar(true);
+        return;
+    }
+    if (event->key() == Qt::Key_Escape && m_findBar->isVisible()) {
+        hideFindBar();
+        return;
+    }
+    QPlainTextEdit::keyPressEvent(event);
 }
 
 void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
@@ -267,8 +483,6 @@ void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
     if (!m_showLineNumbers) return;
 
     QPainter painter(m_lineNumberArea);
-
-    // Use palette colors
     painter.fillRect(event->rect(), palette().color(QPalette::AlternateBase));
 
     QTextBlock block = firstVisibleBlock();
@@ -277,13 +491,15 @@ void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
     int bottom = top + qRound(blockBoundingRect(block).height());
 
     QColor numColor = palette().color(QPalette::PlaceholderText);
+    painter.setPen(numColor);
+    int areaWidth = m_lineNumberArea->width() - 2;
+    int lineHeight = fontMetrics().height();
+    QString number;
 
     while (block.isValid() && top <= event->rect().bottom()) {
         if (block.isVisible() && bottom >= event->rect().top()) {
-            QString number = QString::number(blockNumber + 1);
-            painter.setPen(numColor);
-            painter.drawText(0, top, m_lineNumberArea->width() - 2,
-                            fontMetrics().height(), Qt::AlignRight, number);
+            number.setNum(blockNumber + 1);
+            painter.drawText(0, top, areaWidth, lineHeight, Qt::AlignRight, number);
         }
         block = block.next();
         top = bottom;
@@ -302,7 +518,9 @@ void CodeEditor::setShowLineNumbers(bool show)
 void CodeEditor::setEditorColorScheme(const QString &scheme)
 {
     bool dark = scheme.toLower().contains("dark");
+    m_darkScheme = dark;
     m_highlighter->setDarkTheme(dark);
+    m_findBar->setDarkTheme(dark);
 
     QPalette pal = palette();
     if (dark) {
@@ -317,4 +535,225 @@ void CodeEditor::setEditorColorScheme(const QString &scheme)
         pal.setColor(QPalette::PlaceholderText, QColor("#999999"));
     }
     setPalette(pal);
+    updateCurrentLineHighlight();
+}
+
+void CodeEditor::setHighlightCurrentLine(bool enable)
+{
+    m_highlightLine = enable;
+    updateCurrentLineHighlight();
+}
+
+void CodeEditor::updateCurrentLineHighlight()
+{
+    QList<QTextEdit::ExtraSelection> selections;
+    if (m_highlightLine) {
+        QTextEdit::ExtraSelection sel;
+        QColor lineColor = m_darkScheme ? QColor("#2a2d2e") : QColor("#e8f2fe");
+        sel.format.setBackground(lineColor);
+        sel.format.setProperty(QTextFormat::FullWidthSelection, true);
+        sel.cursor = textCursor();
+        sel.cursor.clearSelection();
+        selections.append(sel);
+    }
+    setExtraSelections(selections);
+}
+
+// ── Find/Replace implementation ─────────────────────────────────────
+
+void CodeEditor::showFindBar(bool withReplace)
+{
+    m_findBar->setShowReplace(withReplace);
+    m_findBar->setVisible(true);
+    positionFindBar();
+    m_findBar->focusSearch();
+}
+
+void CodeEditor::hideFindBar()
+{
+    m_findBar->setVisible(false);
+    m_highlighter->setSearchPattern(QString());
+    m_markerScrollBar->setMatchPositions({});
+    m_currentMatch = -1;
+    m_totalMatches = 0;
+    setFocus();
+}
+
+void CodeEditor::positionFindBar()
+{
+    int barWidth = qMin(width() - 20, 500);
+    int barHeight = m_findBar->sizeHint().height();
+    m_findBar->setGeometry(width() - barWidth - 10, 0, barWidth, barHeight);
+    m_findBar->raise();
+}
+
+void CodeEditor::onSearchChanged(const QString &text)
+{
+    m_pendingSearch = text;
+    if (text.isEmpty()) {
+        m_searchDebounce->stop();
+        doSearch();
+    } else {
+        m_searchDebounce->start();
+    }
+}
+
+void CodeEditor::doSearch()
+{
+    const QString &text = m_pendingSearch;
+    m_highlighter->setSearchPattern(text);
+    m_totalMatches = 0;
+    m_currentMatch = -1;
+
+    if (text.isEmpty()) {
+        m_findBar->setMatchInfo(0, 0);
+        m_markerScrollBar->setMatchPositions({});
+        return;
+    }
+
+    // Find all matches and collect block positions for scrollbar
+    int totalBlocks = blockCount();
+    int textLen = text.length();
+    QTextBlock block = document()->begin();
+    QVector<double> scrollPositions;
+    scrollPositions.reserve(256);
+
+    while (block.isValid()) {
+        QString blockText = block.text();
+        int idx = 0;
+        bool hasMatch = false;
+        while ((idx = blockText.indexOf(text, idx, Qt::CaseInsensitive)) != -1) {
+            m_totalMatches++;
+            hasMatch = true;
+            idx += textLen;
+        }
+        if (hasMatch && totalBlocks > 0) {
+            double pos = static_cast<double>(block.blockNumber()) / totalBlocks;
+            scrollPositions.append(pos);
+        }
+        block = block.next();
+    }
+
+    m_markerScrollBar->setMatchPositions(scrollPositions);
+
+    if (m_totalMatches > 0) {
+        m_currentMatch = 0;
+        onFindNext();
+    } else {
+        m_findBar->setMatchInfo(0, 0);
+    }
+}
+
+void CodeEditor::onFindNext()
+{
+    QString text = m_findBar->searchText();
+    if (text.isEmpty() || m_totalMatches == 0) return;
+
+    QTextCursor cur = textCursor();
+    QTextCursor found = document()->find(text, cur);
+    if (found.isNull()) {
+        // Wrap around
+        cur.movePosition(QTextCursor::Start);
+        found = document()->find(text, cur);
+    }
+
+    if (!found.isNull()) {
+        setTextCursor(found);
+        ensureCursorVisible();
+        // Determine current match index
+        int pos = found.selectionStart();
+        int matchIdx = 0;
+        QTextBlock block = document()->begin();
+        while (block.isValid()) {
+            QString blockText = block.text();
+            int idx = 0;
+            while ((idx = blockText.indexOf(text, idx, Qt::CaseInsensitive)) != -1) {
+                int absPos = block.position() + idx;
+                if (absPos >= pos) {
+                    m_currentMatch = matchIdx;
+                    m_findBar->setMatchInfo(m_currentMatch + 1, m_totalMatches);
+                    return;
+                }
+                matchIdx++;
+                idx += text.length();
+            }
+            block = block.next();
+        }
+        m_findBar->setMatchInfo(1, m_totalMatches);
+    }
+}
+
+void CodeEditor::onFindPrev()
+{
+    QString text = m_findBar->searchText();
+    if (text.isEmpty() || m_totalMatches == 0) return;
+
+    QTextCursor cur = textCursor();
+    if (cur.hasSelection())
+        cur.setPosition(cur.selectionStart());
+
+    QTextCursor found = document()->find(text, cur, QTextDocument::FindBackward);
+    if (found.isNull()) {
+        cur.movePosition(QTextCursor::End);
+        found = document()->find(text, cur, QTextDocument::FindBackward);
+    }
+
+    if (!found.isNull()) {
+        setTextCursor(found);
+        ensureCursorVisible();
+        int pos = found.selectionStart();
+        int matchIdx = 0;
+        QTextBlock block = document()->begin();
+        while (block.isValid()) {
+            QString blockText = block.text();
+            int idx = 0;
+            while ((idx = blockText.indexOf(text, idx, Qt::CaseInsensitive)) != -1) {
+                int absPos = block.position() + idx;
+                if (absPos >= pos) {
+                    m_currentMatch = matchIdx;
+                    m_findBar->setMatchInfo(m_currentMatch + 1, m_totalMatches);
+                    return;
+                }
+                matchIdx++;
+                idx += text.length();
+            }
+            block = block.next();
+        }
+    }
+}
+
+void CodeEditor::onReplaceOne()
+{
+    QString searchText = m_findBar->searchText();
+    QString replaceText = m_findBar->replaceText();
+    if (searchText.isEmpty()) return;
+
+    QTextCursor cur = textCursor();
+    if (cur.hasSelection() && cur.selectedText().compare(searchText, Qt::CaseInsensitive) == 0) {
+        cur.insertText(replaceText);
+        setTextCursor(cur);
+    }
+    onSearchChanged(searchText);
+    onFindNext();
+}
+
+void CodeEditor::onReplaceAll()
+{
+    QString searchText = m_findBar->searchText();
+    QString replaceText = m_findBar->replaceText();
+    if (searchText.isEmpty()) return;
+
+    QTextCursor cur = textCursor();
+    cur.beginEditBlock();
+    cur.movePosition(QTextCursor::Start);
+
+    while (true) {
+        QTextCursor found = document()->find(searchText, cur);
+        if (found.isNull()) break;
+        found.insertText(replaceText);
+        cur = found;
+    }
+
+    cur.endEditBlock();
+    onSearchChanged(searchText);
 }

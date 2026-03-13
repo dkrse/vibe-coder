@@ -49,6 +49,9 @@ classDiagram
     QSyntaxHighlighter <|-- SyntaxHighlighter
     QSyntaxHighlighter <|-- DiffBlockHighlighter
     QWidget <|-- LineNumberArea
+    QWidget <|-- FindReplaceBar
+    QScrollBar <|-- MarkerScrollBar
+    QSortFilterProxyModel <|-- FileBrowserProxy
     QWidget <|-- ChangesMonitor
     QDialog <|-- SettingsDialog
     QDialog <|-- ProjectDialog
@@ -74,6 +77,9 @@ classDiagram
     FileBrowser --> QStandardItemModel : SSH mode
     CodeEditor --> SyntaxHighlighter
     CodeEditor --> LineNumberArea
+    CodeEditor --> FindReplaceBar
+    CodeEditor --> MarkerScrollBar
+    FileBrowser --> FileBrowserProxy
     TerminalWidget --> QTermWidget
     SshManager --> SshDialog : saveConnection
     SshTunnelDialog --> SshManager
@@ -91,12 +97,18 @@ classDiagram
         -CommandPalette* m_commandPalette
         -NotificationPanel* m_notificationPanel
         -DiffViewer* m_diffViewer
+        -QPushButton* m_stopBtn
         -QComboBox* m_sshProfileCombo
         -QProgressBar* m_transferProgress
         +onFileOpened(QString)
         +saveCurrentFile()
         +onSendClicked()
+        +onStopClicked()
         +onCommitClicked()
+        +maybeSaveTab(QTabWidget*, int)
+        +closeTab(QTabWidget*, int)
+        +closeOtherTabs(QTabWidget*, int)
+        +closeAllTabs(QTabWidget*)
         +onSshConnect()
         +onSshDisconnect()
         +onSshTunnels()
@@ -111,12 +123,15 @@ classDiagram
     class FileBrowser {
         -QFileSystemModel* m_fsModel
         -QStandardItemModel* m_sshModel
+        -FileBrowserProxy* m_proxyModel
         -QProcess* m_gitProc
         -QString m_sshMountPoint
         -QSet~QString~ m_ignored
         -QSet~QString~ m_dirIgnored
         +gitStatus(QString) GitStatus
         +setTheme(QString)
+        +setGitignoreVisibility(QString)
+        +setDotGitVisibility(QString)
         +setSshMount(QString, QString)
         +clearSshMount()
         +toRemotePath(QString) QString
@@ -152,8 +167,14 @@ classDiagram
     class CodeEditor {
         -LineNumberArea* m_lineNumberArea
         -SyntaxHighlighter* m_highlighter
+        -FindReplaceBar* m_findBar
+        -MarkerScrollBar* m_markerScrollBar
+        -bool m_highlightLine
         +setShowLineNumbers(bool)
         +setEditorColorScheme(QString)
+        +showFindBar()
+        +hideFindBar()
+        +setHighlightCurrentLine(bool)
     }
 
     class Project {
@@ -246,7 +267,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Timer as Health Timer (5s)
+    participant Timer as Health Timer (15s)
     participant SshManager
     participant stat as stat process
     participant sshfs as sshfs process
@@ -301,7 +322,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Timer as Timer (5s)
+    participant Timer as Timer (10s)
     participant FileBrowser
     participant GitProc as QProcess
 
@@ -327,7 +348,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant FS as QFileSystemWatcher
-    participant Timer as Scan Timer (3s)
+    participant Timer as Scan Timer (10s)
     participant CM as ChangesMonitor
     participant MainWindow
     participant Git as git process
@@ -410,9 +431,10 @@ flowchart LR
     TH --> D & E & F & G & DV & CM2
     B -->|save| C[QSettings file]
     B -->|apply| D[Terminal font/scheme]
-    B -->|apply| E[Editor font/scheme/lineNumbers]
+    B -->|apply| E[Editor font/scheme/lineNumbers/highlightLine]
+    B -->|apply| VIS[FileBrowser visibility filtering]
     B -->|apply| F[FileBrowser font/theme]
-    B -->|apply| G[PromptEdit font/colors/sendKey]
+    B -->|apply| G[PromptEdit font/colors/sendKey/highlightLine]
     B -->|apply| DV[DiffViewer font/colors]
     B -->|apply| CM2[ChangesMonitor font/colors]
     C -->|load on startup| B

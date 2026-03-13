@@ -9,46 +9,55 @@
 #include <QColor>
 #include <QPushButton>
 #include <QTabWidget>
+#include <QLineEdit>
 
 struct AppSettings {
     // Global theme: "Dark", "Light", "Monokai", "Solarized Dark", "Solarized Light", "Nord"
-    QString globalTheme = "Dark";
+    QString globalTheme = "Light";
 
     // Terminal
-    QString termFontFamily = "Monospace";
-    int termFontSize = 10;
-    QString terminalColorScheme = "Linux";
+    QString termFontFamily = "Adwaita Mono";
+    int termFontSize = 14;
+    QString terminalColorScheme = "BlackOnWhite";
 
     // Editor
-    QString editorFontFamily = "Monospace";
-    int editorFontSize = 10;
+    QString editorFontFamily = "Monaco";
+    int editorFontSize = 14;
     bool showLineNumbers = true;
-    QString editorColorScheme = "Dark";
+    QString editorColorScheme = "Light";
     bool syntaxHighlighting = true;
+    bool editorHighlightLine = true;
 
     // File browser
-    QString browserFontFamily = "Sans";
-    int browserFontSize = 10;
-    QString browserTheme = "Dark"; // "Dark" or "Light"
+    QString browserFontFamily = "Noto Sans";
+    int browserFontSize = 12;
+    QString browserTheme = "Light";
 
     // Prompt
     QString promptFontFamily = "Monospace";
-    int promptFontSize = 10;
-    QColor promptBgColor = QColor("#1e1e1e");
-    QColor promptTextColor = QColor("#d4d4d4");
+    int promptFontSize = 14;
+    QColor promptBgColor = QColor("#ffffff");
+    QColor promptTextColor = QColor("#333333");
     QString promptSendKey = "Ctrl+Enter"; // "Ctrl+Enter" or "Enter"
+    QString modelStopSequence = "\\x03"; // sent to terminal to stop model (default: Ctrl+C)
+    bool promptHighlightLine = false;
 
     // Diff viewer
     QString diffFontFamily = "Monospace";
-    int diffFontSize = 10;
-    QColor diffBgColor = QColor("#1e1e1e");
-    QColor diffTextColor = QColor("#d4d4d4");
+    int diffFontSize = 13;
+    QColor diffBgColor = QColor("#ffffff");
+    QColor diffTextColor = QColor("#333333");
 
     // Changes monitor
     QString changesFontFamily = "Monospace";
-    int changesFontSize = 10;
-    QColor changesBgColor = QColor("#1e1e1e");
-    QColor changesTextColor = QColor("#d4d4d4");
+    int changesFontSize = 13;
+    QColor changesBgColor = QColor("#ffffff");
+    QColor changesTextColor = QColor("#333333");
+
+    // Visibility
+    // "visible" = normal, "grayed" = shown but gray, "hidden" = not shown
+    QString gitignoreVisibility = "grayed";
+    QString dotGitVisibility = "hidden";
 
     void load();
     void save();
@@ -88,6 +97,7 @@ private:
     QCheckBox *m_lineNumbersCheck;
     QComboBox *m_editorColorSchemeCombo;
     QCheckBox *m_syntaxHighlightCheck;
+    QCheckBox *m_editorHighlightLineCheck;
 
     // File browser
     QFontComboBox *m_browserFontCombo;
@@ -100,6 +110,8 @@ private:
     ColorButton *m_promptBgColorBtn;
     ColorButton *m_promptTextColorBtn;
     QComboBox *m_promptSendKeyCombo;
+    QLineEdit *m_modelStopSequenceEdit;
+    QCheckBox *m_promptHighlightLineCheck;
 
     // Diff
     QFontComboBox *m_diffFontCombo;
@@ -112,4 +124,8 @@ private:
     QSpinBox *m_changesFontSizeSpin;
     ColorButton *m_changesBgColorBtn;
     ColorButton *m_changesTextColorBtn;
+
+    // Visibility
+    QComboBox *m_gitignoreVisibilityCombo;
+    QComboBox *m_dotGitVisibilityCombo;
 };

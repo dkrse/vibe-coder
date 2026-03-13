@@ -7,7 +7,12 @@ TerminalWidget::TerminalWidget(QWidget *parent)
 {
     m_term = new QTermWidget(0, this); // 0 = don't start shell yet
     m_term->setScrollBarPosition(QTermWidget::ScrollBarRight);
-    m_term->setTerminalFont(QFont("Monospace", 10));
+    QFont defaultFont;
+    defaultFont.setFamily("Monospace");
+    defaultFont.setPointSize(10);
+    defaultFont.setStyleHint(QFont::Monospace);
+    defaultFont.setFixedPitch(true);
+    m_term->setTerminalFont(defaultFont);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);

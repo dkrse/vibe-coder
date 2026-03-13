@@ -9,7 +9,7 @@ SshManager::SshManager(QObject *parent)
     : QObject(parent)
 {
     m_healthTimer = new QTimer(this);
-    m_healthTimer->setInterval(5000);
+    m_healthTimer->setInterval(15000);
     connect(m_healthTimer, &QTimer::timeout, this, [this]() {
         checkNextProfile(0);
     });

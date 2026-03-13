@@ -21,6 +21,7 @@ void AppSettings::load()
     showLineNumbers = s.value("editor/lineNumbers", showLineNumbers).toBool();
     editorColorScheme = s.value("editor/colorScheme", editorColorScheme).toString();
     syntaxHighlighting = s.value("editor/syntaxHighlighting", syntaxHighlighting).toBool();
+    editorHighlightLine = s.value("editor/highlightLine", editorHighlightLine).toBool();
     browserFontFamily = s.value("browser/fontFamily", browserFontFamily).toString();
     browserFontSize = s.value("browser/fontSize", browserFontSize).toInt();
     browserTheme = s.value("browser/theme", browserTheme).toString();
@@ -29,6 +30,8 @@ void AppSettings::load()
     promptBgColor = QColor(s.value("prompt/bgColor", promptBgColor.name()).toString());
     promptTextColor = QColor(s.value("prompt/textColor", promptTextColor.name()).toString());
     promptSendKey = s.value("prompt/sendKey", promptSendKey).toString();
+    modelStopSequence = s.value("prompt/modelStopSequence", modelStopSequence).toString();
+    promptHighlightLine = s.value("prompt/highlightLine", promptHighlightLine).toBool();
     diffFontFamily = s.value("diff/fontFamily", diffFontFamily).toString();
     diffFontSize = s.value("diff/fontSize", diffFontSize).toInt();
     diffBgColor = QColor(s.value("diff/bgColor", diffBgColor.name()).toString());
@@ -37,6 +40,8 @@ void AppSettings::load()
     changesFontSize = s.value("changes/fontSize", changesFontSize).toInt();
     changesBgColor = QColor(s.value("changes/bgColor", changesBgColor.name()).toString());
     changesTextColor = QColor(s.value("changes/textColor", changesTextColor.name()).toString());
+    gitignoreVisibility = s.value("visibility/gitignore", gitignoreVisibility).toString();
+    dotGitVisibility = s.value("visibility/dotGit", dotGitVisibility).toString();
 }
 
 void AppSettings::applyThemeDefaults()
@@ -93,6 +98,7 @@ void AppSettings::save()
     s.setValue("editor/lineNumbers", showLineNumbers);
     s.setValue("editor/colorScheme", editorColorScheme);
     s.setValue("editor/syntaxHighlighting", syntaxHighlighting);
+    s.setValue("editor/highlightLine", editorHighlightLine);
     s.setValue("browser/fontFamily", browserFontFamily);
     s.setValue("browser/fontSize", browserFontSize);
     s.setValue("browser/theme", browserTheme);
@@ -101,6 +107,8 @@ void AppSettings::save()
     s.setValue("prompt/bgColor", promptBgColor.name());
     s.setValue("prompt/textColor", promptTextColor.name());
     s.setValue("prompt/sendKey", promptSendKey);
+    s.setValue("prompt/modelStopSequence", modelStopSequence);
+    s.setValue("prompt/highlightLine", promptHighlightLine);
     s.setValue("diff/fontFamily", diffFontFamily);
     s.setValue("diff/fontSize", diffFontSize);
     s.setValue("diff/bgColor", diffBgColor.name());
@@ -109,6 +117,8 @@ void AppSettings::save()
     s.setValue("changes/fontSize", changesFontSize);
     s.setValue("changes/bgColor", changesBgColor.name());
     s.setValue("changes/textColor", changesTextColor.name());
+    s.setValue("visibility/gitignore", gitignoreVisibility);
+    s.setValue("visibility/dotGit", dotGitVisibility);
 }
 
 // --- ColorButton ---
@@ -207,6 +217,10 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     editorLayout->addRow(m_lineNumbersCheck);
     editorLayout->addRow("Color scheme:", m_editorColorSchemeCombo);
     editorLayout->addRow(m_syntaxHighlightCheck);
+
+    m_editorHighlightLineCheck = new QCheckBox("Highlight current line");
+    m_editorHighlightLineCheck->setChecked(current.editorHighlightLine);
+    editorLayout->addRow(m_editorHighlightLineCheck);
     tabs->addTab(editorPage, "Editor");
 
     // ── File Browser tab ────────────────────────────────────────────
@@ -253,6 +267,14 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     promptLayout->addRow("Background:", m_promptBgColorBtn);
     promptLayout->addRow("Text color:", m_promptTextColorBtn);
     promptLayout->addRow("Send key:", m_promptSendKeyCombo);
+
+    m_modelStopSequenceEdit = new QLineEdit(current.modelStopSequence);
+    m_modelStopSequenceEdit->setPlaceholderText("e.g. \\x03 for Ctrl+C, \\x1b for Escape");
+    promptLayout->addRow("Stop sequence:", m_modelStopSequenceEdit);
+
+    m_promptHighlightLineCheck = new QCheckBox("Highlight current line");
+    m_promptHighlightLineCheck->setChecked(current.promptHighlightLine);
+    promptLayout->addRow(m_promptHighlightLineCheck);
     tabs->addTab(promptPage, "Prompt");
 
     // ── Diff tab ────────────────────────────────────────────────────
@@ -297,6 +319,22 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     changesLayout->addRow("Text color:", m_changesTextColorBtn);
     tabs->addTab(changesPage, "Changes");
 
+    // ── Visibility tab ─────────────────────────────────────────────
+    auto *visPage = new QWidget;
+    auto *visLayout = new QFormLayout(visPage);
+
+    m_gitignoreVisibilityCombo = new QComboBox;
+    m_gitignoreVisibilityCombo->addItems({"visible", "grayed", "hidden"});
+    m_gitignoreVisibilityCombo->setCurrentText(current.gitignoreVisibility);
+    visLayout->addRow("Gitignored files:", m_gitignoreVisibilityCombo);
+
+    m_dotGitVisibilityCombo = new QComboBox;
+    m_dotGitVisibilityCombo->addItems({"visible", "grayed", "hidden"});
+    m_dotGitVisibilityCombo->setCurrentText(current.dotGitVisibility);
+    visLayout->addRow(".git directory:", m_dotGitVisibilityCombo);
+
+    tabs->addTab(visPage, "Visibility");
+
     mainLayout->addWidget(tabs, 1);
 
     // When global theme changes, update dependent controls
@@ -333,6 +371,7 @@ AppSettings SettingsDialog::result() const
     s.showLineNumbers = m_lineNumbersCheck->isChecked();
     s.editorColorScheme = m_editorColorSchemeCombo->currentText();
     s.syntaxHighlighting = m_syntaxHighlightCheck->isChecked();
+    s.editorHighlightLine = m_editorHighlightLineCheck->isChecked();
     s.browserFontFamily = m_browserFontCombo->currentFont().family();
     s.browserFontSize = m_browserFontSizeSpin->value();
     s.browserTheme = m_browserThemeCombo->currentText();
@@ -341,6 +380,8 @@ AppSettings SettingsDialog::result() const
     s.promptBgColor = m_promptBgColorBtn->color();
     s.promptTextColor = m_promptTextColorBtn->color();
     s.promptSendKey = m_promptSendKeyCombo->currentText();
+    s.modelStopSequence = m_modelStopSequenceEdit->text();
+    s.promptHighlightLine = m_promptHighlightLineCheck->isChecked();
     s.diffFontFamily = m_diffFontCombo->currentFont().family();
     s.diffFontSize = m_diffFontSizeSpin->value();
     s.diffBgColor = m_diffBgColorBtn->color();
@@ -349,5 +390,7 @@ AppSettings SettingsDialog::result() const
     s.changesFontSize = m_changesFontSizeSpin->value();
     s.changesBgColor = m_changesBgColorBtn->color();
     s.changesTextColor = m_changesTextColorBtn->color();
+    s.gitignoreVisibility = m_gitignoreVisibilityCombo->currentText();
+    s.dotGitVisibility = m_dotGitVisibilityCombo->currentText();
     return s;
 }

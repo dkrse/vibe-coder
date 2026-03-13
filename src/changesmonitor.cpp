@@ -98,7 +98,7 @@ ChangesMonitor::ChangesMonitor(QWidget *parent)
     // Periodic scan for new files (watcher doesn't catch new files)
     m_scanTimer = new QTimer(this);
     connect(m_scanTimer, &QTimer::timeout, this, &ChangesMonitor::scanForNewFiles);
-    m_scanTimer->start(3000);
+    m_scanTimer->start(10000);
 
     // Connections
     connect(m_fileList, &QListWidget::currentRowChanged, this, [this](int row) {
@@ -231,12 +231,13 @@ void ChangesMonitor::onFileChanged(const QString &path)
 
 void ChangesMonitor::onDirChanged(const QString &)
 {
-    scanForNewFiles();
+    // Debounce: restart the scan timer instead of scanning immediately
+    m_scanTimer->start();
 }
 
 void ChangesMonitor::scanForNewFiles()
 {
-    if (m_projectDir.isEmpty()) return;
+    if (m_projectDir.isEmpty() || !isVisible()) return;
 
     QDirIterator it(m_projectDir, QDir::Files | QDir::NoDotAndDotDot,
                     QDirIterator::Subdirectories);

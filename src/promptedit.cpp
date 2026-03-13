@@ -3,6 +3,7 @@
 PromptEdit::PromptEdit(QWidget *parent)
     : QPlainTextEdit(parent)
 {
+    connect(this, &QPlainTextEdit::cursorPositionChanged, this, &PromptEdit::updateCurrentLineHighlight);
 }
 
 void PromptEdit::setSendOnEnter(bool enterOnly)
@@ -39,4 +40,28 @@ void PromptEdit::keyPressEvent(QKeyEvent *event)
     }
 
     QPlainTextEdit::keyPressEvent(event);
+}
+
+void PromptEdit::setHighlightCurrentLine(bool enable)
+{
+    m_highlightLine = enable;
+    updateCurrentLineHighlight();
+}
+
+void PromptEdit::updateCurrentLineHighlight()
+{
+    QList<QTextEdit::ExtraSelection> selections;
+    if (m_highlightLine) {
+        QTextEdit::ExtraSelection sel;
+        // Detect dark/light from current background
+        QColor bg = palette().color(QPalette::Base);
+        bool dark = (bg.lightness() < 128);
+        QColor lineColor = dark ? QColor("#2a2d2e") : QColor("#e8f2fe");
+        sel.format.setBackground(lineColor);
+        sel.format.setProperty(QTextFormat::FullWidthSelection, true);
+        sel.cursor = textCursor();
+        sel.cursor.clearSelection();
+        selections.append(sel);
+    }
+    setExtraSelections(selections);
 }
