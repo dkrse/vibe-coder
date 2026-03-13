@@ -6,7 +6,7 @@
 graph TB
     subgraph MainWindow
         direction TB
-        TB[TitleBar: title | minimize | maximize | close]
+        TB["TitleBar: title / minimize / maximize / close"]
         HM[Hamburger Menu]
         SB["Status Bar: file info | SSH profile combo | progress bar | info"]
 
