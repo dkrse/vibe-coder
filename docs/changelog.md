@@ -2,6 +2,39 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.8.0] - 2026-03-13
+
+### Added
+- **Custom title bar (CSD)** — VS Code/Zed-style frameless window with custom minimize/maximize/close buttons. Title bar matches the active theme. Native window drag via `startSystemMove()` and edge resize via `startSystemResize()` (Wayland compatible)
+- **Themed dialogs** — all dialogs (Settings, SSH Connect, SSH Tunnels, Create/Edit Project) use frameless windows with themed title bars via `ThemedDialog::apply()`
+- **Zed theme loader** — auto-discovers and imports Zed editor themes from Flatpak (`~/.var/app/dev.zed.Zed/...`) and native (`~/.local/share/zed/...`) installations. Themes appear in Settings and command palette prefixed with "Zed: "
+- **Dark Soft theme** — dark theme with dimmer text colors (bg: #1a1a2e, text: #a0a0b8, terminal: DarkPastels)
+- **Dark Warm theme** — dark theme with brownish tones and low-intensity colors (bg: #1e1a15, text: #6e6458, terminal: DarkPastels)
+- **Instant git status updates** — QFileSystemWatcher monitors root path, git root, and .gitignore for immediate color changes (300ms debounce), complementing the 10s polling interval
+- **Git check-ignore pipeline** — `git check-ignore --no-index --stdin` with recursive file enumeration (depth 6) detects ignored files regardless of tracking status. Combined with `git ls-files --others --ignored --exclude-standard --directory` for comprehensive ignore detection
+
+### Changed
+- **Unified theme system** — single global theme controls all UI components. Removed individual color settings (prompt colors, diff colors, changes colors, editor color scheme combo, browser theme combo). All colors derived from `applyThemeDefaults()` based on `globalTheme`
+- **Theme application order** — `applyGlobalTheme()` (global QSS) runs before `applySettings()` (per-widget overrides) to ensure line numbers, editor colors, and other widget-specific styles take precedence over the global stylesheet
+- **Comprehensive global stylesheet** — covers QWidget, QLabel, QPlainTextEdit, QTextEdit, QLineEdit, QSpinBox, QComboBox, QCheckBox, QPushButton, QToolButton, QListWidget, QMenu, QDialog, QGroupBox, QScrollBar, QProgressBar, QTabWidget, QTabBar, QFontComboBox, QDialogButtonBox
+- **Line number area styling** — uses explicit stylesheet override (background-color + color) instead of relying on QPalette inheritance, preventing global stylesheet from overriding colors
+- **Multi-monitor window restore** — uses `normalGeometry()` instead of `pos()` for saving, finds target screen by geometry match, uses `setGeometry(screenGeom)` + deferred `showMaximized()` to prevent window jumping to primary monitor
+- **Light theme terminal** — uses BlackOnWhite color scheme (was WhiteOnBlack)
+- **Solarized Light terminal** — uses SolarizedLight color scheme (was Solarized/dark)
+- **FileBrowser theme** — accepts bg/fg color parameters from global theme, uses `darker()` for light themes instead of `lighter()` (prevents near-white paths)
+- Removed hardcoded stylesheets from CommandPalette, NotificationPanel, ChangesMonitor, DiffViewer — all inherit from global stylesheet
+- Removed ColorButton widget class (no longer needed)
+
+### Fixed
+- **Prompt font size not persisting** — `setStyleSheet()` was overriding `setFont()` due to Qt CSS cascade. Fixed by including font-family/font-size in the stylesheet string
+- **Gitignored files not grayed** — `git status --ignored` didn't detect all ignored files. Fixed with multi-step pipeline: git status + git ls-files + git check-ignore
+- **Parent directory incorrectly grayed** — ignored status propagated upward in `rebuildDirCache()`, making entire directories gray when only one child was ignored. Fixed by removing ignored propagation to parents
+- **Untracked directory children not colored** — `git status -unormal` reports `?? dir/` but files inside weren't matched. Added child lookup traversal for untracked/added/modified sets
+- **Window jumping to primary monitor** — `restoreGeometry()` + `showMaximized()` moved window to primary monitor. Fixed with manual geometry save/restore and screen detection
+- **Line numbers white strip** — CodeEditor used hardcoded QPalette colors overridden by global stylesheet. Fixed by passing theme bg/fg colors to `setEditorColorScheme()` and setting explicit stylesheet on line number area
+- **Menus not following theme** — many widgets had hardcoded colors or relied on system theme. Fixed by comprehensive global stylesheet
+- **Settings dialog not themed** — was using system window decorations. Fixed with ThemedDialog + parent stylesheet inheritance
+
 ## [0.7.0] - 2026-03-13
 
 ### Added

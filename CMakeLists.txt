@@ -39,6 +39,12 @@ add_executable(vibe-coder
     src/diffviewer.h
     src/changesmonitor.cpp
     src/changesmonitor.h
+    src/titlebar.cpp
+    src/titlebar.h
+    src/zedthemeloader.cpp
+    src/zedthemeloader.h
+    src/themeddialog.cpp
+    src/themeddialog.h
 )
 
 # Find qtermwidget library (works on Fedora, Debian/Ubuntu, Arch, etc.)

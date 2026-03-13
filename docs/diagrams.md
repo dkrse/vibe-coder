@@ -6,6 +6,7 @@
 graph TB
     subgraph MainWindow
         direction TB
+        TB[TitleBar: title | minimize | maximize | close]
         HM[Hamburger Menu]
         SB["Status Bar: file info | SSH profile combo | progress bar | info"]
 
@@ -53,13 +54,17 @@ classDiagram
     QScrollBar <|-- MarkerScrollBar
     QSortFilterProxyModel <|-- FileBrowserProxy
     QWidget <|-- ChangesMonitor
+    QWidget <|-- TitleBar
+    QWidget <|-- DialogTitleBar
+    QWidget <|-- CommandPalette
+    QWidget <|-- NotificationPanel
     QDialog <|-- SettingsDialog
     QDialog <|-- ProjectDialog
     QDialog <|-- SshDialog
     QDialog <|-- SshTunnelDialog
     QObject <|-- SshManager
-    QPushButton <|-- ColorButton
 
+    MainWindow --> TitleBar
     MainWindow --> FileBrowser
     MainWindow --> TerminalWidget : m_terminal + m_bottomTerminal
     MainWindow --> CodeEditor
@@ -75,6 +80,7 @@ classDiagram
     FileBrowser --> FileItemDelegate
     FileBrowser --> QFileSystemModel : local mode
     FileBrowser --> QStandardItemModel : SSH mode
+    FileBrowser --> QFileSystemWatcher : instant git updates
     CodeEditor --> SyntaxHighlighter
     CodeEditor --> LineNumberArea
     CodeEditor --> FindReplaceBar
@@ -85,8 +91,10 @@ classDiagram
     SshTunnelDialog --> SshManager
     ChangesMonitor --> DiffBlockHighlighter
     ChangesMonitor --> QFileSystemWatcher
+    AppSettings --> ZedThemeLoader : loadZedThemes
 
     class MainWindow {
+        -TitleBar* m_titleBar
         -QTabWidget* m_tabWidget
         -QTabWidget* m_bottomTabWidget
         -QSplitter* m_mainSplitter
@@ -107,17 +115,13 @@ classDiagram
         +onCommitClicked()
         +maybeSaveTab(QTabWidget*, int)
         +closeTab(QTabWidget*, int)
-        +closeOtherTabs(QTabWidget*, int)
-        +closeAllTabs(QTabWidget*)
+        +applyGlobalTheme()
+        +applySettings()
         +onSshConnect()
         +onSshDisconnect()
-        +onSshTunnels()
-        +onSshUpload()
-        +onSshDownload()
         +splitEditorHorizontal()
         +splitEditorVertical()
         +unsplitEditor()
-        +applyGlobalTheme()
     }
 
     class FileBrowser {
@@ -125,11 +129,12 @@ classDiagram
         -QStandardItemModel* m_sshModel
         -FileBrowserProxy* m_proxyModel
         -QProcess* m_gitProc
+        -QFileSystemWatcher* m_fsWatcher
+        -QTimer* m_gitDebounce
         -QString m_sshMountPoint
         -QSet~QString~ m_ignored
-        -QSet~QString~ m_dirIgnored
         +gitStatus(QString) GitStatus
-        +setTheme(QString)
+        +setTheme(QString, QColor, QColor)
         +setGitignoreVisibility(QString)
         +setDotGitVisibility(QString)
         +setSshMount(QString, QString)
@@ -171,30 +176,26 @@ classDiagram
         -MarkerScrollBar* m_markerScrollBar
         -bool m_highlightLine
         +setShowLineNumbers(bool)
-        +setEditorColorScheme(QString)
+        +setEditorColorScheme(QString, QColor, QColor)
         +showFindBar()
         +hideFindBar()
         +setHighlightCurrentLine(bool)
     }
 
-    class Project {
-        -QJsonArray m_prompts
-        -QJsonArray m_savedPrompts
-        +create(...)
-        +addPrompt(QString)
-        +addSavedPrompt(int)
-        +savedPrompts() QStringList
-    }
-
     class AppSettings {
         +QString globalTheme
-        +QString diffFontFamily
-        +QColor diffBgColor
-        +QString changesFontFamily
-        +QColor changesBgColor
+        +QVector~ZedTheme~ zedThemes
+        +QColor bgColor
+        +QColor textColor
+        +loadZedThemes()
         +applyThemeDefaults()
         +load()
         +save()
+    }
+
+    class ZedThemeLoader {
+        +loadAll()$ QVector~ZedTheme~
+        -parseFile(QString)$ QVector~ZedTheme~
     }
 ```
 
@@ -231,6 +232,29 @@ sequenceDiagram
     MainWindow->>Project: addSavedPrompt(lastPromptId)
     MainWindow->>MainWindow: refreshSavedPrompts()
     MainWindow->>MainWindow: sendText + clear + switch tab
+```
+
+## Theme Application Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Settings as Settings/CommandPalette
+    participant MW as MainWindow
+    participant Global as applyGlobalTheme()
+    participant Widgets as applySettings()
+
+    User->>Settings: Select theme
+    Settings->>MW: m_settings.globalTheme = theme
+    MW->>MW: applyThemeDefaults() (derive colors)
+    MW->>Global: Set global QSS stylesheet
+    Global->>Global: TitleBar stylesheet
+    Global->>Global: Force repaint all children
+    MW->>Widgets: Per-widget overrides
+    Widgets->>Widgets: Terminal font + colorScheme
+    Widgets->>Widgets: Editor palette + line numbers
+    Widgets->>Widgets: FileBrowser theme + colors
+    Widgets->>Widgets: Prompt stylesheet
 ```
 
 ## SSH Connection Flow (Async)
@@ -322,11 +346,18 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+    participant FSW as QFileSystemWatcher
     participant Timer as Timer (10s)
     participant FileBrowser
     participant GitProc as QProcess
 
-    Timer->>FileBrowser: startGitRefresh()
+    alt Instant trigger
+        FSW-->>FileBrowser: fileChanged / directoryChanged
+        FileBrowser->>FileBrowser: 300ms debounce
+    else Periodic poll
+        Timer->>FileBrowser: startGitRefresh()
+    end
+
     Note over FileBrowser: Check m_gitBusy flag
 
     FileBrowser->>GitProc: git rev-parse --is-inside-work-tree
@@ -335,8 +366,14 @@ sequenceDiagram
     FileBrowser->>GitProc: git rev-parse --show-toplevel
     GitProc-->>FileBrowser: onGitRootFinished()
 
-    FileBrowser->>GitProc: git status --porcelain -unormal --ignored
+    FileBrowser->>GitProc: git status --porcelain -unormal
     GitProc-->>FileBrowser: onGitStatusFinished()
+
+    FileBrowser->>GitProc: git ls-files --others --ignored
+    GitProc-->>FileBrowser: onGitLsIgnoredFinished()
+
+    FileBrowser->>GitProc: git check-ignore --no-index --stdin
+    GitProc-->>FileBrowser: onGitCheckIgnoreFinished()
 
     FileBrowser->>FileBrowser: parseGitOutput()
     FileBrowser->>FileBrowser: rebuildDirCache()
@@ -428,15 +465,18 @@ sequenceDiagram
 flowchart LR
     A[SettingsDialog - Tabbed] -->|OK| B[AppSettings struct]
     B -->|applyThemeDefaults| TH[Global Theme Cascade]
+    ZED[Zed Theme JSON] -->|ZedThemeLoader| B
     TH --> D & E & F & G & DV & CM2
     B -->|save| C[QSettings file]
-    B -->|apply| D[Terminal font/scheme]
-    B -->|apply| E[Editor font/scheme/lineNumbers/highlightLine]
-    B -->|apply| VIS[FileBrowser visibility filtering]
-    B -->|apply| F[FileBrowser font/theme]
-    B -->|apply| G[PromptEdit font/colors/sendKey/highlightLine]
-    B -->|apply| DV[DiffViewer font/colors]
-    B -->|apply| CM2[ChangesMonitor font/colors]
+    B -->|applyGlobalTheme| SS[Global QSS Stylesheet]
+    SS --> ALL[All Widgets + TitleBar]
+    B -->|applySettings| D[Terminal font/scheme]
+    B -->|applySettings| E[Editor font/scheme/lineNumbers/highlightLine]
+    B -->|applySettings| VIS[FileBrowser visibility filtering]
+    B -->|applySettings| F[FileBrowser font/theme/colors]
+    B -->|applySettings| G[PromptEdit font/colors/sendKey/highlightLine]
+    B -->|applySettings| DV[DiffViewer font]
+    B -->|applySettings| CM2[ChangesMonitor font]
     C -->|load on startup| B
 ```
 

@@ -1,6 +1,6 @@
 # Vibe Coder
 
-A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a Zed-style file browser, code editor with syntax highlighting, dual embedded terminals, SSH remote development, and prompt system in a single window.
+A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a Zed-style file browser, code editor with syntax highlighting, dual embedded terminals, SSH remote development, and prompt system in a single window with a custom title bar.
 
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
 ![Qt6](https://img.shields.io/badge/Qt-6-green)
@@ -8,12 +8,12 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 
 ## Features
 
-- **File Browser** — Zed editor-style tree view with git status colors (modified, untracked, added, ignored), dark/light theme, context menu (new file/dir, rename, delete). Configurable visibility for gitignored files and .git directory (visible/grayed/hidden). Works over SSH via sshfs
-- **Code Editor** — Tabbed editor with syntax highlighting for C/C++, Python, JavaScript/TypeScript, Rust. Line numbers, dark/light scheme, Ctrl+S save. Split view (horizontal/vertical). Find & Replace (Ctrl+F/Ctrl+H) with yellow match highlighting and scrollbar markers. Undo/Redo. Unsaved changes tracking with `●` tab marker. Configurable current line highlighting
+- **File Browser** — Zed editor-style tree view with git status colors (modified, untracked, added, ignored), context menu (new file/dir, rename, delete). Configurable visibility for gitignored files and .git directory (visible/grayed/hidden). Instant git status updates via QFileSystemWatcher + 10s polling. Works over SSH via sshfs
+- **Code Editor** — Tabbed editor with syntax highlighting for C/C++, Python, JavaScript/TypeScript, Rust. Line numbers, Ctrl+S save. Split view (horizontal/vertical). Find & Replace (Ctrl+F/Ctrl+H) with yellow match highlighting and scrollbar markers. Undo/Redo. Unsaved changes tracking with `●` tab marker. Configurable current line highlighting
 - **Dual Terminals** — AI-terminal (top, sends prompts) + general Terminal (bottom tab). Both follow file browser directory and support SSH. Stop button sends configurable stop sequence (default: Ctrl+C)
 - **Prompt System** — Prompt input with configurable send key (Enter / Ctrl+Enter). Shift modifier = send + save. Saved/recurring prompts per project
 - **Project Management** — `.LLM/instructions.json` stores project metadata, numbered prompt history, and saved prompt IDs. Auto-creates `.gitignore`
-- **Git Integration** — Async one-click commit (auto-init + add + commit). Auto-filters sensitive files (.env, *.pem, *.key). Async git status polling for file browser colors (including ignored files)
+- **Git Integration** — Async one-click commit (auto-init + add + commit). Auto-filters sensitive files (.env, *.pem, *.key). Async git status with instant updates for file browser colors
 - **Changes Monitor** — Real-time file change tracking with diff preview and one-click revert to git version
 - **SSH Remote Development**
   - Multiple simultaneous SSH profiles with profile switcher
@@ -25,9 +25,10 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
   - Terminals auto-cd when opening remote files
 - **Command Palette** — Ctrl+Shift+P for fuzzy-searchable commands (split view, focus, themes, diff refresh)
 - **Notifications** — Centralized log with Info/Warning/Error/Success levels and unread badge
-- **Global Themes** — Dark, Light, Monokai, Solarized Dark, Solarized Light, Nord — cascades to all components
-- **Settings** — Tabbed dialog with configurable fonts, sizes, color schemes, and themes for all components (terminal, editor, file browser, prompt, diff viewer, changes monitor, visibility)
-- **Session Persistence** — Remembers window size, splitter positions, open files, and active tab
+- **Custom Title Bar** — VS Code/Zed-style frameless window (CSD) with themed minimize/maximize/close buttons. All dialogs use themed title bars
+- **Global Themes** — Unified theme system: Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord. Auto-imports installed Zed editor themes. Live switching without restart
+- **Settings** — Tabbed dialog with configurable fonts, sizes, and global theme for all components (terminal, editor, file browser, prompt, diff viewer, changes monitor, visibility)
+- **Session Persistence** — Remembers window size, splitter positions, open files, active tab. Multi-monitor aware
 
 ## Installation
 
@@ -105,6 +106,7 @@ make -j$(nproc)
 11. **Command Palette** — Ctrl+Shift+P to search and execute commands (split view, focus panels, switch themes)
 12. **Changes Monitor** — Bottom "Changes" tab shows real-time file modifications with diff preview and revert
 13. **Settings** — Hamburger menu (☰) → Settings. Tabbed dialog for fonts, themes, and behavior
+14. **Zed Themes** — Install themes in Zed editor and they automatically appear in Settings and command palette
 
 ## Documentation
 
