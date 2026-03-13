@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "titlebar.h"
 #include "sshtunneldialog.h"
 
 #include <QSplitter>
@@ -18,6 +19,11 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QScreen>
+#include <QGuiApplication>
+#include <QStyleHints>
+#include <QHoverEvent>
+#include <QWindow>
 #include <QTimer>
 #include <QCloseEvent>
 
@@ -40,6 +46,8 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setWindowTitle("Vibe Coder");
+    setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
+    setAttribute(Qt::WA_Hover, true);
     resize(1200, 800);
 
     m_settings.load();
@@ -50,7 +58,15 @@ MainWindow::MainWindow(QWidget *parent)
     auto *central = new QWidget(this);
     setCentralWidget(central);
 
-    m_mainSplitter = new QSplitter(Qt::Horizontal, central);
+    // Custom title bar
+    m_titleBar = new TitleBar(this);
+    connect(m_titleBar, &TitleBar::minimizeClicked, this, &QMainWindow::showMinimized);
+    connect(m_titleBar, &TitleBar::maximizeClicked, this, [this]() {
+        isMaximized() ? showNormal() : showMaximized();
+    });
+    connect(m_titleBar, &TitleBar::closeClicked, this, &QMainWindow::close);
+
+    m_mainSplitter = new QSplitter(Qt::Horizontal);
     m_rightSplitter = new QSplitter(Qt::Vertical);
 
     // Tab widget with hamburger button in corner
@@ -250,7 +266,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *mainLayout = new QVBoxLayout(central);
     mainLayout->setContentsMargins(0, 0, 0, 0);
-    mainLayout->addWidget(m_mainSplitter);
+    mainLayout->setSpacing(0);
+    mainLayout->addWidget(m_titleBar);
+    mainLayout->addWidget(m_mainSplitter, 1);
 
     // Status bar: file label | SSH profile combo | transfer progress | info label
     m_statusFileLabel = new QLabel("Ready");
@@ -444,8 +462,8 @@ MainWindow::MainWindow(QWidget *parent)
     auto *paletteShortcut = new QShortcut(QKeySequence("Ctrl+Shift+P"), this);
     connect(paletteShortcut, &QShortcut::activated, m_commandPalette, &CommandPalette::show);
 
-    applySettings();
     applyGlobalTheme();
+    applySettings();
     restoreSession();
 
     // QTermWidget resets font after show/startShellProgram — reapply after event loop
@@ -480,6 +498,7 @@ void MainWindow::onSshConnect()
         lastCfg = m_sshManager->profileConfig(m_sshManager->activeProfileIndex());
 
     SshDialog dlg(lastCfg, this);
+    dlg.setStyleSheet(styleSheet());
     if (dlg.exec() != QDialog::Accepted)
         return;
 
@@ -597,6 +616,7 @@ void MainWindow::onSshTunnels()
         return;
     }
     SshTunnelDialog dlg(m_sshManager, idx, this);
+    dlg.setStyleSheet(styleSheet());
     dlg.exec();
 }
 
@@ -648,7 +668,7 @@ void MainWindow::applySettingsToEditor(CodeEditor *editor, const QString &lang)
     } else {
         editor->highlighter()->setLanguage("");
     }
-    editor->setEditorColorScheme(m_settings.editorColorScheme);
+    editor->setEditorColorScheme(m_settings.editorColorScheme, m_settings.bgColor, m_settings.textColor);
     editor->setHighlightCurrentLine(m_settings.editorHighlightLine);
 }
 
@@ -690,27 +710,29 @@ void MainWindow::applySettings()
     QFont promptFont(m_settings.promptFontFamily, m_settings.promptFontSize);
     m_editor->setFont(promptFont);
     m_editor->setStyleSheet(
-        QString("QPlainTextEdit { background-color: %1; color: %2; }")
-            .arg(m_settings.promptBgColor.name())
-            .arg(m_settings.promptTextColor.name()));
+        QString("QPlainTextEdit { background-color: %1; color: %2; font-family: '%3'; font-size: %4pt; }")
+            .arg(m_settings.bgColor.name())
+            .arg(m_settings.textColor.name())
+            .arg(m_settings.promptFontFamily)
+            .arg(m_settings.promptFontSize));
     m_editor->setSendOnEnter(m_settings.promptSendKey == "Enter");
     m_editor->setHighlightCurrentLine(m_settings.promptHighlightLine);
 
     QFont browserFont(m_settings.browserFontFamily, m_settings.browserFontSize);
     m_fileBrowser->setFont(browserFont);
-    m_fileBrowser->setTheme(m_settings.browserTheme);
+    m_fileBrowser->setTheme(m_settings.browserTheme, m_settings.bgColor, m_settings.textColor);
     m_fileBrowser->setGitignoreVisibility(m_settings.gitignoreVisibility);
     m_fileBrowser->setDotGitVisibility(m_settings.dotGitVisibility);
 
     // Diff viewer
     QFont diffFont(m_settings.diffFontFamily, m_settings.diffFontSize);
     m_diffViewer->setViewerFont(diffFont);
-    m_diffViewer->setViewerColors(m_settings.diffBgColor, m_settings.diffTextColor);
+    m_diffViewer->setViewerColors(m_settings.bgColor, m_settings.textColor);
 
     // Changes monitor
     QFont changesFont(m_settings.changesFontFamily, m_settings.changesFontSize);
     m_changesMonitor->setViewerFont(changesFont);
-    m_changesMonitor->setViewerColors(m_settings.changesBgColor, m_settings.changesTextColor);
+    m_changesMonitor->setViewerColors(m_settings.bgColor, m_settings.textColor);
 
     for (int i = 1; i < m_tabWidget->count(); ++i) {
         auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(i));
@@ -735,11 +757,12 @@ void MainWindow::applySettings()
 void MainWindow::onSettingsTriggered()
 {
     SettingsDialog dlg(m_settings, this);
+    dlg.setStyleSheet(styleSheet());
     if (dlg.exec() == QDialog::Accepted) {
         m_settings = dlg.result();
         m_settings.save();
-        applySettings();
         applyGlobalTheme();
+        applySettings();
     }
 }
 
@@ -977,6 +1000,53 @@ void MainWindow::closeEvent(QCloseEvent *event)
     event->accept();
 }
 
+bool MainWindow::event(QEvent *event)
+{
+    // Enable native resize edges for frameless window
+    if (event->type() == QEvent::HoverMove && !isMaximized()) {
+        auto *he = static_cast<QHoverEvent *>(event);
+        const int margin = 5;
+        QPoint pos = he->position().toPoint();
+        Qt::Edges edges;
+        if (pos.x() < margin) edges |= Qt::LeftEdge;
+        if (pos.x() > width() - margin) edges |= Qt::RightEdge;
+        if (pos.y() < margin) edges |= Qt::TopEdge;
+        if (pos.y() > height() - margin) edges |= Qt::BottomEdge;
+
+        if (edges) {
+            if (edges == Qt::LeftEdge || edges == Qt::RightEdge)
+                setCursor(Qt::SizeHorCursor);
+            else if (edges == Qt::TopEdge || edges == Qt::BottomEdge)
+                setCursor(Qt::SizeVerCursor);
+            else if ((edges & Qt::TopEdge) && (edges & Qt::LeftEdge))
+                setCursor(Qt::SizeFDiagCursor);
+            else if ((edges & Qt::BottomEdge) && (edges & Qt::RightEdge))
+                setCursor(Qt::SizeFDiagCursor);
+            else
+                setCursor(Qt::SizeBDiagCursor);
+        } else {
+            unsetCursor();
+        }
+    }
+    if (event->type() == QEvent::MouseButtonPress && !isMaximized()) {
+        auto *me = static_cast<QMouseEvent *>(event);
+        const int margin = 5;
+        QPoint pos = me->pos();
+        Qt::Edges edges;
+        if (pos.x() < margin) edges |= Qt::LeftEdge;
+        if (pos.x() > width() - margin) edges |= Qt::RightEdge;
+        if (pos.y() < margin) edges |= Qt::TopEdge;
+        if (pos.y() > height() - margin) edges |= Qt::BottomEdge;
+
+        if (edges) {
+            if (auto *win = windowHandle())
+                win->startSystemResize(edges);
+            return true;
+        }
+    }
+    return QMainWindow::event(event);
+}
+
 void MainWindow::closeTab(QTabWidget *tabWidget, int index)
 {
     if (index == 0) return; // never close AI-terminal
@@ -1165,6 +1235,7 @@ void MainWindow::onCreateProject()
     cfg.model = "claude-opus-4-6";
 
     ProjectDialog dlg("Create Project", cfg, this);
+    dlg.setStyleSheet(styleSheet());
     if (dlg.exec() != QDialog::Accepted)
         return;
 
@@ -1197,6 +1268,7 @@ void MainWindow::onEditProject()
     cfg.gitRemote = m_project.gitRemote();
 
     ProjectDialog dlg("Edit Project", cfg, this);
+    dlg.setStyleSheet(styleSheet());
     if (dlg.exec() != QDialog::Accepted)
         return;
 
@@ -1411,13 +1483,23 @@ void MainWindow::setupCommandPalette()
     });
 
     // Theme switching commands
-    for (const QString &theme : {"Dark", "Light", "Monokai", "Solarized Dark", "Solarized Light", "Nord"}) {
+    for (const QString &theme : {"Dark", "Dark Soft", "Dark Warm", "Light", "Monokai", "Solarized Dark", "Solarized Light", "Nord"}) {
         m_commandPalette->addCommand("Theme: " + theme, "", [this, theme]() {
             m_settings.globalTheme = theme;
             m_settings.applyThemeDefaults();
             m_settings.save();
-            applySettings();
             applyGlobalTheme();
+            applySettings();
+        });
+    }
+    for (const auto &zt : m_settings.zedThemes) {
+        QString theme = "Zed: " + zt.name;
+        m_commandPalette->addCommand("Theme: " + theme, "", [this, theme]() {
+            m_settings.globalTheme = theme;
+            m_settings.applyThemeDefaults();
+            m_settings.save();
+            applyGlobalTheme();
+            applySettings();
         });
     }
 }
@@ -1431,7 +1513,13 @@ void MainWindow::applyGlobalTheme()
 
     QString bgColor, textColor, altBg, borderColor, hoverBg, selectedBg;
 
-    if (m_settings.globalTheme == "Dark") {
+    if (m_settings.globalTheme == "Dark Soft") {
+        bgColor = "#1a1a2e"; textColor = "#a0a0b8"; altBg = "#20203a";
+        borderColor = "#33334d"; hoverBg = "#262640"; selectedBg = "#2a4a6b";
+    } else if (m_settings.globalTheme == "Dark Warm") {
+        bgColor = "#1e1a15"; textColor = "#6e6458"; altBg = "#252018";
+        borderColor = "#3d3428"; hoverBg = "#2a2319"; selectedBg = "#4a3a28";
+    } else if (m_settings.globalTheme == "Dark") {
         bgColor = "#1e1e1e"; textColor = "#d4d4d4"; altBg = "#252526";
         borderColor = "#3c3c3c"; hoverBg = "#2a2d2e"; selectedBg = "#094771";
     } else if (m_settings.globalTheme == "Light") {
@@ -1449,32 +1537,94 @@ void MainWindow::applyGlobalTheme()
     } else if (m_settings.globalTheme == "Nord") {
         bgColor = "#2e3440"; textColor = "#d8dee9"; altBg = "#3b4252";
         borderColor = "#4c566a"; hoverBg = "#434c5e"; selectedBg = "#5e81ac";
+    } else if (m_settings.globalTheme.startsWith("Zed: ")) {
+        QString zedName = m_settings.globalTheme.mid(5);
+        for (const auto &zt : m_settings.zedThemes) {
+            if (zt.name == zedName) {
+                bgColor = zt.bgColor; textColor = zt.textColor; altBg = zt.altBg;
+                borderColor = zt.borderColor; hoverBg = zt.hoverBg; selectedBg = zt.selectedBg;
+                break;
+            }
+        }
+        if (bgColor.isEmpty()) return;
     } else {
         return;
     }
 
     QString ss = QString(
+        // Base widget colors
         "QMainWindow { background: %1; }"
+        "QWidget { background: %1; color: %2; }"
+        "QLabel { color: %2; }"
+        "QPlainTextEdit { background-color: %1; color: %2; }"
+        "QTextEdit { background-color: %1; color: %2; }"
+        // Tabs
         "QTabWidget::pane { border: 1px solid %4; background: %1; }"
         "QTabBar::tab { background: %3; color: %2; padding: 6px 12px; border: 1px solid %4; }"
         "QTabBar::tab:selected { background: %1; }"
         "QTabBar::tab:hover { background: %5; }"
+        "QTabBar::close-button { border: none; padding: 4px; }"
+        "QTabBar::close-button:hover { background: rgba(128,128,128,0.4); border-radius: 3px; }"
+        // Font combo in dialogs
+        "QFontComboBox { background: %3; color: %2; border: 1px solid %4; padding: 3px; }"
+        "QFontComboBox QAbstractItemView { background: %1; color: %2; selection-background-color: %6; }"
+        "QDialogButtonBox QPushButton { min-width: 70px; }"
+        // Splitter
         "QSplitter::handle { background: %4; }"
+        // Status bar
         "QStatusBar { background: %3; color: %2; border-top: 1px solid %4; }"
         "QStatusBar QLabel { color: %2; }"
+        // Inputs
+        "QLineEdit { background: %3; color: %2; border: 1px solid %4; padding: 3px 6px; border-radius: 3px; }"
+        "QLineEdit:focus { border-color: %6; }"
+        "QSpinBox { background: %3; color: %2; border: 1px solid %4; padding: 2px; }"
         "QComboBox { background: %3; color: %2; border: 1px solid %4; padding: 3px; }"
         "QComboBox QAbstractItemView { background: %1; color: %2; selection-background-color: %6; }"
+        "QCheckBox { color: %2; }"
+        // Buttons
         "QPushButton { background: %3; color: %2; border: 1px solid %4; padding: 4px 12px; border-radius: 3px; }"
         "QPushButton:hover { background: %5; }"
         "QToolButton { color: %2; }"
+        // Lists
+        "QListWidget { background: %1; color: %2; border: none; }"
+        "QListWidget::item { padding: 4px 6px; }"
+        "QListWidget::item:selected { background: %6; }"
+        "QListWidget::item:hover { background: %5; }"
+        // Menus
         "QMenu { background: %1; color: %2; border: 1px solid %4; }"
+        "QMenu::item { padding: 5px 20px; }"
         "QMenu::item:selected { background: %6; }"
         "QMenu::item:disabled { color: %4; }"
+        // Dialogs
+        "QDialog { background: %1; color: %2; }"
+        "QGroupBox { color: %2; border: 1px solid %4; margin-top: 6px; padding-top: 10px; }"
+        "QGroupBox::title { color: %2; }"
+        // Scroll bars
+        "QScrollBar:vertical { background: %1; width: 8px; }"
+        "QScrollBar::handle:vertical { background: %4; border-radius: 4px; min-height: 20px; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+        "QScrollBar:horizontal { background: %1; height: 8px; }"
+        "QScrollBar::handle:horizontal { background: %4; border-radius: 4px; min-width: 20px; }"
+        "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }"
+        // Progress bar
         "QProgressBar { background: %3; color: %2; border: 1px solid %4; }"
         "QProgressBar::chunk { background: %6; }"
     ).arg(bgColor, textColor, altBg, borderColor, hoverBg, selectedBg);
 
     setStyleSheet(ss);
+
+    // Title bar specific styling
+    m_titleBar->setStyleSheet(
+        QString("TitleBar { background: %1; border-bottom: 1px solid %2; }")
+            .arg(altBg, borderColor));
+
+    // Set window title bar to match theme (Qt 6.5+)
+    auto *hints = QGuiApplication::styleHints();
+    hints->setColorScheme(dark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
+
+    // Force all widgets to repaint with new styles
+    for (auto *w : findChildren<QWidget *>())
+        w->update();
 }
 
 void MainWindow::refreshSavedPrompts()
@@ -1497,7 +1647,11 @@ void MainWindow::saveSession()
 {
     QSettings s("vibe-coder", "vibe-coder");
 
-    s.setValue("session/geometry", saveGeometry());
+    // Save normal (non-maximized) geometry so we restore to the correct screen
+    QRect normalGeom = normalGeometry();
+    s.setValue("session/windowPos", normalGeom.topLeft());
+    s.setValue("session/windowSize", normalGeom.size());
+    s.setValue("session/windowMaximized", isMaximized());
     s.setValue("session/mainSplitter", m_mainSplitter->saveState());
     s.setValue("session/rightSplitter", m_rightSplitter->saveState());
     s.setValue("session/browserPath", m_fileBrowser->rootPath());
@@ -1516,8 +1670,37 @@ void MainWindow::restoreSession()
 {
     QSettings s("vibe-coder", "vibe-coder");
 
-    if (s.contains("session/geometry"))
-        restoreGeometry(s.value("session/geometry").toByteArray());
+    if (s.contains("session/windowPos")) {
+        QPoint savedPos = s.value("session/windowPos").toPoint();
+        QSize savedSize = s.value("session/windowSize", QSize(1200, 800)).toSize();
+        bool wasMaximized = s.value("session/windowMaximized", false).toBool();
+
+        // Find the screen that contains the saved position
+        QScreen *targetScreen = nullptr;
+        for (QScreen *screen : QGuiApplication::screens()) {
+            if (screen->availableGeometry().contains(savedPos)) {
+                targetScreen = screen;
+                break;
+            }
+        }
+
+        if (targetScreen) {
+            if (wasMaximized) {
+                // Position on correct screen, then maximize after event loop
+                QRect screenGeom = targetScreen->availableGeometry();
+                setGeometry(screenGeom);
+                QTimer::singleShot(0, this, [this]() {
+                    showMaximized();
+                });
+            } else {
+                move(savedPos);
+                resize(savedSize);
+            }
+        } else {
+            // Saved monitor not available — keep default position, just restore size
+            resize(savedSize);
+        }
+    }
 
     if (s.contains("session/mainSplitter"))
         m_mainSplitter->restoreState(s.value("session/mainSplitter").toByteArray());

@@ -62,8 +62,7 @@ DiffViewer::DiffViewer(QWidget *parent)
     m_textEdit->setFont(QFont("Monospace", 10));
     m_textEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
 
-    m_textEdit->setStyleSheet(
-        "QPlainTextEdit { background-color: #1e1e1e; color: #d4d4d4; }");
+    // Colors handled by global theme stylesheet
 
     m_highlighter = new DiffHighlighter(m_textEdit->document());
 
@@ -120,9 +119,7 @@ void DiffViewer::setViewerFont(const QFont &font)
     m_textEdit->setFont(font);
 }
 
-void DiffViewer::setViewerColors(const QColor &bg, const QColor &fg)
+void DiffViewer::setViewerColors(const QColor &, const QColor &)
 {
-    m_textEdit->setStyleSheet(
-        QString("QPlainTextEdit { background-color: %1; color: %2; }")
-            .arg(bg.name(), fg.name()));
+    // Colors are now handled by the global theme stylesheet
 }

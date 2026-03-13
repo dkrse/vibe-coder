@@ -1,4 +1,5 @@
 #include "sshdialog.h"
+#include "themeddialog.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -110,6 +111,8 @@ SshDialog::SshDialog(const SshConfig &config, QWidget *parent)
             }
         }
     }
+
+    ThemedDialog::apply(this, "SSH Connect");
 }
 
 void SshDialog::onSavedSelected(int index)

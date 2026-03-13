@@ -1,4 +1,5 @@
 #include "sshtunneldialog.h"
+#include "themeddialog.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -74,6 +75,8 @@ SshTunnelDialog::SshTunnelDialog(SshManager *manager, int profileIndex, QWidget 
     connect(m_manager, &SshManager::tunnelStopped, this, [this](int) { refreshTable(); });
 
     refreshTable();
+
+    ThemedDialog::apply(this, "SSH Port Forwarding");
 }
 
 void SshTunnelDialog::refreshTable()

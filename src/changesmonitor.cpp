@@ -69,18 +69,12 @@ ChangesMonitor::ChangesMonitor(QWidget *parent)
 
     m_fileList = new QListWidget;
     m_fileList->setMaximumWidth(300);
-    m_fileList->setStyleSheet(
-        "QListWidget { font-size: 12px; background-color: #252526; color: #d4d4d4; }"
-        "QListWidget::item { padding: 4px 6px; }"
-        "QListWidget::item:selected { background-color: #094771; }");
     splitter->addWidget(m_fileList);
 
     m_diffPreview = new QPlainTextEdit;
     m_diffPreview->setReadOnly(true);
     m_diffPreview->setFont(QFont("Monospace", 10));
     m_diffPreview->setLineWrapMode(QPlainTextEdit::NoWrap);
-    m_diffPreview->setStyleSheet(
-        "QPlainTextEdit { background-color: #1e1e1e; color: #d4d4d4; }");
     m_diffHighlighter = new DiffBlockHighlighter(m_diffPreview->document());
     splitter->addWidget(m_diffPreview);
 
@@ -335,16 +329,9 @@ void ChangesMonitor::setViewerFont(const QFont &font)
     m_diffPreview->setFont(font);
 }
 
-void ChangesMonitor::setViewerColors(const QColor &bg, const QColor &fg)
+void ChangesMonitor::setViewerColors(const QColor &, const QColor &)
 {
-    m_diffPreview->setStyleSheet(
-        QString("QPlainTextEdit { background-color: %1; color: %2; }")
-            .arg(bg.name(), fg.name()));
-    m_fileList->setStyleSheet(
-        QString("QListWidget { font-size: 12px; background-color: %1; color: %2; }"
-                "QListWidget::item { padding: 4px 6px; }"
-                "QListWidget::item:selected { background-color: #094771; }")
-            .arg(bg.name(), fg.name()));
+    // Colors are now handled by the global theme stylesheet
 }
 
 void ChangesMonitor::refreshList()

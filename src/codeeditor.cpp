@@ -172,25 +172,9 @@ void FindReplaceBar::updateReplaceVisibility()
     m_toggleReplaceBtn->setText(m_replaceVisible ? "▼" : "▶");
 }
 
-void FindReplaceBar::setDarkTheme(bool dark)
+void FindReplaceBar::setDarkTheme(bool)
 {
-    if (dark) {
-        setStyleSheet(
-            "FindReplaceBar { background: #2d2d2d; border-bottom: 1px solid #555; }"
-            "QLineEdit { background: #3c3c3c; color: #d4d4d4; border: 1px solid #555; padding: 2px 4px; }"
-            "QPushButton { background: #3c3c3c; color: #d4d4d4; border: 1px solid #555; padding: 1px 6px; }"
-            "QPushButton:hover { background: #505050; }"
-            "QLabel { color: #999; font-size: 11px; }"
-        );
-    } else {
-        setStyleSheet(
-            "FindReplaceBar { background: #f0f0f0; border-bottom: 1px solid #ccc; }"
-            "QLineEdit { background: #ffffff; color: #333333; border: 1px solid #bbb; padding: 2px 4px; }"
-            "QPushButton { background: #e0e0e0; color: #333333; border: 1px solid #bbb; padding: 1px 6px; }"
-            "QPushButton:hover { background: #d0d0d0; }"
-            "QLabel { color: #666; font-size: 11px; }"
-        );
-    }
+    // Colors are now handled by the global theme stylesheet
 }
 
 // ── SyntaxHighlighter ───────────────────────────────────────────────
@@ -512,29 +496,34 @@ void CodeEditor::setShowLineNumbers(bool show)
 {
     m_showLineNumbers = show;
     m_lineNumberArea->setVisible(show);
-    updateLineNumberAreaWidth(0);
+    setViewportMargins(lineNumberAreaWidth(), 0, 0, 0);
+    m_lineNumberArea->update();
 }
 
-void CodeEditor::setEditorColorScheme(const QString &scheme)
+void CodeEditor::setEditorColorScheme(const QString &scheme, const QColor &bg, const QColor &fg)
 {
     bool dark = scheme.toLower().contains("dark");
     m_darkScheme = dark;
     m_highlighter->setDarkTheme(dark);
     m_findBar->setDarkTheme(dark);
 
+    QColor baseBg = bg.isValid() ? bg : (dark ? QColor("#1e1e1e") : QColor("#ffffff"));
+    QColor baseFg = fg.isValid() ? fg : (dark ? QColor("#d4d4d4") : QColor("#333333"));
+    QColor altBg = dark ? baseBg.lighter(115) : baseBg.darker(105);
+    QColor placeholderFg = dark ? baseFg.darker(160) : baseFg.lighter(200);
+
     QPalette pal = palette();
-    if (dark) {
-        pal.setColor(QPalette::Base, QColor("#1e1e1e"));
-        pal.setColor(QPalette::Text, QColor("#d4d4d4"));
-        pal.setColor(QPalette::AlternateBase, QColor("#252526"));
-        pal.setColor(QPalette::PlaceholderText, QColor("#858585"));
-    } else {
-        pal.setColor(QPalette::Base, QColor("#ffffff"));
-        pal.setColor(QPalette::Text, QColor("#333333"));
-        pal.setColor(QPalette::AlternateBase, QColor("#f0f0f0"));
-        pal.setColor(QPalette::PlaceholderText, QColor("#999999"));
-    }
+    pal.setColor(QPalette::Base, baseBg);
+    pal.setColor(QPalette::Text, baseFg);
+    pal.setColor(QPalette::AlternateBase, altBg);
+    pal.setColor(QPalette::PlaceholderText, placeholderFg);
     setPalette(pal);
+
+    // Override global stylesheet for line number area
+    m_lineNumberArea->setStyleSheet(
+        QString("background-color: %1; color: %2;").arg(altBg.name(), placeholderFg.name()));
+    m_lineNumberArea->update();
+
     updateCurrentLineHighlight();
 }
 

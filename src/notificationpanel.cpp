@@ -20,9 +20,6 @@ NotificationPanel::NotificationPanel(QWidget *parent)
     layout->addLayout(toolbar);
 
     m_list = new QListWidget;
-    m_list->setStyleSheet(
-        "QListWidget { font-family: monospace; font-size: 12px; background-color: #1e1e1e; color: #d4d4d4; }"
-        "QListWidget::item { padding: 3px 6px; border-bottom: 1px solid #333; }");
     m_list->setWordWrap(true);
     layout->addWidget(m_list, 1);
 

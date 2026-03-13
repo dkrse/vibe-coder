@@ -231,10 +231,25 @@ FileBrowser::FileBrowser(QWidget *parent)
     // Async git process
     m_gitProc = new QProcess(this);
 
-    // Git status refresh timer — started on demand after git repo is confirmed
+    // Git status refresh timer — fallback poll every 10s
     m_gitTimer = new QTimer(this);
     m_gitTimer->setInterval(10000);
     connect(m_gitTimer, &QTimer::timeout, this, &FileBrowser::startGitRefresh);
+
+    // Debounce timer for filesystem watcher — coalesce rapid changes into one refresh
+    m_gitDebounce = new QTimer(this);
+    m_gitDebounce->setSingleShot(true);
+    m_gitDebounce->setInterval(300);
+    connect(m_gitDebounce, &QTimer::timeout, this, &FileBrowser::startGitRefresh);
+
+    // Filesystem watcher for instant git status updates
+    m_fsWatcher = new QFileSystemWatcher(this);
+    connect(m_fsWatcher, &QFileSystemWatcher::fileChanged, this, [this]() {
+        m_gitDebounce->start();
+    });
+    connect(m_fsWatcher, &QFileSystemWatcher::directoryChanged, this, [this]() {
+        m_gitDebounce->start();
+    });
 
     connect(m_openBtn, &QPushButton::clicked, this, [this]() {
         if (isSshActive()) return; // no local dialog for SSH
@@ -360,8 +375,10 @@ void FileBrowser::onSshItemExpanded(const QModelIndex &index)
 void FileBrowser::applyStyle()
 {
     QString bg = m_bgColor.name();
-    QString hoverBg = QColor(m_bgColor.lighter(120)).name();
-    QString selBg = QColor(m_bgColor.lighter(140)).name();
+    QString hoverBg = m_dark ? QColor(m_bgColor.lighter(120)).name()
+                             : QColor(m_bgColor.darker(110)).name();
+    QString selBg = m_dark ? QColor(m_bgColor.lighter(140)).name()
+                           : QColor(m_bgColor.darker(120)).name();
 
     setStyleSheet(QString(R"(
         FileBrowser { background-color: %1; }
@@ -457,19 +474,79 @@ void FileBrowser::onGitRootFinished(int exitCode, QProcess::ExitStatus)
 
     m_gitRoot = QString::fromUtf8(m_gitProc->readAllStandardOutput()).trimmed();
 
+    // Watch .gitignore and git root for instant updates
+    QString gitignorePath = m_gitRoot + "/.gitignore";
+    if (QFile::exists(gitignorePath) && !m_fsWatcher->files().contains(gitignorePath))
+        m_fsWatcher->addPath(gitignorePath);
+    if (!m_fsWatcher->directories().contains(m_gitRoot))
+        m_fsWatcher->addPath(m_gitRoot);
+
+    // Run git status from git root so paths are consistent
+    m_gitProc->setWorkingDirectory(m_gitRoot);
     connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, &FileBrowser::onGitStatusFinished);
-    m_gitProc->start("git", {"status", "--porcelain", "-unormal", "--ignored"});
+    m_gitProc->start("git", {"status", "--porcelain", "-unormal"});
 }
 
 void FileBrowser::onGitStatusFinished(int exitCode, QProcess::ExitStatus)
 {
     disconnect(m_gitProc, nullptr, this, nullptr);
-    m_gitBusy = false;
 
-    if (exitCode != 0) return;
+    if (exitCode != 0) {
+        m_gitBusy = false;
+        return;
+    }
 
     m_gitStatusOutput = QString::fromUtf8(m_gitProc->readAllStandardOutput());
+
+    // Step 1: get untracked ignored files/dirs (catches nested files like ABC/x.txt)
+    m_gitProc->setWorkingDirectory(m_gitRoot);
+    connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, &FileBrowser::onGitLsIgnoredFinished);
+    m_gitProc->start("git", {"ls-files", "--others", "--ignored", "--exclude-standard", "--directory"});
+}
+
+void FileBrowser::onGitLsIgnoredFinished(int exitCode, QProcess::ExitStatus)
+{
+    disconnect(m_gitProc, nullptr, this, nullptr);
+
+    m_gitLsIgnoredOutput = (exitCode == 0)
+        ? QString::fromUtf8(m_gitProc->readAllStandardOutput())
+        : QString();
+
+    // Step 2: check root-level entries against .gitignore rules (catches tracked dirs like docs/)
+    connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, &FileBrowser::onGitCheckIgnoreFinished);
+    m_gitProc->start("git", {"check-ignore", "--no-index", "--stdin"});
+
+    // Feed all files and dirs recursively (skip .git) so that
+    // both root-level dirs and nested files like docs/architecture.md are checked
+    std::function<void(const QString &, int)> feedEntries =
+        [&](const QString &dirPath, int depth) {
+        if (depth > 6) return;
+        QDir dir(dirPath);
+        for (const auto &entry : dir.entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot)) {
+            if (entry == ".git") continue;
+            QString fullPath = dirPath + "/" + entry;
+            QString relative = fullPath.mid(m_gitRoot.length() + 1);
+            m_gitProc->write((relative + "\n").toUtf8());
+            if (QFileInfo(fullPath).isDir())
+                feedEntries(fullPath, depth + 1);
+        }
+    };
+    feedEntries(m_gitRoot, 0);
+    m_gitProc->closeWriteChannel();
+}
+
+void FileBrowser::onGitCheckIgnoreFinished(int exitCode, QProcess::ExitStatus)
+{
+    disconnect(m_gitProc, nullptr, this, nullptr);
+    m_gitBusy = false;
+
+    // git check-ignore exits 0 if matches found, 1 if no matches — both are OK
+    m_gitCheckIgnoreOutput = (exitCode == 0)
+        ? QString::fromUtf8(m_gitProc->readAllStandardOutput())
+        : QString();
     parseGitOutput();
 }
 
@@ -485,15 +562,14 @@ void FileBrowser::parseGitOutput()
         if (file.contains(" -> "))
             file = file.split(" -> ").last();
 
-        // Remove trailing slash for ignored directories
+        // Remove trailing slash for directories
         if (file.endsWith('/'))
             file.chop(1);
 
         QString fullPath = m_gitRoot + "/" + file;
 
-        if (x == '!' && y == '!') {
-            newIgnored.insert(fullPath);
-        } else if (x == '?' && y == '?') {
+        // Skip !! lines — ignored files come from git ls-files instead
+        if (x == '?' && y == '?') {
             newUntracked.insert(fullPath);
         } else if (x == 'A') {
             newAdded.insert(fullPath);
@@ -502,6 +578,24 @@ void FileBrowser::parseGitOutput()
         } else if (x == 'D' || y == 'D') {
             newModified.insert(fullPath);
         }
+    }
+
+    // Parse untracked ignored from git ls-files output (nested files like ABC/x.txt)
+    for (const QString &line : m_gitLsIgnoredOutput.split('\n', Qt::SkipEmptyParts)) {
+        QString file = line.trimmed();
+        if (file.endsWith('/'))
+            file.chop(1);
+        if (!file.isEmpty())
+            newIgnored.insert(m_gitRoot + "/" + file);
+    }
+
+    // Parse git check-ignore output (tracked dirs/files matching .gitignore)
+    for (const QString &line : m_gitCheckIgnoreOutput.split('\n', Qt::SkipEmptyParts)) {
+        QString file = line.trimmed();
+        if (file.endsWith('/'))
+            file.chop(1);
+        if (!file.isEmpty())
+            newIgnored.insert(m_gitRoot + "/" + file);
     }
 
     bool changed = (newModified != m_modified || newUntracked != m_untracked
@@ -540,17 +634,33 @@ void FileBrowser::rebuildDirCache()
     addParents(m_modified, m_dirModified);
     addParents(m_untracked, m_dirUntracked);
     addParents(m_added, m_dirAdded);
-    addParents(m_ignored, m_dirIgnored);
+    // Note: do NOT propagate ignored status to parent directories —
+    // a directory containing an ignored file is not itself ignored.
 }
 
 FileBrowser::GitStatus FileBrowser::gitStatus(const QString &fp) const
 {
     if (m_ignored.contains(fp)) return Ignored;
-    if (m_dirIgnored.contains(fp)) return Ignored;
     if (m_modified.contains(fp)) return Modified;
     if (m_untracked.contains(fp)) return Untracked;
     if (m_added.contains(fp)) return Added;
 
+    // Check if fp is inside a reported directory (child lookup)
+    // git status -unormal reports directories instead of individual files
+    for (const QString &path : m_ignored) {
+        if (fp.startsWith(path + '/')) return Ignored;
+    }
+    for (const QString &path : m_untracked) {
+        if (fp.startsWith(path + '/')) return Untracked;
+    }
+    for (const QString &path : m_added) {
+        if (fp.startsWith(path + '/')) return Added;
+    }
+    for (const QString &path : m_modified) {
+        if (fp.startsWith(path + '/')) return Modified;
+    }
+
+    // Parent directory propagation (directory contains modified/untracked/added children)
     if (m_dirModified.contains(fp)) return Modified;
     if (m_dirUntracked.contains(fp)) return Untracked;
     if (m_dirAdded.contains(fp)) return Added;
@@ -577,21 +687,7 @@ void FileBrowser::showContextMenu(const QPoint &pos)
     QString dirPath = selectedDirPath();
 
     QMenu menu(this);
-    if (m_dark) {
-        menu.setStyleSheet(R"(
-            QMenu { background-color: #2d2d2d; color: #cccccc; border: 1px solid #454545; padding: 4px 0px; }
-            QMenu::item { padding: 5px 20px; }
-            QMenu::item:selected { background-color: #094771; }
-            QMenu::separator { height: 1px; background: #454545; margin: 4px 8px; }
-        )");
-    } else {
-        menu.setStyleSheet(R"(
-            QMenu { background-color: #f5f5f5; color: #24292f; border: 1px solid #d0d0d0; padding: 4px 0px; }
-            QMenu::item { padding: 5px 20px; }
-            QMenu::item:selected { background-color: #0969da; color: #ffffff; }
-            QMenu::separator { height: 1px; background: #d0d0d0; margin: 4px 8px; }
-        )");
-    }
+    // Menu colors handled by global theme stylesheet
 
     menu.addAction("New File...", this, [this, dirPath]() {
         bool ok;
@@ -686,6 +782,14 @@ void FileBrowser::setRootPath(const QString &path)
     }
 
     m_pathEdit->setText(isSshActive() ? toRemotePath(path) : path);
+
+    // Rewire filesystem watcher for new root
+    if (!m_fsWatcher->directories().isEmpty())
+        m_fsWatcher->removePaths(m_fsWatcher->directories());
+    if (!m_fsWatcher->files().isEmpty())
+        m_fsWatcher->removePaths(m_fsWatcher->files());
+    m_fsWatcher->addPath(path);
+
     startGitRefresh();
     emit rootPathChanged(path);
 }
@@ -721,10 +825,13 @@ void FileBrowser::setFont(const QFont &font)
     m_pathEdit->setFont(font);
 }
 
-void FileBrowser::setTheme(const QString &theme)
+void FileBrowser::setTheme(const QString &theme, const QColor &bg, const QColor &fg)
 {
     m_dark = (theme == "Dark");
-    if (m_dark) {
+    if (bg.isValid() && fg.isValid()) {
+        m_bgColor = bg;
+        m_textColor = fg;
+    } else if (m_dark) {
         m_bgColor = QColor("#1e1e1e");
         m_textColor = QColor("#d4d4d4");
     } else {

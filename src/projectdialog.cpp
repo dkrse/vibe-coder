@@ -1,4 +1,5 @@
 #include "projectdialog.h"
+#include "themeddialog.h"
 
 #include <QVBoxLayout>
 #include <QFormLayout>
@@ -41,6 +42,8 @@ ProjectDialog::ProjectDialog(const QString &title, const ProjectConfig &config,
     mainLayout->addWidget(group);
     mainLayout->addStretch();
     mainLayout->addWidget(buttons);
+
+    ThemedDialog::apply(this, title);
 }
 
 ProjectConfig ProjectDialog::result() const

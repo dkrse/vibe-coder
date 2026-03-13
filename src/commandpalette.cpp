@@ -15,19 +15,10 @@ CommandPalette::CommandPalette(QWidget *parent)
 
     m_input = new QLineEdit;
     m_input->setPlaceholderText("Type a command...");
-    m_input->setStyleSheet(
-        "QLineEdit { padding: 8px; font-size: 14px; border: 1px solid #555; "
-        "border-radius: 4px; background: #2d2d2d; color: #ddd; }");
     layout->addWidget(m_input);
 
     m_list = new QListWidget;
-    m_list->setStyleSheet(
-        "QListWidget { background: #2d2d2d; color: #ddd; border: none; font-size: 13px; }"
-        "QListWidget::item { padding: 6px 8px; }"
-        "QListWidget::item:selected { background: #094771; }");
     layout->addWidget(m_list);
-
-    setStyleSheet("CommandPalette { background: #252526; border: 1px solid #555; border-radius: 6px; }");
 
     m_input->installEventFilter(this);
     m_list->installEventFilter(this);

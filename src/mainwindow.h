@@ -26,6 +26,7 @@
 #include "changesmonitor.h"
 
 class QSplitter;
+class TitleBar;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -95,6 +96,7 @@ private:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    bool event(QEvent *event) override;
 
     // SSH
     SshManager *m_sshManager;
@@ -135,4 +137,7 @@ protected:
 
     // Global theme
     void applyGlobalTheme();
+
+    // Custom title bar
+    TitleBar *m_titleBar;
 };

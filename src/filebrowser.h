@@ -13,6 +13,7 @@
 #include <QColor>
 #include <QProcess>
 #include <QSortFilterProxyModel>
+#include <QFileSystemWatcher>
 
 class FileBrowser;
 class FileBrowserProxy;
@@ -47,7 +48,7 @@ public:
     void setRootPath(const QString &path);
     QString rootPath() const;
     void setFont(const QFont &font);
-    void setTheme(const QString &theme); // "Dark" or "Light"
+    void setTheme(const QString &theme, const QColor &bg = QColor(), const QColor &fg = QColor());
 
     // SSH mount mapping
     void setSshMount(const QString &mountPoint, const QString &remotePrefix);
@@ -84,6 +85,8 @@ private:
     void startGitRefresh();
     void onGitCheckFinished(int exitCode, QProcess::ExitStatus status);
     void onGitStatusFinished(int exitCode, QProcess::ExitStatus status);
+    void onGitLsIgnoredFinished(int exitCode, QProcess::ExitStatus status);
+    void onGitCheckIgnoreFinished(int exitCode, QProcess::ExitStatus status);
     void onGitRootFinished(int exitCode, QProcess::ExitStatus status);
     void parseGitOutput();
     void rebuildDirCache();
@@ -102,6 +105,8 @@ private:
     QPushButton *m_openBtn;
     FileItemDelegate *m_delegate;
     QTimer *m_gitTimer;
+    QTimer *m_gitDebounce;
+    QFileSystemWatcher *m_fsWatcher;
 
     bool m_dark = true;
     QColor m_bgColor;
@@ -120,6 +125,8 @@ private:
 
     QProcess *m_gitProc;
     QString m_gitStatusOutput;
+    QString m_gitLsIgnoredOutput;
+    QString m_gitCheckIgnoreOutput;
     QString m_gitRoot;
 
     // Visibility

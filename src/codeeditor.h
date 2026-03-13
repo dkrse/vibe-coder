@@ -123,7 +123,7 @@ public:
     void setShowLineNumbers(bool show);
     bool showLineNumbers() const { return m_showLineNumbers; }
 
-    void setEditorColorScheme(const QString &scheme);
+    void setEditorColorScheme(const QString &scheme, const QColor &bg = QColor(), const QColor &fg = QColor());
     SyntaxHighlighter *highlighter() const { return m_highlighter; }
     bool isDarkScheme() const { return m_darkScheme; }
 
