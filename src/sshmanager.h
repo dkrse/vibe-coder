@@ -6,6 +6,7 @@
 #include <QMap>
 #include <QList>
 #include <QTemporaryFile>
+#include <functional>
 #include "sshdialog.h"
 
 struct SshTunnel {
@@ -94,7 +95,7 @@ private:
 
     void doMountAsync(int profileIndex);
     void onMountFinished(int profileIndex, int exitCode);
-    void doUnmount(ProfileState &ps);
+    void doUnmount(ProfileState &ps, std::function<void()> onDone = nullptr);
     void checkMountHealth();
     void checkNextProfile(int startIndex);
     void onHealthCheckFinished(int profileIndex, int exitCode, bool timedOut);

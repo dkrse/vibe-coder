@@ -19,6 +19,7 @@ struct AppSettings {
     // Terminal
     QString termFontFamily = "Adwaita Mono";
     int termFontSize = 14;
+    QString termTheme = "Auto"; // "Auto" or specific: Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight
 
     // Editor
     QString editorFontFamily = "Monaco";
@@ -81,6 +82,7 @@ private:
     // Terminal
     QFontComboBox *m_termFontCombo;
     QSpinBox *m_termFontSizeSpin;
+    QComboBox *m_termThemeCombo;
 
     // Editor
     QFontComboBox *m_editorFontCombo;

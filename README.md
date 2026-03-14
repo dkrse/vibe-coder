@@ -13,8 +13,9 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 - **Dual Terminals** — AI-terminal (top, sends prompts) + general Terminal (bottom tab). Both follow file browser directory and support SSH. Stop button sends configurable stop sequence (default: Ctrl+C)
 - **Prompt System** — Prompt input with configurable send key (Enter / Ctrl+Enter). Shift modifier = send + save. Saved/recurring prompts per project
 - **Project Management** — `.LLM/instructions.json` stores project metadata, numbered prompt history, and saved prompt IDs. Auto-creates `.gitignore`
-- **Git Integration** — Async one-click commit (auto-init + add + commit). Auto-filters sensitive files (.env, *.pem, *.key). Async git status with instant updates for file browser colors
+- **Git Integration** — Async one-click commit (auto-init + add + commit). Auto-filters sensitive files (.env, *.pem, *.key). Async git status with instant updates for file browser colors. **Git Graph tab** with visual commit history, branch/merge visualization, Fetch/Pull/Push, upstream tracking, and multi-remote management
 - **Changes Monitor** — Real-time file change tracking with diff preview and one-click revert to git version
+- **Diff Viewer** — Git diff viewer with syntax highlighting (working changes, staged, last commit)
 - **SSH Remote Development**
   - Multiple simultaneous SSH profiles with profile switcher
   - sshfs-based file browsing (synchronous QStandardItemModel for reliability)
@@ -105,8 +106,9 @@ make -j$(nproc)
 10. **Commit** — Click Commit button. Auto-initializes git if needed, stages files (filters sensitive), commits with timestamp
 11. **Command Palette** — Ctrl+Shift+P to search and execute commands (split view, focus panels, switch themes)
 12. **Changes Monitor** — Bottom "Changes" tab shows real-time file modifications with diff preview and revert
-13. **Settings** — Hamburger menu (☰) → Settings. Tabbed dialog for fonts, themes, and behavior
-14. **Zed Themes** — Install themes in Zed editor and they automatically appear in Settings and command palette
+13. **Git Graph** — Bottom "Git" tab shows commit history as a visual graph. Use Fetch/Pull/Push buttons, manage remotes via "Remotes" button
+14. **Settings** — Hamburger menu (☰) → Settings. Tabbed dialog for fonts, themes, and behavior
+15. **Zed Themes** — Install themes in Zed editor and they automatically appear in Settings and command palette
 
 ## Documentation
 

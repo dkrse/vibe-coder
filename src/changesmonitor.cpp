@@ -151,7 +151,10 @@ void ChangesMonitor::setProjectDir(const QString &dir)
 
         // Skip hidden dirs (.git, .LLM, etc.)
         if (path.contains("/.git/") || path.contains("/.LLM/") ||
-            path.contains("/node_modules/") || path.contains("/__pycache__/"))
+            path.contains("/node_modules/") || path.contains("/__pycache__/") ||
+            path.contains("/build/") || path.contains("/.cache/") ||
+            path.contains("/target/") || path.contains("/dist/") ||
+            path.contains("/vendor/"))
             continue;
 
         QFileInfo fi(path);
@@ -172,7 +175,10 @@ void ChangesMonitor::setProjectDir(const QString &dir)
         dit.next();
         QString dpath = dit.filePath();
         if (dpath.contains("/.git") || dpath.contains("/.LLM") ||
-            dpath.contains("/node_modules") || dpath.contains("/__pycache__"))
+            dpath.contains("/node_modules") || dpath.contains("/__pycache__") ||
+            dpath.contains("/build") || dpath.contains("/.cache") ||
+            dpath.contains("/target") || dpath.contains("/dist") ||
+            dpath.contains("/vendor"))
             continue;
         dirPaths.append(dpath);
         if (dirPaths.size() >= 500) break;
@@ -235,12 +241,17 @@ void ChangesMonitor::scanForNewFiles()
 
     QDirIterator it(m_projectDir, QDir::Files | QDir::NoDotAndDotDot,
                     QDirIterator::Subdirectories);
+    int scanned = 0;
     while (it.hasNext()) {
+        if (++scanned > 5000) break;
         it.next();
         QString path = it.filePath();
 
         if (path.contains("/.git/") || path.contains("/.LLM/") ||
-            path.contains("/node_modules/") || path.contains("/__pycache__/"))
+            path.contains("/node_modules/") || path.contains("/__pycache__/") ||
+            path.contains("/build/") || path.contains("/.cache/") ||
+            path.contains("/target/") || path.contains("/dist/") ||
+            path.contains("/vendor/"))
             continue;
 
         if (!m_knownFiles.contains(path)) {
@@ -277,16 +288,27 @@ void ChangesMonitor::showDiffForFile(const QString &filePath)
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this, proc, filePath](int, QProcess::ExitStatus) {
         QString output = proc->readAllStandardOutput();
+        static constexpr int MAX_DIFF_SIZE = 512 * 1024;
+        if (output.size() > MAX_DIFF_SIZE) {
+            output.truncate(MAX_DIFF_SIZE);
+            output += "\n\n--- Output truncated (>512KB) ---";
+        }
         if (output.trimmed().isEmpty()) {
             // Maybe untracked — show file content
             QFile f(filePath);
             if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                output = "(new file)\n" + f.readAll();
+                QByteArray data = f.read(512 * 1024);
+                output = "(new file)\n" + QString::fromUtf8(data);
+                if (f.bytesAvailable() > 0)
+                    output += "\n\n--- File truncated (>512KB) ---";
             } else {
                 output = "(no diff available)";
             }
         }
         m_diffPreview->setPlainText(output);
+        proc->deleteLater();
+    });
+    connect(proc, &QProcess::errorOccurred, this, [proc]() {
         proc->deleteLater();
     });
 
@@ -318,6 +340,9 @@ void ChangesMonitor::revertSelected()
         } else {
             m_diffPreview->setPlainText("Revert failed:\n" + proc->readAllStandardError());
         }
+        proc->deleteLater();
+    });
+    connect(proc, &QProcess::errorOccurred, this, [proc]() {
         proc->deleteLater();
     });
 

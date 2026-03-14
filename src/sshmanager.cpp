@@ -13,6 +13,16 @@ SshManager::SshManager(QObject *parent)
     connect(m_healthTimer, &QTimer::timeout, this, [this]() {
         checkNextProfile(0);
     });
+
+    // Async rsync availability check
+    auto *which = new QProcess(this);
+    connect(which, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, which](int exitCode, QProcess::ExitStatus) {
+        m_hasRsync = (exitCode == 0);
+        m_rsyncChecked = true;
+        which->deleteLater();
+    });
+    which->start("which", {"rsync"});
 }
 
 SshManager::~SshManager()
@@ -24,9 +34,9 @@ SshManager::~SshManager()
 
 bool SshManager::isValidSshIdentifier(const QString &s)
 {
-    // Reject shell metacharacters to prevent command injection
-    static QRegularExpression badChars("[;&|`$(){}\\[\\]<>!#*?~\\\\\"'\\n\\r]");
-    return !s.isEmpty() && !badChars.match(s).hasMatch();
+    // Allowlist: only alphanumeric, dots, hyphens, underscores, @ for email-style users
+    static QRegularExpression validChars("^[a-zA-Z0-9._@-]+$");
+    return !s.isEmpty() && s.length() <= 253 && validChars.match(s).hasMatch();
 }
 
 // ── Password helpers (avoid exposing password in ps aux) ────────────
@@ -55,13 +65,6 @@ void SshManager::setupSshpassEnv(QProcess *proc, const QString &password)
 
 bool SshManager::hasRsync()
 {
-    if (!m_rsyncChecked) {
-        m_rsyncChecked = true;
-        QProcess which;
-        which.start("which", {"rsync"});
-        which.waitForFinished(2000);
-        m_hasRsync = (which.exitCode() == 0);
-    }
     return m_hasRsync;
 }
 
@@ -73,7 +76,7 @@ QStringList SshManager::buildSshArgs(const SshConfig &cfg) const
     args << "-o" << "StrictHostKeyChecking=accept-new";
     args << cfg.user + "@" + cfg.host;
     args << "-p" << QString::number(cfg.port);
-    if (!cfg.identityFile.isEmpty())
+    if (!cfg.identityFile.isEmpty() && QFileInfo(cfg.identityFile).exists())
         args << "-i" << cfg.identityFile;
     return args;
 }
@@ -85,7 +88,7 @@ QStringList SshManager::buildSshfsArgs(const SshConfig &cfg, const QString &mp) 
     args << "-p" << QString::number(cfg.port);
     args << "-o" << "reconnect,ServerAliveInterval=15,StrictHostKeyChecking=accept-new"
          << "-o" << "cache=no,no_readahead";
-    if (!cfg.identityFile.isEmpty())
+    if (!cfg.identityFile.isEmpty() && QFileInfo(cfg.identityFile).exists())
         args << "-o" << ("IdentityFile=" + cfg.identityFile);
     if (!cfg.password.isEmpty())
         args << "-o" << "password_stdin";
@@ -146,23 +149,36 @@ void SshManager::onMountFinished(int profileIndex, int exitCode)
     }
 }
 
-void SshManager::doUnmount(ProfileState &ps)
+void SshManager::doUnmount(ProfileState &ps, std::function<void()> onDone)
 {
-    if (ps.mountPoint.isEmpty()) return;
-
-    QProcess unmount;
-    unmount.start("fusermount", {"-u", ps.mountPoint});
-    unmount.waitForFinished(5000);
-
-    // Force if normal unmount failed
-    if (unmount.exitCode() != 0) {
-        QProcess force;
-        force.start("fusermount", {"-uz", ps.mountPoint});
-        force.waitForFinished(3000);
+    if (ps.mountPoint.isEmpty()) {
+        if (onDone) onDone();
+        return;
     }
 
-    QDir().rmdir(ps.mountPoint);
     ps.connected = false;
+    auto *proc = new QProcess(this);
+    QString mp = ps.mountPoint;
+
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc, mp, onDone](int exitCode, QProcess::ExitStatus) {
+        if (exitCode != 0) {
+            // Force unmount
+            auto *force = new QProcess(this);
+            connect(force, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                    this, [force, mp, onDone](int, QProcess::ExitStatus) {
+                QDir().rmdir(mp);
+                force->deleteLater();
+                if (onDone) onDone();
+            });
+            force->start("fusermount", {"-uz", mp});
+        } else {
+            QDir().rmdir(mp);
+            if (onDone) onDone();
+        }
+        proc->deleteLater();
+    });
+    proc->start("fusermount", {"-u", mp});
 }
 
 // ── Profile management ──────────────────────────────────────────────
@@ -240,11 +256,8 @@ void SshManager::disconnectAll()
     // Kill all tunnels
     for (auto it = m_tunnels.begin(); it != m_tunnels.end(); ++it) {
         if (it->process) {
-            it->process->terminate();
-            it->process->waitForFinished(2000);
-            if (it->process->state() != QProcess::NotRunning)
-                it->process->kill();
-            delete it->process;
+            it->process->kill();
+            it->process->deleteLater();
             it->process = nullptr;
         }
     }
@@ -252,9 +265,8 @@ void SshManager::disconnectAll()
 
     // Kill transfer
     if (m_transferProc) {
-        m_transferProc->terminate();
-        m_transferProc->waitForFinished(2000);
-        delete m_transferProc;
+        m_transferProc->kill();
+        m_transferProc->deleteLater();
         m_transferProc = nullptr;
     }
 
@@ -593,13 +605,9 @@ void SshManager::removeTunnel(int tunnelId)
 {
     auto it = m_tunnels.find(tunnelId);
     if (it == m_tunnels.end()) return;
-
     if (it->process) {
-        it->process->terminate();
-        it->process->waitForFinished(2000);
-        if (it->process->state() != QProcess::NotRunning)
-            it->process->kill();
-        delete it->process;
+        it->process->kill();
+        it->process->deleteLater();
     }
     m_tunnels.erase(it);
 }

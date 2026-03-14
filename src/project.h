@@ -43,7 +43,7 @@ public:
     QString instructionsPath() const { return llmDir() + "/instructions.json"; }
 
 private:
-    void save();
+    bool save();
     static QString generateHash(const QString &name);
     QString promptTextById(int id) const;
 

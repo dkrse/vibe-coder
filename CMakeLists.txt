@@ -39,6 +39,8 @@ add_executable(vibe-coder
     src/diffviewer.h
     src/changesmonitor.cpp
     src/changesmonitor.h
+    src/gitgraph.cpp
+    src/gitgraph.h
     src/titlebar.cpp
     src/titlebar.h
     src/zedthemeloader.cpp

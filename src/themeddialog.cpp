@@ -77,3 +77,84 @@ DialogTitleBar *ThemedDialog::apply(QDialog *dlg, const QString &title)
 
     return bar;
 }
+
+// ── ThemedMessageBox ───────────────────────────────────────────────
+
+static QString buttonLabel(ThemedMessageBox::StandardButton btn) {
+    switch (btn) {
+    case ThemedMessageBox::Save:    return "Save";
+    case ThemedMessageBox::SaveAll: return "Save All";
+    case ThemedMessageBox::Discard: return "Discard";
+    case ThemedMessageBox::Cancel:  return "Cancel";
+    case ThemedMessageBox::Yes:     return "Yes";
+    case ThemedMessageBox::No:      return "No";
+    case ThemedMessageBox::Ok:      return "OK";
+    default: return {};
+    }
+}
+
+ThemedMessageBox::ThemedMessageBox(const QString &title, const QString &text,
+                                   StandardButtons buttons, StandardButton defaultButton,
+                                   QWidget *parent)
+    : QDialog(parent)
+{
+    setWindowTitle(title);
+    setMinimumWidth(420);
+    setMinimumHeight(160);
+
+    auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(20, 16, 20, 16);
+    layout->setSpacing(20);
+
+    auto *label = new QLabel(text);
+    label->setWordWrap(true);
+    label->setStyleSheet("font-size: 14px; padding: 8px 0;");
+    layout->addWidget(label);
+
+    auto *btnLayout = new QHBoxLayout;
+    btnLayout->addStretch();
+
+    // Iterate standard buttons in display order
+    static const StandardButton order[] = { Save, SaveAll, Discard, Yes, No, Ok, Cancel };
+    for (auto b : order) {
+        if (!(buttons & b)) continue;
+        auto *btn = new QPushButton(buttonLabel(b));
+        if (b == defaultButton)
+            btn->setDefault(true);
+        connect(btn, &QPushButton::clicked, this, [this, b]() {
+            m_clicked = b;
+            accept();
+        });
+        btnLayout->addWidget(btn);
+    }
+    layout->addLayout(btnLayout);
+
+    ThemedDialog::apply(this, title);
+}
+
+ThemedMessageBox::StandardButton
+ThemedMessageBox::question(QWidget *parent, const QString &title,
+                           const QString &text, StandardButtons buttons,
+                           StandardButton defaultButton)
+{
+    ThemedMessageBox dlg(title, text, buttons, defaultButton, parent);
+    dlg.exec();
+    return dlg.clickedButton();
+}
+
+ThemedMessageBox::StandardButton
+ThemedMessageBox::warning(QWidget *parent, const QString &title,
+                          const QString &text, StandardButtons buttons,
+                          StandardButton defaultButton)
+{
+    ThemedMessageBox dlg(title, text, buttons, defaultButton, parent);
+    dlg.exec();
+    return dlg.clickedButton();
+}
+
+void ThemedMessageBox::information(QWidget *parent, const QString &title,
+                                   const QString &text)
+{
+    ThemedMessageBox dlg(title, text, Ok, Ok, parent);
+    dlg.exec();
+}

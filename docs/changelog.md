@@ -2,6 +2,49 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.9.0] - 2026-03-14
+
+### Added
+- **Git Graph tab** — visual commit history with QPainter-drawn graph (colored lanes, merge curves, branch labels). Branch selector with local + remote branches. Auto-refreshes on directory change
+- **Remote operations** — Fetch, Pull, Push buttons in Git tab with loading state feedback
+- **Upstream tracking info** — shows `branch -> upstream [ahead N, behind M]` with color coding in Git tab toolbar
+- **Remotes management dialog** — view, add, edit (rename + set-url), remove multiple git remotes
+- **Terminal theme setting** — Settings > Terminal > Theme: "Auto" (follows global theme) or explicit override (Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight)
+- **ThemedMessageBox** — custom frameless message box replacing QMessageBox for consistent dark theme support across all dialogs
+- **Tab close icons** — dynamically generated cross icons matching theme text color, applied via stylesheet
+
+### Performance
+- **O(1) find navigation** — `onFindNext()`/`onFindPrev()` use counter increment instead of O(n) document re-scan
+- **Large file mode** — files >1MB disable syntax highlighting and line wrapping
+- **Git timer debounce** — 10s timer skips refresh if previous git operation still running
+- **feedEntries limit** — max 5000 files fed to git check-ignore stdin
+- **Diff output cap** — diff viewer and changes monitor truncate output at 512KB
+- **Scan limit** — changes monitor file scan capped at 5000 files
+
+### Security
+- **SSH identifier allowlist** — replaced denylist regex with `^[a-zA-Z0-9._@-]+$` (max 253 chars)
+- **SSH identity file validation** — checks file existence before use
+- **Path traversal prevention** — SSH path edit validates canonical path stays within mount point
+- **Git stdin injection** — file names filtered for newline/carriage-return/null bytes before feeding to git
+- **File name validation** — creation/rename rejects null bytes and newlines
+
+### Fixed
+- **Dialog title bars white in dark theme** — replaced all QMessageBox usage with ThemedMessageBox (frameless + themed)
+- **Tab close icons invisible in dark theme** — generated theme-colored PNG icons via QPainter
+- **Global stylesheet scope** — changed from `setStyleSheet(ss)` to `qApp->setStyleSheet(ss)` so all dialogs inherit theme
+- **Git colors not updating** — fixed QProcess kill/restart race by waiting for `finished` signal before restarting
+
+### Memory & Resources
+- **QProcess crash leak** — added `errorOccurred→deleteLater()` to all async QProcess instances (diffviewer, changesmonitor, gitgraph)
+- **Git output capping** — status/ls-files/check-ignore output truncated at 2MB
+- **QFileSystemWatcher limits** — max 4000 entries to stay within OS limits
+- **ChangesMonitor skip patterns** — added build, .cache, target, dist, vendor to excluded directories
+- **Font size clamping** — settings load clamps all font sizes to 6–72 range
+
+### Error Handling
+- **Project save** — `save()` returns bool, checks `file.write()` return value
+- **File operations** — mkdir and removeRecursively show warning dialogs on failure
+
 ## [0.8.0] - 2026-03-13
 
 ### Added

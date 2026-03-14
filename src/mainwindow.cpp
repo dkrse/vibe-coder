@@ -9,7 +9,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QFileInfo>
-#include <QMessageBox>
+#include "themeddialog.h"
 #include <QFont>
 #include <QProcess>
 #include <QToolBar>
@@ -21,11 +21,14 @@
 #include <QInputDialog>
 #include <QScreen>
 #include <QGuiApplication>
+#include <QApplication>
 #include <QStyleHints>
 #include <QHoverEvent>
 #include <QWindow>
 #include <QTimer>
 #include <QCloseEvent>
+#include <QPainter>
+#include <QPixmap>
 
 static QString langFromSuffix(const QString &suffix)
 {
@@ -214,6 +217,14 @@ MainWindow::MainWindow(QWidget *parent)
     m_changesMonitor = new ChangesMonitor;
     m_bottomTabWidget->addTab(m_changesMonitor, "Changes");
 
+    // Git graph — commit history visualization
+    m_gitGraph = new GitGraph;
+    m_bottomTabWidget->addTab(m_gitGraph, "Git");
+
+    connect(m_gitGraph, &GitGraph::outputMessage, this, [this](const QString &msg, int level) {
+        notify(msg, level);
+    });
+
     connect(m_changesMonitor, &ChangesMonitor::changeDetected, this, [this](const QString &path) {
         QString rel = path;
         if (rel.startsWith(m_fileBrowser->rootPath()))
@@ -242,6 +253,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_bottomTabWidget, &QTabWidget::currentChanged, this, [this](int idx) {
         if (m_bottomTabWidget->widget(idx) == m_diffViewer) {
             m_diffViewer->refresh(m_fileBrowser->rootPath());
+        } else if (m_bottomTabWidget->widget(idx) == m_gitGraph) {
+            m_gitGraph->refresh(m_fileBrowser->rootPath());
         } else if (m_bottomTabWidget->widget(idx) == m_changesMonitor) {
             // Clear badge
             m_bottomTabWidget->setTabText(idx, "Changes");
@@ -327,7 +340,7 @@ MainWindow::MainWindow(QWidget *parent)
         QString text = m_editor->toPlainText().trimmed();
         if (text.isEmpty()) return;
         if (!m_project.isLoaded()) {
-            QMessageBox::information(this, "Save Prompt", "No project loaded. Create a project first.");
+            ThemedMessageBox::information(this, "Save Prompt", "No project loaded. Create a project first.");
             return;
         }
         m_project.addPrompt(text);
@@ -359,6 +372,7 @@ MainWindow::MainWindow(QWidget *parent)
     // File browser directory changes — also update changes monitor
     connect(m_fileBrowser, &FileBrowser::rootPathChanged, this, [this](const QString &path) {
         m_changesMonitor->setProjectDir(path);
+        m_gitGraph->refresh(path);
         if (m_sshManager->activeProfileIndex() >= 0) {
             QString remotePath = m_fileBrowser->toRemotePath(path);
             m_terminal->sendText("cd " + remotePath);
@@ -396,7 +410,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_sshManager->removeProfile(idx);
         m_statusFileLabel->setText("SSH connect failed");
         notify("SSH connect failed: " + err, 2);
-        QMessageBox::warning(this, "SSH Error", err);
+        ThemedMessageBox::warning(this, "SSH Error", err);
     });
 
     connect(m_sshManager, &SshManager::profileDisconnected, this, [this](int) {
@@ -444,7 +458,7 @@ MainWindow::MainWindow(QWidget *parent)
             notify("Transfer complete: " + name, 3);
         } else {
             notify("Transfer failed: " + name + " - " + err, 2);
-            QMessageBox::warning(this, "Transfer Error", "Failed: " + name + "\n" + err);
+            ThemedMessageBox::warning(this, "Transfer Error", "Failed: " + name + "\n" + err);
         }
     });
 
@@ -504,13 +518,13 @@ void MainWindow::onSshConnect()
 
     SshConfig cfg = dlg.result();
     if (cfg.host.isEmpty() || cfg.user.isEmpty()) {
-        QMessageBox::warning(this, "SSH", "User and host are required.");
+        ThemedMessageBox::warning(this, "SSH", "User and host are required.");
         return;
     }
 
     // Validate against command injection
     if (!SshManager::isValidSshIdentifier(cfg.user) || !SshManager::isValidSshIdentifier(cfg.host)) {
-        QMessageBox::warning(this, "SSH", "Invalid characters in user or host.");
+        ThemedMessageBox::warning(this, "SSH", "Invalid characters in user or host.");
         return;
     }
 
@@ -612,7 +626,7 @@ void MainWindow::onSshTunnels()
 {
     int idx = m_sshManager->activeProfileIndex();
     if (idx < 0) {
-        QMessageBox::information(this, "SSH Tunnels", "No active SSH connection.");
+        ThemedMessageBox::information(this, "SSH Tunnels", "No active SSH connection.");
         return;
     }
     SshTunnelDialog dlg(m_sshManager, idx, this);
@@ -734,6 +748,10 @@ void MainWindow::applySettings()
     m_changesMonitor->setViewerFont(changesFont);
     m_changesMonitor->setViewerColors(m_settings.bgColor, m_settings.textColor);
 
+    // Git graph
+    m_gitGraph->setViewerFont(QFont(m_settings.diffFontFamily, m_settings.diffFontSize));
+    m_gitGraph->setViewerColors(m_settings.bgColor, m_settings.textColor);
+
     for (int i = 1; i < m_tabWidget->count(); ++i) {
         auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(i));
         if (editor) {
@@ -789,12 +807,12 @@ void MainWindow::onFileOpened(const QString &filePath)
 
     static const qint64 MAX_FILE_SIZE = 5 * 1024 * 1024;
     if (info.size() > MAX_FILE_SIZE) {
-        auto reply = QMessageBox::question(this, "Large File",
+        auto reply = ThemedMessageBox::question(this, "Large File",
             QString("'%1' is %2 MB. Opening large files may be slow.\n\nOpen anyway?")
                 .arg(info.fileName())
                 .arg(info.size() / (1024.0 * 1024.0), 0, 'f', 1),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (reply != QMessageBox::Yes) return;
+            ThemedMessageBox::Yes | ThemedMessageBox::No, ThemedMessageBox::No);
+        if (reply != ThemedMessageBox::Yes) return;
     }
 
     QFile file(filePath);
@@ -807,6 +825,9 @@ void MainWindow::onFileOpened(const QString &filePath)
     QString lang = langFromSuffix(info.suffix());
 
     auto *editor = new CodeEditor;
+    // Disable syntax highlighting for large files (>1MB) for performance
+    if (info.size() > 1024 * 1024)
+        editor->setLargeFile(true);
     editor->setPlainText(content);
     applySettingsToEditor(editor, lang);
 
@@ -874,7 +895,7 @@ void MainWindow::saveCurrentFile()
         QTextStream out(&file);
         out << editor->toPlainText();
         if (out.status() != QTextStream::Ok) {
-            QMessageBox::warning(this, "Save Error",
+            ThemedMessageBox::warning(this, "Save Error",
                 QString("Failed to write to '%1'.").arg(filePath));
         }
         file.close();
@@ -883,7 +904,7 @@ void MainWindow::saveCurrentFile()
         m_tabWidget->setTabText(idx, QFileInfo(filePath).fileName());
         m_statusFileLabel->setText(QString("Saved: %1").arg(filePath));
     } else {
-        QMessageBox::warning(this, "Save Error",
+        ThemedMessageBox::warning(this, "Save Error",
             QString("Cannot open '%1' for writing:\n%2").arg(filePath, file.errorString()));
     }
 
@@ -899,15 +920,15 @@ bool MainWindow::maybeSaveTab(QTabWidget *tabWidget, int index)
     QString filePath = tabWidget->tabToolTip(index);
     QString fileName = QFileInfo(filePath).fileName();
 
-    auto reply = QMessageBox::question(this, "Unsaved Changes",
+    auto reply = ThemedMessageBox::question(this, "Unsaved Changes",
         QString("'%1' has unsaved changes.\n\nDo you want to save before closing?").arg(fileName),
-        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
-        QMessageBox::Save);
+        ThemedMessageBox::Save | ThemedMessageBox::Discard | ThemedMessageBox::Cancel,
+        ThemedMessageBox::Save);
 
-    if (reply == QMessageBox::Cancel)
+    if (reply == ThemedMessageBox::Cancel)
         return false;
 
-    if (reply == QMessageBox::Save) {
+    if (reply == ThemedMessageBox::Save) {
         if (filePath.isEmpty())
             return false;
         m_fileWatcher->removePath(filePath);
@@ -919,7 +940,7 @@ bool MainWindow::maybeSaveTab(QTabWidget *tabWidget, int index)
             editor->setProperty("savedContent", editor->toPlainText());
             editor->document()->setModified(false);
         } else {
-            QMessageBox::warning(this, "Save Error",
+            ThemedMessageBox::warning(this, "Save Error",
                 QString("Cannot save '%1':\n%2").arg(filePath, file.errorString()));
             return false;
         }
@@ -949,17 +970,17 @@ bool MainWindow::hasUnsavedChanges()
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (hasUnsavedChanges()) {
-        auto reply = QMessageBox::question(this, "Unsaved Changes",
+        auto reply = ThemedMessageBox::question(this, "Unsaved Changes",
             "You have unsaved changes. What do you want to do?",
-            QMessageBox::SaveAll | QMessageBox::Discard | QMessageBox::Cancel,
-            QMessageBox::SaveAll);
+            ThemedMessageBox::SaveAll | ThemedMessageBox::Discard | ThemedMessageBox::Cancel,
+            ThemedMessageBox::SaveAll);
 
-        if (reply == QMessageBox::Cancel) {
+        if (reply == ThemedMessageBox::Cancel) {
             event->ignore();
             return;
         }
 
-        if (reply == QMessageBox::SaveAll) {
+        if (reply == ThemedMessageBox::SaveAll) {
             // Save all modified tabs
             for (int i = 1; i < m_tabWidget->count(); ++i) {
                 auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(i));
@@ -1224,7 +1245,7 @@ void MainWindow::onCreateProject()
     QString dir = m_fileBrowser->rootPath();
 
     if (QDir(dir + "/.LLM").exists()) {
-        QMessageBox::information(this, "Project",
+        ThemedMessageBox::information(this, "Project",
             "Project already exists. Use 'Edit Project' to modify.");
         tryLoadProject(dir);
         return;
@@ -1241,7 +1262,7 @@ void MainWindow::onCreateProject()
 
     cfg = dlg.result();
     if (cfg.name.isEmpty()) {
-        QMessageBox::warning(this, "Error", "Project name is required.");
+        ThemedMessageBox::warning(this, "Error", "Project name is required.");
         return;
     }
 
@@ -1249,14 +1270,14 @@ void MainWindow::onCreateProject()
         m_statusFileLabel->setText(
             QString("Project: %1 [%2]").arg(cfg.name, cfg.model));
     } else {
-        QMessageBox::warning(this, "Error", "Failed to create project.");
+        ThemedMessageBox::warning(this, "Error", "Failed to create project.");
     }
 }
 
 void MainWindow::onEditProject()
 {
     if (!m_project.isLoaded()) {
-        QMessageBox::warning(this, "No Project",
+        ThemedMessageBox::warning(this, "No Project",
             "No project loaded. Create a project first.");
         return;
     }
@@ -1466,6 +1487,10 @@ void MainWindow::setupCommandPalette()
         m_diffViewer->refresh(m_fileBrowser->rootPath());
         m_bottomTabWidget->setCurrentWidget(m_diffViewer);
     });
+    m_commandPalette->addCommand("Show Git Graph", "", [this]() {
+        m_gitGraph->refresh(m_fileBrowser->rootPath());
+        m_bottomTabWidget->setCurrentWidget(m_gitGraph);
+    });
     m_commandPalette->addCommand("Show Notifications", "", [this]() {
         m_bottomTabWidget->setCurrentWidget(m_notificationPanel);
     });
@@ -1611,7 +1636,22 @@ void MainWindow::applyGlobalTheme()
         "QProgressBar::chunk { background: %6; }"
     ).arg(bgColor, textColor, altBg, borderColor, hoverBg, selectedBg);
 
-    setStyleSheet(ss);
+    // Generate tab close icon matching theme text color
+    {
+        QPixmap pm(16, 16);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(QColor(textColor), 1.5));
+        p.drawLine(4, 4, 12, 12);
+        p.drawLine(12, 4, 4, 12);
+        p.end();
+        QString iconPath = QDir::tempPath() + "/vibe-coder-tab-close.png";
+        pm.save(iconPath);
+        ss += QString("QTabBar::close-button { image: url(%1); width: 16px; height: 16px; }").arg(iconPath);
+    }
+
+    qApp->setStyleSheet(ss);
 
     // Title bar specific styling
     m_titleBar->setStyleSheet(

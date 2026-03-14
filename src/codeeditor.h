@@ -130,6 +130,8 @@ public:
     void setHighlightCurrentLine(bool enable);
     bool highlightCurrentLine() const { return m_highlightLine; }
 
+    void setLargeFile(bool large);
+
     void showFindBar(bool withReplace = false);
     void hideFindBar();
 
@@ -147,6 +149,7 @@ private:
     bool m_showLineNumbers = true;
     bool m_darkScheme = true;
     bool m_highlightLine = false;
+    bool m_largeFile = false;
     void updateCurrentLineHighlight();
 
     FindReplaceBar *m_findBar;

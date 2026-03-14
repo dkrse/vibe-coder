@@ -33,6 +33,7 @@ src/
 ├── commandpalette.h/cpp  VS Code-style command palette (Ctrl+Shift+P)
 ├── diffviewer.h/cpp      Git diff viewer with syntax highlighting
 ├── changesmonitor.h/cpp  Real-time file change tracker with diff preview + revert
+├── gitgraph.h/cpp        Git commit graph visualization with remote operations
 ├── notificationpanel.h/cpp  Log panel with Info/Warning/Error/Success levels
 ├── titlebar.h/cpp        Custom title bar (CSD) with minimize/maximize/close
 ├── themeddialog.h/cpp    Frameless dialog wrapper with themed title bar
@@ -48,7 +49,7 @@ src/
 - Right panel: vertical splitter (editor splitter | bottom tab widget)
 - Editor splitter: wraps main tab widget, supports horizontal/vertical split view for side-by-side editing
 - Tab widget: AI-terminal (tab 0, non-closable) + editor tabs
-- Bottom tab widget: Prompt tab + Terminal tab + Notifications tab + Diff Viewer tab + Changes tab
+- Bottom tab widget: Prompt tab + Terminal tab + Notifications tab + Diff Viewer tab + Changes tab + Git Graph tab
 - Hamburger menu (top-right): Create/Edit Project, SSH Connect/Disconnect/Tunnels/Upload/Download, Split Horizontal/Vertical/Unsplit, Settings
 - Command palette (Ctrl+Shift+P): fuzzy-searchable list of all registered commands (split, focus, theme switching, diff refresh)
 - **Unified global theme system:** Built-in themes (Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord) + auto-discovered Zed editor themes. Single global stylesheet cascades to all widgets including title bar, menus, dialogs, tabs, splitters, status bar
@@ -61,6 +62,7 @@ src/
 - **Unsaved changes tracking** — `●` tab marker, Save/Discard/Cancel on tab close, Save All/Discard/Cancel on app close
 - **Tab context menu** — Close, Close Others, Close All, Close to Right, Close to Left (all check unsaved changes)
 - Tab close properly deletes CodeEditor widget (no memory leak)
+- **Tab close icons** — dynamically generated PNG with theme-colored cross (✕), applied via stylesheet `image: url()` — automatically updates on theme change
 - Async git commit via chained QProcess callbacks
 - Notification system: centralized logging with unread badge count
 - Changes monitor integration: tracks file changes per project, badge count on tab
@@ -76,8 +78,9 @@ src/
 - Utility for making QDialogs frameless with a themed title bar
 - `ThemedDialog::apply(dialog, title)` wraps existing dialog layout with DialogTitleBar
 - DialogTitleBar: same style as main TitleBar (close button, native drag)
-- Applied to: SettingsDialog, ProjectDialog, SshDialog, SshTunnelDialog
-- Dialogs receive parent's stylesheet via `dlg.setStyleSheet(styleSheet())`
+- Applied to: SettingsDialog, ProjectDialog, SshDialog, SshTunnelDialog, Git Remotes dialog
+- **ThemedMessageBox** — drop-in QMessageBox replacement with frameless themed dialog. Static methods: `question()`, `warning()`, `information()`. Used throughout the app instead of QMessageBox for consistent dark theme support
+- Global stylesheet applied via `qApp->setStyleSheet()` ensures all dialogs (including message boxes) inherit theme colors
 
 ### FileBrowser
 - Dual model: QFileSystemModel for local, QStandardItemModel for SSH (synchronous QDir reads over sshfs)
@@ -100,6 +103,10 @@ src/
 - Path bar accepts remote paths when SSH is active
 - Theme-aware: accepts bg/fg color parameters from global theme, uses darker() for light themes / lighter() for dark themes
 - Path traversal protection in file operations
+- **QFileSystemWatcher limits** — max 4000 entries to stay within OS limits (~8192 on Linux)
+- **Git output capping** — status/ls-files/check-ignore output truncated at 2MB
+- **feedEntries limit** — max 5000 files fed to git check-ignore stdin
+- **Git timer skip** — 10s timer skips refresh if previous git operation still running
 - Git polling timer only starts after git repo confirmed, stops when no repo
 
 ### CodeEditor
@@ -121,6 +128,8 @@ src/
 - **Current line highlighting** — configurable via Settings > Editor
 - **Unsaved changes tracking** — compares `toPlainText()` against saved content, shows `●` marker in tab title
 - **Search debouncing** — 200ms delay before scanning document on keystroke
+- **Large file mode** — files >1MB disable syntax highlighting and line wrapping for performance
+- **O(1) match navigation** — `onFindNext()`/`onFindPrev()` use counter increment instead of O(n) document scan
 - **Optimized line number painting** — reuses QString via `setNum()`, caches font metrics and area width
 
 ### TerminalWidget
@@ -164,8 +173,9 @@ src/
 - **Auto-reconnect:** up to 3 attempts on connection loss, async fusermount + remount
 - **File transfer:** upload/download via sshfs mount point (rsync --progress or cp)
 - **Port forwarding:** SSH tunnels (-L/-R) with SSH_ASKPASS for password auth
-- **Security:** input validation against shell metacharacters, password never in process args
-- **Cached rsync detection:** `which rsync` called once, result cached
+- **Security:** allowlist-based input validation (`^[a-zA-Z0-9._@-]+$`, max 253 chars), identity file existence check, password never in process args
+- **Cached rsync detection:** async `which rsync` at construction, result cached (non-blocking)
+- **Async unmount:** `doUnmount()` uses chained async QProcess (no `waitForFinished`), optional completion callback
 
 ### SshTunnelDialog
 - QDialog for creating/viewing SSH port forwards
@@ -196,12 +206,14 @@ src/
 - Refresh button triggers `git diff` on current working directory
 - Configurable font via Settings (diff section)
 - Embeds as a tab in the bottom tab widget
+- Output truncated at 512KB to prevent GUI freeze on large diffs
 
 ### ChangesMonitor
 - Real-time file change tracker using QFileSystemWatcher + periodic scan (10s, only when visible)
 - Split layout: file list (left, max 300px) + diff preview (right) with DiffBlockHighlighter
 - Toolbar: info label, Open, Revert, Refresh, Clear buttons
-- Watches up to 2000 files and 500 directories (skips .git, .LLM, node_modules, __pycache__)
+- Watches up to 2000 files and 500 directories (skips .git, .LLM, node_modules, __pycache__, build, .cache, target, dist, vendor)
+- Scan limited to 5000 files to prevent CPU spikes on large projects
 - Deduplicates changes (same file replaces previous entry, newest first)
 - 1-second debounce to avoid duplicate signals
 - Revert: runs `git checkout -- <file>` asynchronously, marks entry as reverted
@@ -210,6 +222,22 @@ src/
 - Re-adds watched files after signal (QFileSystemWatcher removes on some platforms)
 - Badge count on bottom tab: "Changes (N)"
 - Configurable font via Settings (changes section)
+
+### GitGraph
+- Visual commit history graph as bottom tab ("Git")
+- Custom `GitGraphView` widget with QPainter-drawn commit graph:
+  - Colored lane lines (8 rotating colors), curved bezier merge lines
+  - Filled circles (normal), hollow circles (merge), diamonds (remote-only commits)
+  - Remote-only commits: dashed lines, dimmed text
+- Ref labels: green (local branch), orange (remote branch), yellow (tag), blue (HEAD)
+- Commit metadata: short hash, subject (elided), author, relative date
+- **Branch selector** combo: local branches, separator, remote branches (`git branch -a`), or `--all--`
+- **Remote operations:** Fetch (`git fetch --all --prune`), Pull (`git pull`), Push (`git push`) buttons with loading state
+- **Upstream tracking info:** label showing `branch -> upstream [ahead N, behind M]` with color coding (green=ahead, yellow=behind, red=both)
+- **Remotes dialog:** view/add/edit/remove multiple git remotes (name + URL). Supports `git remote add/set-url/rename/remove`
+- Auto-refreshes on directory change and tab activation
+- Configurable font and colors from Settings (uses diff font settings)
+- `outputMessage` signal for notification integration
 
 ### NotificationPanel
 - Timestamped log entries with 4 severity levels: Info, Warning, Error, Success
@@ -225,8 +253,10 @@ src/
   - `applyThemeDefaults()` derives all component colors from globalTheme (editor/browser/terminal color schemes, bgColor, textColor)
 - **Theme cascade:** `applyGlobalTheme()` sets comprehensive QSS stylesheet covering QWidget, QLabel, QPlainTextEdit, QTextEdit, QLineEdit, QSpinBox, QComboBox, QCheckBox, QPushButton, QToolButton, QListWidget, QMenu, QDialog, QGroupBox, QScrollBar, QProgressBar, QTabWidget, QTabBar, QFontComboBox, QDialogButtonBox
 - **Live theme switching:** theme changes apply immediately without restart
-- Tabbed SettingsDialog: Global Theme (top, includes separator + Zed themes), Terminal, Editor, File Browser, Prompt, Diff Viewer, Changes Monitor, Visibility tabs
+- Tabbed SettingsDialog: Global Theme (top, includes separator + Zed themes), Terminal (theme override + font), Editor, File Browser, Prompt, Diff Viewer, Changes Monitor, Visibility tabs
+- **Terminal theme override:** "Auto" (follows global theme) or explicit: Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight
 - SettingsDialog preserves zedThemes list through `result()` method
+- **Font size clamping:** all font sizes clamped to 6–72 range after loading to prevent invalid values from corrupted settings
 
 ## Data Flow
 
@@ -245,6 +275,8 @@ src/
 13. **Command Palette:** Ctrl+Shift+P -> CommandPalette.show() -> user selects command -> action callback executed
 14. **Changes Monitor:** QFileSystemWatcher + scan timer (10s) -> changeDetected -> badge update on tab; user selects file -> git diff preview; Revert -> git checkout
 15. **Theme Switch:** Settings/CommandPalette -> applyGlobalTheme() (global QSS) -> applySettings() (per-widget overrides) -> force repaint all children
+16. **Git Graph:** Tab activation -> loadBranches + loadLog + loadTrackingInfo + loadRemotes -> GitGraphView.setCommits() -> QPainter render
+17. **Remote Operations:** Fetch/Pull/Push buttons -> async QProcess -> outputMessage signal -> NotificationPanel; Remotes dialog -> git remote add/set-url/rename/remove
 
 ## Session Persistence
 
@@ -261,7 +293,10 @@ Stored in QSettings on application close:
 - SSH passwords: sent via PTY (echo off) for terminals, password_stdin for sshfs, SSH_ASKPASS for tunnels
 - Passwords never persisted to disk (QSettings stores connections without password)
 - Passwords never appear in process argument lists (no sshpass -p)
-- SSH user/host validated against shell metacharacters before use
+- SSH user/host validated via allowlist regex (`^[a-zA-Z0-9._@-]+$`, max 253 chars)
+- SSH identity file validated for existence before use
+- File names sanitized against newline/null injection in git operations
+- File/directory creation validates against null bytes and newlines
 - Git commit auto-adds .env, *.pem, *.key, credentials.json to .gitignore
 - Path traversal protection in file browser operations
 - StrictHostKeyChecking=accept-new for SSH connections

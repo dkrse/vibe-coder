@@ -7,7 +7,6 @@
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QLabel>
-#include <QMessageBox>
 
 SshTunnelDialog::SshTunnelDialog(SshManager *manager, int profileIndex, QWidget *parent)
     : QDialog(parent), m_manager(manager), m_profileIndex(profileIndex)
@@ -115,6 +114,6 @@ void SshTunnelDialog::addTunnel()
 
     int id = m_manager->addTunnel(m_profileIndex, t);
     if (id < 0) {
-        QMessageBox::warning(this, "Tunnel Error", "Failed to create tunnel. Check SSH connection.");
+        ThemedMessageBox::warning(this, "Tunnel Error", "Failed to create tunnel. Check SSH connection.");
     }
 }

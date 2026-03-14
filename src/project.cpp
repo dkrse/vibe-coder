@@ -195,7 +195,7 @@ void Project::update(const QString &name, const QString &desc,
     if (m_loaded) save();
 }
 
-void Project::save()
+bool Project::save()
 {
     QJsonObject root;
     root["project_name"] = m_projectName;
@@ -211,7 +211,10 @@ void Project::save()
 
     QFile file(instructionsPath());
     if (file.open(QIODevice::WriteOnly)) {
-        file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+        if (file.write(QJsonDocument(root).toJson(QJsonDocument::Indented)) < 0)
+            return false;
         file.close();
+        return true;
     }
+    return false;
 }

@@ -24,6 +24,7 @@
 #include "notificationpanel.h"
 #include "diffviewer.h"
 #include "changesmonitor.h"
+#include "gitgraph.h"
 
 class QSplitter;
 class TitleBar;
@@ -134,6 +135,9 @@ protected:
 
     // Changes monitor
     ChangesMonitor *m_changesMonitor;
+
+    // Git graph
+    GitGraph *m_gitGraph;
 
     // Global theme
     void applyGlobalTheme();

@@ -31,6 +31,7 @@ graph TB
                     NT[Notifications Tab]
                     DV[Diff Viewer Tab]
                     CM[Changes Tab]
+                    GG[Git Graph Tab]
                 end
             end
         end
@@ -62,6 +63,9 @@ classDiagram
     QDialog <|-- ProjectDialog
     QDialog <|-- SshDialog
     QDialog <|-- SshTunnelDialog
+    QWidget <|-- GitGraph
+    QWidget <|-- GitGraphView
+    QDialog <|-- ThemedMessageBox
     QObject <|-- SshManager
 
     MainWindow --> TitleBar
@@ -76,6 +80,8 @@ classDiagram
     MainWindow --> CommandPalette
     MainWindow --> NotificationPanel
     MainWindow --> DiffViewer
+    MainWindow --> GitGraph
+    GitGraph --> GitGraphView
 
     FileBrowser --> FileItemDelegate
     FileBrowser --> QFileSystemModel : local mode
@@ -191,6 +197,19 @@ classDiagram
         +applyThemeDefaults()
         +load()
         +save()
+    }
+
+    class GitGraph {
+        -GitGraphView* m_graphView
+        -QComboBox* m_branchCombo
+        -QPushButton* m_fetchBtn
+        -QPushButton* m_pullBtn
+        -QPushButton* m_pushBtn
+        -QLabel* m_trackingLabel
+        -QMap~QString,QString~ m_remotes
+        +refresh(QString)
+        +setViewerFont(QFont)
+        +setViewerColors(QColor, QColor)
     }
 
     class ZedThemeLoader {
@@ -409,6 +428,64 @@ sequenceDiagram
         CM->>Git: git checkout -- relPath [async]
         Git-->>CM: success
         CM-->>MainWindow: fileReverted(path)
+    end
+```
+
+## Git Graph Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant GitGraph
+    participant GitGraphView
+    participant Git as git process
+
+    User->>GitGraph: Switch to Git tab
+    GitGraph->>Git: git branch -a [async]
+    Git-->>GitGraph: branch list → m_branchCombo
+    GitGraph->>Git: git rev-list --branches [async]
+    Git-->>GitGraph: local hashes
+    GitGraph->>Git: git log --format=... --all [async]
+    Git-->>GitGraph: commit data
+    GitGraph->>GitGraph: parseGitLog() + mark remote-only
+    GitGraph->>GitGraphView: setCommits()
+    GitGraphView->>GitGraphView: computeGraph() (lanes + columns)
+    GitGraphView->>GitGraphView: paintEvent() (QPainter render)
+
+    GitGraph->>Git: git status -sb [async]
+    Git-->>GitGraph: tracking info → m_trackingLabel
+
+    GitGraph->>Git: git remote -v [async]
+    Git-->>GitGraph: remotes → m_remoteBtn tooltip
+```
+
+## Git Remote Operations
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant GitGraph
+    participant Git as git process
+    participant Notify as NotificationPanel
+
+    alt Fetch
+        User->>GitGraph: Click Fetch
+        GitGraph->>Git: git fetch --all --prune [async]
+        Git-->>GitGraph: finished
+        GitGraph-->>Notify: "Fetch complete"
+        GitGraph->>GitGraph: refresh graph
+    end
+
+    alt Remotes Dialog
+        User->>GitGraph: Click Remotes
+        GitGraph->>GitGraph: showRemotesDialog()
+        User->>GitGraph: Add remote (name + URL)
+        GitGraph->>Git: git remote add name url [async]
+        Git-->>GitGraph: success
+        User->>GitGraph: Edit URL
+        GitGraph->>Git: git remote set-url name url [async]
+        User->>GitGraph: Remove remote
+        GitGraph->>Git: git remote remove name [async]
     end
 ```
 

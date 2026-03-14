@@ -5,7 +5,7 @@
 #include <QFileDialog>
 #include <QHeaderView>
 #include <QInputDialog>
-#include <QMessageBox>
+#include "themeddialog.h"
 #include <QDir>
 #include <QFile>
 #include <QPainter>
@@ -234,7 +234,9 @@ FileBrowser::FileBrowser(QWidget *parent)
     // Git status refresh timer — fallback poll every 10s
     m_gitTimer = new QTimer(this);
     m_gitTimer->setInterval(10000);
-    connect(m_gitTimer, &QTimer::timeout, this, &FileBrowser::startGitRefresh);
+    connect(m_gitTimer, &QTimer::timeout, this, [this]() {
+        if (!m_gitBusy) startGitRefresh();
+    });
 
     // Debounce timer for filesystem watcher — coalesce rapid changes into one refresh
     m_gitDebounce = new QTimer(this);
@@ -261,9 +263,19 @@ FileBrowser::FileBrowser(QWidget *parent)
     connect(m_pathEdit, &QLineEdit::returnPressed, this, [this]() {
         QString text = m_pathEdit->text();
         if (isSshActive()) {
-            // User types remote path like /opt — translate to local mount
             if (text.startsWith("/"))
                 text = m_sshMountPoint + text;
+            // Prevent path traversal outside mount point
+            QString canonical = QFileInfo(text).canonicalFilePath();
+            if (!canonical.isEmpty() && !canonical.startsWith(m_sshMountPoint)) {
+                m_pathEdit->setText(toRemotePath(m_currentRoot));
+                return;
+            }
+        }
+        // Validate path exists
+        if (!QDir(text).exists()) {
+            m_pathEdit->setText(isSshActive() ? toRemotePath(m_currentRoot) : m_currentRoot);
+            return;
         }
         setRootPath(text);
     });
@@ -419,7 +431,13 @@ void FileBrowser::startGitRefresh()
         disconnect(m_gitProc, nullptr, this, nullptr);
         if (m_gitProc->state() != QProcess::NotRunning) {
             m_gitProc->kill();
-            m_gitProc->waitForFinished(200);
+            // Wait for process to actually terminate before reusing
+            connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                    this, [this](int, QProcess::ExitStatus) {
+                m_gitBusy = false;
+                startGitRefresh(); // retry
+            });
+            return;
         }
     }
 
@@ -476,9 +494,11 @@ void FileBrowser::onGitRootFinished(int exitCode, QProcess::ExitStatus)
 
     // Watch .gitignore and git root for instant updates
     QString gitignorePath = m_gitRoot + "/.gitignore";
-    if (QFile::exists(gitignorePath) && !m_fsWatcher->files().contains(gitignorePath))
+    if (QFile::exists(gitignorePath) && !m_fsWatcher->files().contains(gitignorePath)
+        && m_fsWatcher->files().size() < 4000)
         m_fsWatcher->addPath(gitignorePath);
-    if (!m_fsWatcher->directories().contains(m_gitRoot))
+    if (!m_fsWatcher->directories().contains(m_gitRoot)
+        && m_fsWatcher->directories().size() < 4000)
         m_fsWatcher->addPath(m_gitRoot);
 
     // Run git status from git root so paths are consistent
@@ -497,7 +517,9 @@ void FileBrowser::onGitStatusFinished(int exitCode, QProcess::ExitStatus)
         return;
     }
 
-    m_gitStatusOutput = QString::fromUtf8(m_gitProc->readAllStandardOutput());
+    QByteArray raw = m_gitProc->readAllStandardOutput();
+    if (raw.size() > 2 * 1024 * 1024) raw.truncate(2 * 1024 * 1024); // 2MB limit
+    m_gitStatusOutput = QString::fromUtf8(raw);
 
     // Step 1: get untracked ignored files/dirs (catches nested files like ABC/x.txt)
     m_gitProc->setWorkingDirectory(m_gitRoot);
@@ -510,9 +532,9 @@ void FileBrowser::onGitLsIgnoredFinished(int exitCode, QProcess::ExitStatus)
 {
     disconnect(m_gitProc, nullptr, this, nullptr);
 
-    m_gitLsIgnoredOutput = (exitCode == 0)
-        ? QString::fromUtf8(m_gitProc->readAllStandardOutput())
-        : QString();
+    QByteArray raw = m_gitProc->readAllStandardOutput();
+    if (raw.size() > 2 * 1024 * 1024) raw.truncate(2 * 1024 * 1024);
+    m_gitLsIgnoredOutput = (exitCode == 0) ? QString::fromUtf8(raw) : QString();
 
     // Step 2: check root-level entries against .gitignore rules (catches tracked dirs like docs/)
     connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
@@ -521,15 +543,20 @@ void FileBrowser::onGitLsIgnoredFinished(int exitCode, QProcess::ExitStatus)
 
     // Feed all files and dirs recursively (skip .git) so that
     // both root-level dirs and nested files like docs/architecture.md are checked
+    int feedCount = 0;
+    static constexpr int MAX_FEED_ENTRIES = 5000;
     std::function<void(const QString &, int)> feedEntries =
         [&](const QString &dirPath, int depth) {
-        if (depth > 6) return;
+        if (depth > 6 || feedCount >= MAX_FEED_ENTRIES) return;
         QDir dir(dirPath);
         for (const auto &entry : dir.entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot)) {
             if (entry == ".git") continue;
             QString fullPath = dirPath + "/" + entry;
             QString relative = fullPath.mid(m_gitRoot.length() + 1);
-            m_gitProc->write((relative + "\n").toUtf8());
+            if (!relative.contains('\n') && !relative.contains('\r') && !relative.contains('\0')) {
+                m_gitProc->write((relative + "\n").toUtf8());
+                if (++feedCount >= MAX_FEED_ENTRIES) return;
+            }
             if (QFileInfo(fullPath).isDir())
                 feedEntries(fullPath, depth + 1);
         }
@@ -544,9 +571,9 @@ void FileBrowser::onGitCheckIgnoreFinished(int exitCode, QProcess::ExitStatus)
     m_gitBusy = false;
 
     // git check-ignore exits 0 if matches found, 1 if no matches — both are OK
-    m_gitCheckIgnoreOutput = (exitCode == 0)
-        ? QString::fromUtf8(m_gitProc->readAllStandardOutput())
-        : QString();
+    QByteArray raw = m_gitProc->readAllStandardOutput();
+    if (raw.size() > 2 * 1024 * 1024) raw.truncate(2 * 1024 * 1024);
+    m_gitCheckIgnoreOutput = (exitCode == 0) ? QString::fromUtf8(raw) : QString();
     parseGitOutput();
 }
 
@@ -694,8 +721,8 @@ void FileBrowser::showContextMenu(const QPoint &pos)
         QString name = QInputDialog::getText(this, "New File", "File name:",
                                               QLineEdit::Normal, "", &ok);
         if (ok && !name.isEmpty()) {
-            if (name.contains('/') || name.contains("..")) {
-                QMessageBox::warning(this, "Error", "Invalid file name.");
+            if (name.contains('/') || name.contains("..") || name.contains('\0') || name.contains('\n')) {
+                ThemedMessageBox::warning(this, "Error", "Invalid file name.");
                 return;
             }
             QFile file(dirPath + "/" + name);
@@ -709,11 +736,12 @@ void FileBrowser::showContextMenu(const QPoint &pos)
         QString name = QInputDialog::getText(this, "New Directory", "Directory name:",
                                               QLineEdit::Normal, "", &ok);
         if (ok && !name.isEmpty()) {
-            if (name.contains('/') || name.contains("..")) {
-                QMessageBox::warning(this, "Error", "Invalid directory name.");
+            if (name.contains('/') || name.contains("..") || name.contains('\0') || name.contains('\n')) {
+                ThemedMessageBox::warning(this, "Error", "Invalid directory name.");
                 return;
             }
-            QDir(dirPath).mkdir(name);
+            if (!QDir(dirPath).mkdir(name))
+                ThemedMessageBox::warning(this, "Error", "Failed to create directory.");
             if (isSshActive()) setRootPath(m_currentRoot); // refresh
         }
     });
@@ -730,7 +758,7 @@ void FileBrowser::showContextMenu(const QPoint &pos)
                                                      QLineEdit::Normal, itemName, &ok);
             if (ok && !newName.isEmpty() && newName != itemName) {
                 if (newName.contains('/') || newName.contains("..")) {
-                    QMessageBox::warning(this, "Error", "Invalid name.");
+                    ThemedMessageBox::warning(this, "Error", "Invalid name.");
                     return;
                 }
                 QString dir = QFileInfo(itemPath).absolutePath();
@@ -740,12 +768,17 @@ void FileBrowser::showContextMenu(const QPoint &pos)
         });
 
         menu.addAction("Delete", this, [this, idx, itemPath, itemName]() {
-            auto reply = QMessageBox::warning(this, "Delete",
+            auto reply = ThemedMessageBox::warning(this, "Delete",
                 QString("Delete '%1'?\n\nFull path: %2").arg(itemName, itemPath),
-                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-            if (reply == QMessageBox::Yes) {
-                if (isDir(idx)) QDir(itemPath).removeRecursively();
-                else QFile::remove(itemPath);
+                ThemedMessageBox::Yes | ThemedMessageBox::No, ThemedMessageBox::No);
+            if (reply == ThemedMessageBox::Yes) {
+                if (isDir(idx)) {
+                    if (!QDir(itemPath).removeRecursively())
+                        ThemedMessageBox::warning(this, "Error", "Failed to delete directory.");
+                } else {
+                    if (!QFile::remove(itemPath))
+                        ThemedMessageBox::warning(this, "Error", "Failed to delete file.");
+                }
                 if (isSshActive()) setRootPath(m_currentRoot);
             }
         });
@@ -788,7 +821,8 @@ void FileBrowser::setRootPath(const QString &path)
         m_fsWatcher->removePaths(m_fsWatcher->directories());
     if (!m_fsWatcher->files().isEmpty())
         m_fsWatcher->removePaths(m_fsWatcher->files());
-    m_fsWatcher->addPath(path);
+    if (m_fsWatcher->directories().size() < 4000)
+        m_fsWatcher->addPath(path);
 
     startGitRefresh();
     emit rootPathChanged(path);

@@ -99,10 +99,18 @@ void DiffViewer::refresh(const QString &workDir)
 
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this, proc](int, QProcess::ExitStatus) {
-        QString output = proc->readAllStandardOutput();
+        QString output = QString::fromUtf8(proc->readAllStandardOutput());
+        static constexpr int MAX_DIFF_SIZE = 512 * 1024; // 512KB
+        if (output.size() > MAX_DIFF_SIZE) {
+            output.truncate(MAX_DIFF_SIZE);
+            output += "\n\n--- Output truncated (>512KB) ---";
+        }
         if (output.trimmed().isEmpty())
             output = "(no changes)";
         setDiffText(output);
+        proc->deleteLater();
+    });
+    connect(proc, &QProcess::errorOccurred, this, [proc]() {
         proc->deleteLater();
     });
 

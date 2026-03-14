@@ -14,6 +14,7 @@ void AppSettings::load()
     globalTheme = s.value("global/theme", globalTheme).toString();
     termFontFamily = s.value("terminal/fontFamily", termFontFamily).toString();
     termFontSize = s.value("terminal/fontSize", termFontSize).toInt();
+    termTheme = s.value("terminal/theme", termTheme).toString();
     editorFontFamily = s.value("editor/fontFamily", editorFontFamily).toString();
     editorFontSize = s.value("editor/fontSize", editorFontSize).toInt();
     showLineNumbers = s.value("editor/lineNumbers", showLineNumbers).toBool();
@@ -32,6 +33,15 @@ void AppSettings::load()
     changesFontSize = s.value("changes/fontSize", changesFontSize).toInt();
     gitignoreVisibility = s.value("visibility/gitignore", gitignoreVisibility).toString();
     dotGitVisibility = s.value("visibility/dotGit", dotGitVisibility).toString();
+
+    // Clamp font sizes to valid range
+    auto clampSize = [](int &size) { if (size < 6) size = 6; if (size > 72) size = 72; };
+    clampSize(termFontSize);
+    clampSize(editorFontSize);
+    clampSize(browserFontSize);
+    clampSize(promptFontSize);
+    clampSize(diffFontSize);
+    clampSize(changesFontSize);
 
     loadZedThemes();
     applyThemeDefaults();
@@ -82,6 +92,10 @@ void AppSettings::applyThemeDefaults()
             }
         }
     }
+
+    // Override terminal color scheme if user selected a specific one
+    if (termTheme != "Auto")
+        terminalColorScheme = termTheme;
 }
 
 void AppSettings::save()
@@ -90,6 +104,7 @@ void AppSettings::save()
     s.setValue("global/theme", globalTheme);
     s.setValue("terminal/fontFamily", termFontFamily);
     s.setValue("terminal/fontSize", termFontSize);
+    s.setValue("terminal/theme", termTheme);
     s.setValue("editor/fontFamily", editorFontFamily);
     s.setValue("editor/fontSize", editorFontSize);
     s.setValue("editor/lineNumbers", showLineNumbers);
@@ -149,6 +164,11 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     m_termFontSizeSpin->setRange(6, 32);
     m_termFontSizeSpin->setValue(current.termFontSize);
 
+    m_termThemeCombo = new QComboBox;
+    m_termThemeCombo->addItems({"Auto", "Linux", "BlackOnWhite", "DarkPastels", "Solarized", "SolarizedLight"});
+    m_termThemeCombo->setCurrentText(current.termTheme);
+
+    termLayout->addRow("Theme:", m_termThemeCombo);
     termLayout->addRow("Font family:", m_termFontCombo);
     termLayout->addRow("Font size:", m_termFontSizeSpin);
     tabs->addTab(termPage, "Terminal");
@@ -290,6 +310,7 @@ AppSettings SettingsDialog::result() const
     s.globalTheme = m_globalThemeCombo->currentText();
     s.termFontFamily = m_termFontCombo->currentFont().family();
     s.termFontSize = m_termFontSizeSpin->value();
+    s.termTheme = m_termThemeCombo->currentText();
     s.editorFontFamily = m_editorFontCombo->currentFont().family();
     s.editorFontSize = m_editorFontSizeSpin->value();
     s.showLineNumbers = m_lineNumbersCheck->isChecked();

@@ -548,6 +548,15 @@ void CodeEditor::updateCurrentLineHighlight()
     setExtraSelections(selections);
 }
 
+void CodeEditor::setLargeFile(bool large)
+{
+    m_largeFile = large;
+    if (large) {
+        m_highlighter->setDocument(nullptr); // disable syntax highlighting
+        setLineWrapMode(QPlainTextEdit::NoWrap); // no wrapping for performance
+    }
+}
+
 // ── Find/Replace implementation ─────────────────────────────────────
 
 void CodeEditor::showFindBar(bool withReplace)
@@ -649,26 +658,10 @@ void CodeEditor::onFindNext()
     if (!found.isNull()) {
         setTextCursor(found);
         ensureCursorVisible();
-        // Determine current match index
-        int pos = found.selectionStart();
-        int matchIdx = 0;
-        QTextBlock block = document()->begin();
-        while (block.isValid()) {
-            QString blockText = block.text();
-            int idx = 0;
-            while ((idx = blockText.indexOf(text, idx, Qt::CaseInsensitive)) != -1) {
-                int absPos = block.position() + idx;
-                if (absPos >= pos) {
-                    m_currentMatch = matchIdx;
-                    m_findBar->setMatchInfo(m_currentMatch + 1, m_totalMatches);
-                    return;
-                }
-                matchIdx++;
-                idx += text.length();
-            }
-            block = block.next();
-        }
-        m_findBar->setMatchInfo(1, m_totalMatches);
+        m_currentMatch++;
+        if (m_currentMatch >= m_totalMatches)
+            m_currentMatch = 0;
+        m_findBar->setMatchInfo(m_currentMatch + 1, m_totalMatches);
     }
 }
 
@@ -690,24 +683,10 @@ void CodeEditor::onFindPrev()
     if (!found.isNull()) {
         setTextCursor(found);
         ensureCursorVisible();
-        int pos = found.selectionStart();
-        int matchIdx = 0;
-        QTextBlock block = document()->begin();
-        while (block.isValid()) {
-            QString blockText = block.text();
-            int idx = 0;
-            while ((idx = blockText.indexOf(text, idx, Qt::CaseInsensitive)) != -1) {
-                int absPos = block.position() + idx;
-                if (absPos >= pos) {
-                    m_currentMatch = matchIdx;
-                    m_findBar->setMatchInfo(m_currentMatch + 1, m_totalMatches);
-                    return;
-                }
-                matchIdx++;
-                idx += text.length();
-            }
-            block = block.next();
-        }
+        m_currentMatch--;
+        if (m_currentMatch < 0)
+            m_currentMatch = m_totalMatches - 1;
+        m_findBar->setMatchInfo(m_currentMatch + 1, m_totalMatches);
     }
 }
 
