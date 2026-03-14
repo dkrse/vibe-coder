@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QCoreApplication>
 #include <QRegularExpression>
+#include <QRandomGenerator>
 
 SshManager::SshManager(QObject *parent)
     : QObject(parent)
@@ -187,9 +188,11 @@ int SshManager::addProfile(const SshConfig &config)
 {
     ProfileState ps;
     ps.config = config;
-    ps.mountPoint = QDir::tempPath() + QString("/vibe-coder-ssh-%1-%2")
+    // Use unique mount point with random suffix to prevent TOCTOU race
+    ps.mountPoint = QDir::tempPath() + QString("/vibe-coder-ssh-%1-%2-%3")
                         .arg(QCoreApplication::applicationPid())
-                        .arg(m_profiles.size());
+                        .arg(m_profiles.size())
+                        .arg(QRandomGenerator::global()->generate(), 0, 16);
     m_profiles.append(ps);
     return m_profiles.size() - 1;
 }
@@ -547,10 +550,24 @@ int SshManager::addTunnel(int profileIndex, const SshTunnel &tunnel)
     args << "-N" << "-o" << "StrictHostKeyChecking=accept-new"
          << "-o" << "ExitOnForwardFailure=yes";
 
+    // Validate remoteHost — only allow safe characters
+    static QRegularExpression validHost("^[a-zA-Z0-9._\\-]+$");
+    if (!validHost.match(t.remoteHost).hasMatch()) {
+        qWarning("SshManager: invalid remote host: %s", qPrintable(t.remoteHost));
+        t.process->deleteLater();
+        t.process = nullptr;
+        return -1;
+    }
+
     if (t.direction == "local") {
         args << "-L" << QString("%1:%2:%3").arg(t.localPort).arg(t.remoteHost).arg(t.remotePort);
-    } else {
+    } else if (t.direction == "remote") {
         args << "-R" << QString("%1:%2:%3").arg(t.remotePort).arg(t.remoteHost).arg(t.localPort);
+    } else {
+        qWarning("SshManager: invalid tunnel direction: %s", qPrintable(t.direction));
+        t.process->deleteLater();
+        t.process = nullptr;
+        return -1;
     }
 
     args << cfg.user + "@" + cfg.host;

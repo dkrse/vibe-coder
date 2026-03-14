@@ -164,8 +164,12 @@ void ChangesMonitor::setProjectDir(const QString &dir)
         if (watchPaths.size() >= 2000) break; // limit
     }
 
-    if (!watchPaths.isEmpty())
-        m_watcher->addPaths(watchPaths);
+    if (!watchPaths.isEmpty()) {
+        QStringList failed = m_watcher->addPaths(watchPaths);
+        if (!failed.isEmpty())
+            qWarning("ChangesMonitor: failed to watch %d/%d files (platform limit)",
+                     failed.size(), watchPaths.size());
+    }
 
     // Also watch subdirectories for new file detection
     QDirIterator dit(dir, QDir::Dirs | QDir::NoDotAndDotDot,
@@ -183,8 +187,12 @@ void ChangesMonitor::setProjectDir(const QString &dir)
         dirPaths.append(dpath);
         if (dirPaths.size() >= 500) break;
     }
-    if (!dirPaths.isEmpty())
-        m_watcher->addPaths(dirPaths);
+    if (!dirPaths.isEmpty()) {
+        QStringList failed = m_watcher->addPaths(dirPaths);
+        if (!failed.isEmpty())
+            qWarning("ChangesMonitor: failed to watch %d/%d dirs (platform limit)",
+                     failed.size(), dirPaths.size());
+    }
 }
 
 void ChangesMonitor::onFileChanged(const QString &path)
@@ -221,6 +229,10 @@ void ChangesMonitor::onFileChanged(const QString &path)
 
     refreshList();
     m_infoLabel->setText(QString("%1 file(s) changed").arg(m_changes.size()));
+
+    // Invalidate diff cache for this file
+    if (m_cachedDiffPath == path)
+        m_cachedDiffContent.clear();
 
     emit changeDetected(path);
 
@@ -277,6 +289,12 @@ void ChangesMonitor::scanForNewFiles()
 
 void ChangesMonitor::showDiffForFile(const QString &filePath)
 {
+    // Use cached diff if same file
+    if (filePath == m_cachedDiffPath && !m_cachedDiffContent.isEmpty()) {
+        m_diffPreview->setPlainText(m_cachedDiffContent);
+        return;
+    }
+
     auto *proc = new QProcess(this);
     proc->setWorkingDirectory(m_projectDir);
 
@@ -305,6 +323,8 @@ void ChangesMonitor::showDiffForFile(const QString &filePath)
                 output = "(no diff available)";
             }
         }
+        m_cachedDiffPath = filePath;
+        m_cachedDiffContent = output;
         m_diffPreview->setPlainText(output);
         proc->deleteLater();
     });

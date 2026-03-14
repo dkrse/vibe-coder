@@ -18,6 +18,21 @@
 class FileBrowser;
 class FileBrowserProxy;
 
+// Tree view with drag & drop file moving
+class FileBrowserTreeView : public QTreeView {
+    Q_OBJECT
+public:
+    explicit FileBrowserTreeView(FileBrowser *fb, QWidget *parent = nullptr);
+
+protected:
+    void dropEvent(QDropEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+
+private:
+    FileBrowser *m_fb;
+};
+
 // Custom roles for SSH model items
 enum SshModelRoles {
     FilePathRole = Qt::UserRole + 100,
@@ -100,7 +115,7 @@ private:
     QStandardItemModel *m_sshModel;
     QString m_currentRoot;
 
-    QTreeView *m_treeView;
+    FileBrowserTreeView *m_treeView;
     QLineEdit *m_pathEdit;
     QPushButton *m_openBtn;
     FileItemDelegate *m_delegate;

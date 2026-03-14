@@ -348,12 +348,28 @@ GitGraph::GitGraph(QWidget *parent)
     sep2->setFixedWidth(8);
     toolbar->addWidget(sep2);
 
+    m_commitBtn = new QPushButton("Commit");
+    m_commitBtn->setToolTip("Stage all changes and commit (git add . && git commit)");
+    toolbar->addWidget(m_commitBtn);
+
+    // Separator
+    auto *sep3 = new QWidget;
+    sep3->setFixedWidth(8);
+    toolbar->addWidget(sep3);
+
     // Tracking info label
     m_trackingLabel = new QLabel;
     m_trackingLabel->setStyleSheet("font-size: 11px; color: #888888; padding: 0 4px;");
     toolbar->addWidget(m_trackingLabel);
 
     toolbar->addStretch();
+
+    // User info button
+    m_userBtn = new QPushButton("User");
+    m_userBtn->setToolTip("Git user name and email");
+    toolbar->addWidget(m_userBtn);
+
+    connect(m_userBtn, &QPushButton::clicked, this, &GitGraph::showUserDialog);
 
     // Remotes button
     m_remoteBtn = new QPushButton("Remotes");
@@ -395,6 +411,10 @@ GitGraph::GitGraph(QWidget *parent)
         runGitCommand({"pull"}, "Pull complete", "Pull failed");
     });
 
+    connect(m_commitBtn, &QPushButton::clicked, this, [this]() {
+        emit commitRequested();
+    });
+
     connect(m_pushBtn, &QPushButton::clicked, this, [this]() {
         m_pushBtn->setEnabled(false);
         m_pushBtn->setText("Pushing...");
@@ -409,6 +429,7 @@ void GitGraph::refresh(const QString &workDir)
     loadLog();
     loadTrackingInfo();
     loadRemotes();
+    loadUserInfo();
 }
 
 void GitGraph::setViewerFont(const QFont &font)
@@ -749,6 +770,92 @@ void GitGraph::showRemotesDialog()
     // Refresh after dialog closes
     loadRemotes();
     loadBranches();
+    dlg->deleteLater();
+}
+
+void GitGraph::loadUserInfo()
+{
+    auto *proc = new QProcess(this);
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc](int) {
+        QString name = QString::fromUtf8(proc->readAllStandardOutput()).trimmed();
+        proc->deleteLater();
+
+        auto *proc2 = new QProcess(this);
+        connect(proc2, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                this, [this, proc2, name](int) {
+            QString email = QString::fromUtf8(proc2->readAllStandardOutput()).trimmed();
+            proc2->deleteLater();
+
+            if (name.isEmpty() && email.isEmpty())
+                m_userBtn->setText("User (not set)");
+            else
+                m_userBtn->setText(name + " <" + email + ">");
+            m_userBtn->setToolTip("Git user: " + name + " <" + email + ">\nClick to change.");
+        });
+        connect(proc2, &QProcess::errorOccurred, this, [proc2]() { proc2->deleteLater(); });
+        proc2->start("git", {"config", "--global", "user.email"});
+    });
+    connect(proc, &QProcess::errorOccurred, this, [proc]() { proc->deleteLater(); });
+    proc->start("git", {"config", "--global", "user.name"});
+}
+
+void GitGraph::showUserDialog()
+{
+    // Read current values synchronously for dialog defaults
+    QProcess p;
+    p.start("git", {"config", "--global", "user.name"});
+    p.waitForFinished(3000);
+    QString curName = QString::fromUtf8(p.readAllStandardOutput()).trimmed();
+
+    QProcess p2;
+    p2.start("git", {"config", "--global", "user.email"});
+    p2.waitForFinished(3000);
+    QString curEmail = QString::fromUtf8(p2.readAllStandardOutput()).trimmed();
+
+    auto *dlg = new QDialog(this);
+    dlg->setWindowTitle("Git User");
+    dlg->setMinimumWidth(400);
+    auto *layout = new QVBoxLayout(dlg);
+
+    layout->addWidget(new QLabel("Name:"));
+    auto *nameEdit = new QLineEdit;
+    nameEdit->setText(curName);
+    layout->addWidget(nameEdit);
+
+    layout->addWidget(new QLabel("Email:"));
+    auto *emailEdit = new QLineEdit;
+    emailEdit->setText(curEmail);
+    layout->addWidget(emailEdit);
+
+    auto *btnLayout = new QHBoxLayout;
+    auto *okBtn = new QPushButton("OK");
+    auto *cancelBtn = new QPushButton("Cancel");
+    btnLayout->addStretch();
+    btnLayout->addWidget(okBtn);
+    btnLayout->addWidget(cancelBtn);
+    layout->addLayout(btnLayout);
+
+    connect(okBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+    connect(cancelBtn, &QPushButton::clicked, dlg, &QDialog::reject);
+
+    ThemedDialog::apply(dlg, "Git User");
+
+    if (dlg->exec() == QDialog::Accepted) {
+        QString newName = nameEdit->text().trimmed();
+        QString newEmail = emailEdit->text().trimmed();
+
+        if (newName != curName && !newName.isEmpty()) {
+            QProcess::execute("git", {"config", "--global", "user.name", newName});
+        }
+        if (newEmail != curEmail && !newEmail.isEmpty()) {
+            QProcess::execute("git", {"config", "--global", "user.email", newEmail});
+        }
+
+        loadUserInfo();
+        emit outputMessage("Git user updated", 3);
+    }
+
     dlg->deleteLater();
 }
 

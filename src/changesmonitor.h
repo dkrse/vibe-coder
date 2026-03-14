@@ -65,4 +65,8 @@ private:
     QString m_projectDir;
     QVector<FileChange> m_changes;
     QMap<QString, QDateTime> m_knownFiles; // path -> last known mtime
+
+    // Diff cache
+    QString m_cachedDiffPath;
+    QString m_cachedDiffContent;
 };

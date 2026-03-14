@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "titlebar.h"
 #include "sshtunneldialog.h"
+#include <memory>
 
 #include <QSplitter>
 #include <QVBoxLayout>
@@ -19,6 +20,7 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QLineEdit>
 #include <QScreen>
 #include <QGuiApplication>
 #include <QApplication>
@@ -77,11 +79,21 @@ MainWindow::MainWindow(QWidget *parent)
     m_tabWidget->setTabsClosable(true);
     connect(m_tabWidget, &QTabWidget::tabCloseRequested, this, [this](int index) {
         if (index == 0) return;
+        QWidget *w = m_tabWidget->widget(index);
+        // Handle markdown preview tab — don't delete, just hide
+        if (w == m_mdPreview) {
+            m_tabWidget->removeTab(index);
+            m_mdPreviewVisible = false;
+            if (m_mdPreviewEditor) {
+                disconnect(m_mdPreviewEditor, &QPlainTextEdit::textChanged, m_mdPreview, nullptr);
+                m_mdPreviewEditor = nullptr;
+            }
+            return;
+        }
         if (!maybeSaveTab(m_tabWidget, index)) return;
         QString path = m_tabWidget->tabToolTip(index);
         if (!path.isEmpty())
             m_fileWatcher->removePath(path);
-        QWidget *w = m_tabWidget->widget(index);
         m_tabWidget->removeTab(index);
         w->deleteLater();
     });
@@ -181,12 +193,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_sendBtn = new QPushButton("Send");
     m_stopBtn = new QPushButton("Stop");
     m_stopBtn->setToolTip("Stop model generation");
-    m_commitBtn = new QPushButton("Commit");
     m_savePromptBtn = new QPushButton("Save Prompt");
     m_savePromptBtn->setToolTip("Save current prompt for reuse");
     btnLayout->addWidget(m_sendBtn);
     btnLayout->addWidget(m_stopBtn);
-    btnLayout->addWidget(m_commitBtn);
     btnLayout->addWidget(m_savePromptBtn);
     btnLayout->addStretch();
 
@@ -319,7 +329,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_fileBrowser, &FileBrowser::fileOpened, this, &MainWindow::onFileOpened);
     connect(m_sendBtn, &QPushButton::clicked, this, &MainWindow::onSendClicked);
     connect(m_stopBtn, &QPushButton::clicked, this, &MainWindow::onStopClicked);
-    connect(m_commitBtn, &QPushButton::clicked, this, &MainWindow::onCommitClicked);
+    connect(m_gitGraph, &GitGraph::commitRequested, this, &MainWindow::onCommitClicked);
     connect(m_editor, &PromptEdit::sendRequested, this, &MainWindow::onSendClicked);
     connect(m_editor, &PromptEdit::saveAndSendRequested, this, [this]() {
         QString text = m_editor->toPlainText().trimmed();
@@ -375,11 +385,11 @@ MainWindow::MainWindow(QWidget *parent)
         m_gitGraph->refresh(path);
         if (m_sshManager->activeProfileIndex() >= 0) {
             QString remotePath = m_fileBrowser->toRemotePath(path);
-            m_terminal->sendText("cd " + remotePath);
-            m_bottomTerminal->sendText("cd " + remotePath);
+            m_terminal->sendText("cd \"" + remotePath + "\"");
+            m_bottomTerminal->sendText("cd \"" + remotePath + "\"");
         } else {
-            m_terminal->terminal()->changeDir(path);
-            m_bottomTerminal->terminal()->changeDir(path);
+            m_terminal->sendText("cd \"" + path + "\"");
+            m_bottomTerminal->sendText("cd \"" + path + "\"");
         }
         tryLoadProject(path);
     });
@@ -470,11 +480,19 @@ MainWindow::MainWindow(QWidget *parent)
     auto *saveShortcut = new QShortcut(QKeySequence::Save, this);
     connect(saveShortcut, &QShortcut::activated, this, &MainWindow::saveCurrentFile);
 
+    // Ctrl+M — Markdown preview
+    auto *mdShortcut = new QShortcut(QKeySequence("Ctrl+M"), this);
+    connect(mdShortcut, &QShortcut::activated, this, &MainWindow::toggleMarkdownPreview);
+
     // Command palette
     m_commandPalette = new CommandPalette(this);
     setupCommandPalette();
     auto *paletteShortcut = new QShortcut(QKeySequence("Ctrl+Shift+P"), this);
     connect(paletteShortcut, &QShortcut::activated, m_commandPalette, &CommandPalette::show);
+
+    // Pre-create markdown preview (QWebEngineView init causes flicker on first use)
+    m_mdPreview = new MarkdownPreview(this);
+    m_mdPreview->setVisible(false);
 
     applyGlobalTheme();
     applySettings();
@@ -491,8 +509,8 @@ MainWindow::MainWindow(QWidget *parent)
         m_bottomTerminal->terminal()->setTerminalFont(termFont);
     });
 
-    m_terminal->terminal()->changeDir(m_fileBrowser->rootPath());
-    m_bottomTerminal->terminal()->changeDir(m_fileBrowser->rootPath());
+    m_terminal->sendText("cd \"" + m_fileBrowser->rootPath() + "\"");
+    m_bottomTerminal->sendText("cd \"" + m_fileBrowser->rootPath() + "\"");
     tryLoadProject(m_fileBrowser->rootPath());
     m_changesMonitor->setProjectDir(m_fileBrowser->rootPath());
 }
@@ -592,8 +610,8 @@ void MainWindow::sshConnectTerminals(const SshConfig &cfg)
     QString remotePath = cfg.remotePath;
     if (remotePath != "~" && !remotePath.isEmpty()) {
         QTimer::singleShot(cdDelay, this, [this, remotePath]() {
-            m_terminal->sendText("cd " + remotePath);
-            m_bottomTerminal->sendText("cd " + remotePath);
+            m_terminal->sendText("cd \"" + remotePath + "\"");
+            m_bottomTerminal->sendText("cd \"" + remotePath + "\"");
         });
     }
 }
@@ -840,11 +858,11 @@ void MainWindow::onFileOpened(const QString &filePath)
     QString fileDir = info.absolutePath();
     if (m_sshManager->activeProfileIndex() >= 0) {
         QString remoteDir = m_fileBrowser->toRemotePath(fileDir);
-        m_terminal->sendText("cd " + remoteDir);
-        m_bottomTerminal->sendText("cd " + remoteDir);
+        m_terminal->sendText("cd \"" + remoteDir + "\"");
+        m_bottomTerminal->sendText("cd \"" + remoteDir + "\"");
     } else {
-        m_terminal->terminal()->changeDir(fileDir);
-        m_bottomTerminal->terminal()->changeDir(fileDir);
+        m_terminal->sendText("cd \"" + fileDir + "\"");
+        m_bottomTerminal->sendText("cd \"" + fileDir + "\"");
     }
 
     connect(editor, &QPlainTextEdit::cursorPositionChanged, this, &MainWindow::updateStatusBar);
@@ -1157,13 +1175,71 @@ void MainWindow::onStopClicked()
 void MainWindow::onCommitClicked()
 {
     QString dir = m_fileBrowser->rootPath();
-    m_commitBtn->setEnabled(false);
+
+    // Show commit message dialog
+    auto *dlg = new QDialog(this);
+    dlg->setWindowTitle("Commit");
+    dlg->setMinimumWidth(450);
+    auto *layout = new QVBoxLayout(dlg);
+
+    auto *label = new QLabel("Commit message:");
+    layout->addWidget(label);
+
+    auto *msgEdit = new QLineEdit;
+    QString defaultMsg = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
+    msgEdit->setText(defaultMsg);
+    msgEdit->selectAll();
+    layout->addWidget(msgEdit);
+
+    auto *btnLayout2 = new QHBoxLayout;
+    auto *okBtn = new QPushButton("OK");
+    auto *cancelBtn = new QPushButton("Cancel");
+    btnLayout2->addStretch();
+    btnLayout2->addWidget(okBtn);
+    btnLayout2->addWidget(cancelBtn);
+    layout->addLayout(btnLayout2);
+
+    connect(okBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+    connect(cancelBtn, &QPushButton::clicked, dlg, &QDialog::reject);
+    connect(msgEdit, &QLineEdit::returnPressed, dlg, &QDialog::accept);
+
+    ThemedDialog::apply(dlg, "Commit");
+
+    if (dlg->exec() != QDialog::Accepted) {
+        dlg->deleteLater();
+        return;
+    }
+
+    QString commitMsg = msgEdit->text().trimmed();
+    if (commitMsg.isEmpty())
+        commitMsg = defaultMsg;
+    dlg->deleteLater();
+
     m_statusFileLabel->setText("Committing...");
 
     // Run git operations async in a chain
     auto *git = new QProcess(this);
     git->setWorkingDirectory(dir);
-    auto *output = new QString;
+    auto output = std::make_shared<QString>();
+
+    // Cleanup helper — always deletes git process, even on error
+    auto cleanup = [this, git, output, commitMsg]() {
+        QString out = output->trimmed();
+        m_statusFileLabel->setText(QString("Committed: %1").arg(commitMsg));
+        notify("Git commit: " + commitMsg, 3);
+        if (!out.isEmpty())
+            m_statusFileLabel->setText(out.left(100));
+        m_gitGraph->refresh(m_fileBrowser->rootPath());
+        git->deleteLater();
+    };
+
+    // Error handler for all steps
+    connect(git, &QProcess::errorOccurred, this, [this, git, output](QProcess::ProcessError) {
+        QString err = git->errorString();
+        m_statusFileLabel->setText("Commit error: " + err);
+        notify("Git commit failed: " + err, 2);
+        git->deleteLater();
+    });
 
     // Step 1: ensure .gitignore has sensitive file patterns
     static const QStringList sensitivePatterns = {".env", ".env.*", "*.pem", "*.key",
@@ -1192,41 +1268,34 @@ void MainWindow::onCommitClicked()
     }
 
     // Lambda chain: init → add → commit
-    auto doAdd = [this, git, output, dir]() {
+    auto doAdd = [this, git, output, dir, commitMsg, cleanup]() {
+        disconnect(git, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, nullptr);
         connect(git, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                this, [this, git, output, dir](int, QProcess::ExitStatus) {
+                this, [this, git, output, dir, commitMsg, cleanup](int, QProcess::ExitStatus) {
             *output += git->readAllStandardOutput() + git->readAllStandardError();
             // Step 3: commit
-            disconnect(git, nullptr, this, nullptr);
+            disconnect(git, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, nullptr);
             connect(git, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                    this, [this, git, output](int, QProcess::ExitStatus) {
+                    this, [this, git, output, cleanup](int, QProcess::ExitStatus) {
                 *output += git->readAllStandardOutput() + git->readAllStandardError();
-                QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
-                m_statusFileLabel->setText(QString("Committed: %1").arg(timestamp));
-                notify("Git commit: " + timestamp, 3);
-                m_commitBtn->setEnabled(true);
-                if (!output->trimmed().isEmpty())
-                    m_statusFileLabel->setText(output->trimmed().left(100));
-                git->deleteLater();
-                delete output;
+                cleanup();
             });
-            QString ts = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
-            git->start("git", {"commit", "-m", ts});
+            git->start("git", {"commit", "-m", commitMsg});
         });
-        git->start("git", {"add", "-A"});
+        git->start("git", {"add", "."});
     };
 
     if (!QDir(dir + "/.git").exists()) {
         connect(git, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
                 this, [this, git, output, dir, doAdd](int, QProcess::ExitStatus) {
             *output += git->readAllStandardOutput() + git->readAllStandardError();
-            disconnect(git, nullptr, this, nullptr);
+            disconnect(git, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, nullptr);
 
             if (m_project.isLoaded() && !m_project.gitRemote().isEmpty()) {
                 connect(git, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
                         this, [git, output, doAdd](int, QProcess::ExitStatus) {
                     *output += git->readAllStandardOutput() + git->readAllStandardError();
-                    disconnect(git, nullptr, nullptr, nullptr);
+                    disconnect(git, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), nullptr, nullptr);
                     doAdd();
                 });
                 git->start("git", {"remote", "add", "origin", m_project.gitRemote()});
@@ -1466,6 +1535,64 @@ void MainWindow::unsplitEditor()
     m_splitTabWidget = nullptr;
 }
 
+// ── Markdown Preview ────────────────────────────────────────────────
+
+void MainWindow::toggleMarkdownPreview()
+{
+    // If preview tab is open, close it
+    if (m_mdPreviewVisible) {
+        for (int i = 0; i < m_tabWidget->count(); ++i) {
+            if (m_tabWidget->widget(i) == m_mdPreview) {
+                m_tabWidget->removeTab(i);
+                break;
+            }
+        }
+        m_mdPreviewVisible = false;
+        // Disconnect live updates from previous editor
+        if (m_mdPreviewEditor) {
+            disconnect(m_mdPreviewEditor, &QPlainTextEdit::textChanged, m_mdPreview, nullptr);
+            m_mdPreviewEditor = nullptr;
+        }
+        return;
+    }
+
+    // Get current editor
+    auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->currentWidget());
+    if (!editor) return;
+
+    // Check if current file is markdown
+    QString filePath = m_tabWidget->tabToolTip(m_tabWidget->currentIndex());
+    QString suffix = QFileInfo(filePath).suffix().toLower();
+    if (suffix != "md" && suffix != "markdown" && suffix != "mkd" && suffix != "mdx") {
+        notify("Markdown preview is only available for .md files", 1);
+        return;
+    }
+
+    // Update theme/font (may have changed since init)
+    bool dark = m_settings.globalTheme.contains("Dark") || m_settings.globalTheme == "Monokai" || m_settings.globalTheme == "Nord";
+    m_mdPreview->setDarkMode(dark);
+    QFont previewFont;
+    previewFont.setFamily(m_settings.editorFontFamily);
+    previewFont.setPointSize(m_settings.editorFontSize);
+    m_mdPreview->setFont(previewFont);
+
+    // Add as tab
+    QString tabName = "Preview: " + QFileInfo(filePath).fileName();
+    int idx = m_tabWidget->addTab(m_mdPreview, tabName);
+    m_tabWidget->setCurrentIndex(idx);
+    m_mdPreviewVisible = true;
+
+    // Initial content
+    m_mdPreview->updateContent(editor->toPlainText());
+
+    // Live updates — connect to the source editor
+    m_mdPreviewEditor = editor;
+    connect(editor, &QPlainTextEdit::textChanged, m_mdPreview, [this, editor]() {
+        if (!m_mdPreviewVisible) return;
+        m_mdPreview->updateContent(editor->toPlainText());
+    });
+}
+
 // ── Command Palette ─────────────────────────────────────────────────
 
 void MainWindow::setupCommandPalette()
@@ -1483,6 +1610,7 @@ void MainWindow::setupCommandPalette()
     m_commandPalette->addCommand("Split Editor Horizontal", "", [this]() { splitEditorHorizontal(); });
     m_commandPalette->addCommand("Split Editor Vertical", "", [this]() { splitEditorVertical(); });
     m_commandPalette->addCommand("Unsplit Editor", "", [this]() { unsplitEditor(); });
+    m_commandPalette->addCommand("Markdown Preview", "Ctrl+M", [this]() { toggleMarkdownPreview(); });
     m_commandPalette->addCommand("Show Diff", "", [this]() {
         m_diffViewer->refresh(m_fileBrowser->rootPath());
         m_bottomTabWidget->setCurrentWidget(m_diffViewer);

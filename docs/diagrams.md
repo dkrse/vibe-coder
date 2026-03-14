@@ -26,12 +26,12 @@ graph TB
                 end
 
                 subgraph BottomTabWidget[Bottom Tab Widget]
-                    PT[Prompt Tab: PromptEdit + Send/Commit/Save]
+                    PT[Prompt Tab: PromptEdit + Send/Save]
                     BT[Terminal Tab]
                     NT[Notifications Tab]
                     DV[Diff Viewer Tab]
                     CM[Changes Tab]
-                    GG[Git Graph Tab]
+                    GG[Git Graph Tab: Commit/Fetch/Pull/Push/User/Remotes]
                 end
             end
         end
@@ -67,6 +67,8 @@ classDiagram
     QWidget <|-- GitGraphView
     QDialog <|-- ThemedMessageBox
     QObject <|-- SshManager
+    QWidget <|-- MarkdownPreview
+    QTreeView <|-- FileBrowserTreeView
 
     MainWindow --> TitleBar
     MainWindow --> FileBrowser
@@ -81,7 +83,9 @@ classDiagram
     MainWindow --> NotificationPanel
     MainWindow --> DiffViewer
     MainWindow --> GitGraph
+    MainWindow --> MarkdownPreview
     GitGraph --> GitGraphView
+    FileBrowser --> FileBrowserTreeView
 
     FileBrowser --> FileItemDelegate
     FileBrowser --> QFileSystemModel : local mode
@@ -205,11 +209,29 @@ classDiagram
         -QPushButton* m_fetchBtn
         -QPushButton* m_pullBtn
         -QPushButton* m_pushBtn
+        -QPushButton* m_commitBtn
+        -QPushButton* m_userBtn
         -QLabel* m_trackingLabel
         -QMap~QString,QString~ m_remotes
         +refresh(QString)
-        +setViewerFont(QFont)
-        +setViewerColors(QColor, QColor)
+        +commitRequested() signal
+        +loadUserInfo()
+        +showUserDialog()
+    }
+
+    class MarkdownPreview {
+        -QWebEngineView* m_webView
+        -QTimer* m_debounce
+        -bool m_pageLoaded
+        -void* m_cmarkLib
+        -QString m_mermaidJsPath
+        +updateContent(QString)
+        +setDarkMode(bool)
+        -markdownToHtml(QString) QString
+        -cmarkConvert(QString) QString
+        -regexConvert(QString) QString
+        -loadBasePage()
+        -render()
     }
 
     class ZedThemeLoader {
@@ -340,12 +362,17 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant User
+    participant GitGraph
     participant MainWindow
+    participant Dialog as Commit Dialog
     participant GitProc as QProcess (chained)
 
-    User->>MainWindow: Click Commit
+    User->>GitGraph: Click Commit button
+    GitGraph-->>MainWindow: commitRequested()
+    MainWindow->>Dialog: Show themed dialog (default: timestamp)
+    User->>Dialog: Edit message + OK
+    Dialog-->>MainWindow: commit message
     MainWindow->>MainWindow: Update .gitignore (sensitive files)
-    MainWindow->>MainWindow: Disable commit button
 
     alt No .git directory
         MainWindow->>GitProc: git init [async]
@@ -354,11 +381,11 @@ sequenceDiagram
         GitProc-->>MainWindow: finished
     end
 
-    MainWindow->>GitProc: git add -A [async]
+    MainWindow->>GitProc: git add . [async]
     GitProc-->>MainWindow: finished
-    MainWindow->>GitProc: git commit -m timestamp [async]
+    MainWindow->>GitProc: git commit -m "message" [async]
     GitProc-->>MainWindow: finished
-    MainWindow->>MainWindow: Enable commit button + status update
+    MainWindow->>GitGraph: refresh()
 ```
 
 ## Git Status Pipeline (Async)
@@ -596,4 +623,64 @@ flowchart TD
     GITIGNORE --> ENV[.env / .env.*]
     GITIGNORE --> PEM[*.pem / *.key]
     GITIGNORE --> CRED[credentials.json]
+
+    TUNNEL[SSH Tunnel] --> TVAL[Validate remoteHost]
+    TVAL -->|regex| SAFE["^[a-zA-Z0-9._-]+$"]
+    TUNNEL --> DVAL[Validate direction]
+    DVAL -->|enum| DIR["local or remote only"]
+```
+
+## Markdown Preview Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant MainWindow
+    participant Editor as CodeEditor
+    participant Preview as MarkdownPreview
+    participant WebView as QWebEngineView
+
+    Note over Preview: Pre-created hidden at startup
+    Note over WebView: Chromium initialized early
+
+    User->>MainWindow: Ctrl+M on .md file
+    MainWindow->>MainWindow: Add Preview as tab
+    MainWindow->>Preview: updateContent(editor.text)
+    Preview->>Preview: 500ms debounce
+
+    Preview->>Preview: markdownToHtml() [cmark or regex]
+    Preview->>Preview: Convert mermaid blocks to pre.mermaid
+    Preview->>Preview: Escape for JS string
+    Preview->>WebView: runJavaScript("updateBody(html)")
+
+    Note over WebView: innerHTML update (no reload)
+    WebView->>WebView: Decode HTML entities in mermaid
+    WebView->>WebView: mermaid.run() if blocks present
+
+    loop Live updates
+        Editor-->>Preview: textChanged signal
+        Preview->>Preview: debounce → render
+    end
+```
+
+## Markdown Rendering Architecture
+
+```mermaid
+flowchart TD
+    MD[Markdown Source] --> CMARK{libcmark available?}
+    CMARK -->|Yes| CM[cmark_markdown_to_html]
+    CMARK -->|No| RX[Regex Converter]
+    CM --> HTML[HTML body]
+    RX --> HTML
+
+    HTML --> MERM[Convert to pre class='mermaid']
+    
+    subgraph Injection_Logic
+        SCR[Load mermaid.min.js content] -->|Inline into Script Tag| FULL_JS
+        MERM -->|Escape HTML| FULL_JS[Full HTML String]
+    end
+
+    FULL_JS --> WEB[QWebEngineView.setHtml]
+    WEB --> INIT[runJavaScript: mermaid.run]
+    INIT --> RENDER[Rendered Preview]
 ```

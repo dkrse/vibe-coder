@@ -8,13 +8,14 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 
 ## Features
 
-- **File Browser** — Zed editor-style tree view with git status colors (modified, untracked, added, ignored), context menu (new file/dir, rename, delete). Configurable visibility for gitignored files and .git directory (visible/grayed/hidden). Instant git status updates via QFileSystemWatcher + 10s polling. Works over SSH via sshfs
+- **File Browser** — Zed editor-style tree view with git status colors (modified, untracked, added, ignored), context menu (new file/dir, rename, delete), drag & drop file moving. Configurable visibility for gitignored files and .git directory (visible/grayed/hidden). Instant git status updates via QFileSystemWatcher + 10s polling. Works over SSH via sshfs
 - **Code Editor** — Tabbed editor with syntax highlighting for C/C++, Python, JavaScript/TypeScript, Rust. Line numbers, Ctrl+S save. Split view (horizontal/vertical). Find & Replace (Ctrl+F/Ctrl+H) with yellow match highlighting and scrollbar markers. Undo/Redo. Unsaved changes tracking with `●` tab marker. Configurable current line highlighting
 - **Dual Terminals** — AI-terminal (top, sends prompts) + general Terminal (bottom tab). Both follow file browser directory and support SSH. Stop button sends configurable stop sequence (default: Ctrl+C)
 - **Prompt System** — Prompt input with configurable send key (Enter / Ctrl+Enter). Shift modifier = send + save. Saved/recurring prompts per project
 - **Project Management** — `.LLM/instructions.json` stores project metadata, numbered prompt history, and saved prompt IDs. Auto-creates `.gitignore`
-- **Git Integration** — Async one-click commit (auto-init + add + commit). Auto-filters sensitive files (.env, *.pem, *.key). Async git status with instant updates for file browser colors. **Git Graph tab** with visual commit history, branch/merge visualization, Fetch/Pull/Push, upstream tracking, and multi-remote management
-- **Changes Monitor** — Real-time file change tracking with diff preview and one-click revert to git version
+- **Markdown Preview** — Ctrl+M opens live preview for `.md` files with full mermaid diagram rendering. Uses QWebEngineView with bundled mermaid.js (offline, no CDN). Optional libcmark for conversion with regex fallback. 500ms debounced live updates. Dark/light theme support
+- **Git Integration** — Commit button in Git tab with editable commit message dialog (auto-init + add + commit). Auto-filters sensitive files (.env, *.pem, *.key). Async git status with instant updates for file browser colors. **Git Graph tab** with visual commit history, branch/merge visualization, Fetch/Pull/Push, upstream tracking, git user info editing, and multi-remote management
+- **Changes Monitor** — Real-time file change tracking with diff preview (cached) and one-click revert to git version
 - **Diff Viewer** — Git diff viewer with syntax highlighting (working changes, staged, last commit)
 - **SSH Remote Development**
   - Multiple simultaneous SSH profiles with profile switcher
@@ -41,6 +42,7 @@ sudo apt update
 sudo apt install -y \
     build-essential cmake \
     qt6-base-dev \
+    qt6-webengine-dev \
     libqtermwidget6-1-dev \
     libutf8proc-dev \
     sshfs
@@ -56,7 +58,7 @@ make -j$(nproc)
 ./vibe-coder
 ```
 
-> **Note:** `sshfs` is required for SSH remote file browsing and transfers. If `libutf8proc-dev` is unavailable, the build links `libqtermwidget6.so.2` directly (see CMakeLists.txt).
+> **Note:** `sshfs` is required for SSH remote file browsing and transfers. `qt6-webengine-dev` is required for markdown preview with mermaid diagram rendering. Optional: install `libcmark-dev` for better markdown conversion (loaded at runtime via dlopen).
 
 ### Fedora
 
@@ -64,6 +66,7 @@ make -j$(nproc)
 sudo dnf install -y \
     gcc-c++ cmake \
     qt6-qtbase-devel \
+    qt6-qtwebengine-devel \
     qtermwidget-devel \
     utf8proc-devel \
     fuse-sshfs
@@ -81,6 +84,7 @@ make -j$(nproc)
 sudo pacman -S --needed \
     base-devel cmake \
     qt6-base \
+    qt6-webengine \
     qtermwidget \
     utf8proc \
     sshfs
@@ -94,7 +98,7 @@ make -j$(nproc)
 
 ## Usage
 
-1. **Open a directory** — Use the path bar or `...` button in the file browser
+1. **Open a directory** — Click "Open Directory…" button in the file browser
 2. **Edit files** — Click a file to open it in a new tab. Ctrl+S to save. Ctrl+F to find, Ctrl+H to find & replace. Ctrl+Z / Ctrl+Shift+Z for undo/redo
 3. **Use the terminal** — AI-terminal (top) for prompts, Terminal tab (bottom) for general use
 4. **Send prompts** — Type in the prompt area, press Ctrl+Enter (or Enter, configurable in Settings)
@@ -103,12 +107,14 @@ make -j$(nproc)
 7. **SSH Connect** — Hamburger menu (☰) → SSH Connect. Enter user/host/password or select saved connection
 8. **SSH Tunnels** — Hamburger menu (☰) → SSH Tunnels. Create local (-L) or remote (-R) port forwards
 9. **Upload/Download** — Hamburger menu (☰) → SSH Upload/Download. Transfers via sshfs mount with progress
-10. **Commit** — Click Commit button. Auto-initializes git if needed, stages files (filters sensitive), commits with timestamp
+10. **Commit** — Click Commit in Git tab. Enter commit message (default: timestamp), auto-initializes git if needed, stages all files, commits
 11. **Command Palette** — Ctrl+Shift+P to search and execute commands (split view, focus panels, switch themes)
 12. **Changes Monitor** — Bottom "Changes" tab shows real-time file modifications with diff preview and revert
 13. **Git Graph** — Bottom "Git" tab shows commit history as a visual graph. Use Fetch/Pull/Push buttons, manage remotes via "Remotes" button
 14. **Settings** — Hamburger menu (☰) → Settings. Tabbed dialog for fonts, themes, and behavior
 15. **Zed Themes** — Install themes in Zed editor and they automatically appear in Settings and command palette
+16. **Markdown Preview** — Open a `.md` file and press Ctrl+M. Live preview with mermaid diagram rendering. Press Ctrl+M again to close
+17. **Git User** — Click "User" in Git tab to view/edit git global name and email
 
 ## Documentation
 

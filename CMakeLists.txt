@@ -4,8 +4,9 @@ project(vibe-coder LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Core Gui)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Core Gui WebEngineWidgets)
 
 add_executable(vibe-coder
     src/main.cpp
@@ -47,6 +48,9 @@ add_executable(vibe-coder
     src/zedthemeloader.h
     src/themeddialog.cpp
     src/themeddialog.h
+    src/markdownpreview.cpp
+    src/markdownpreview.h
+    src/resources/resources.qrc
 )
 
 # Find qtermwidget library (works on Fedora, Debian/Ubuntu, Arch, etc.)
@@ -61,6 +65,7 @@ message(STATUS "Found qtermwidget: ${QTERMWIDGET_LIB}")
 
 target_include_directories(vibe-coder PRIVATE /usr/include)
 target_link_libraries(vibe-coder PRIVATE
-    Qt6::Widgets Qt6::Core Qt6::Gui
+    Qt6::Widgets Qt6::Core Qt6::Gui Qt6::WebEngineWidgets
     ${QTERMWIDGET_LIB}
+    dl
 )

@@ -72,6 +72,7 @@ public:
 
 signals:
     void outputMessage(const QString &msg, int level); // 0=info,1=warn,2=err,3=ok
+    void commitRequested();
 
 private:
     QScrollArea *m_scrollArea;
@@ -82,6 +83,8 @@ private:
     QPushButton *m_pushBtn;
     QComboBox *m_branchCombo;
     QLabel *m_trackingLabel;
+    QPushButton *m_commitBtn;
+    QPushButton *m_userBtn;
     QPushButton *m_remoteBtn;
     QString m_workDir;
 
@@ -93,6 +96,8 @@ private:
     void loadTrackingInfo();
     void loadRemotes();
     void showRemotesDialog();
+    void loadUserInfo();
+    void showUserDialog();
     void runGitCommand(const QStringList &args, const QString &successMsg, const QString &errorMsg);
     QVector<GitCommitInfo> parseGitLog(const QString &output);
 };

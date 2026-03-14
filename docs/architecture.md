@@ -8,7 +8,10 @@ Vibe Coder is a Qt6 C++ IDE-like application designed for AI-assisted developmen
 
 - **Language:** C++17
 - **UI Framework:** Qt6 Widgets
+- **Web Engine:** Qt6 WebEngineWidgets (markdown preview, mermaid rendering)
 - **Terminal:** QTermWidget (libqtermwidget6)
+- **Markdown:** libcmark (optional, loaded via dlopen) with regex fallback
+- **Diagrams:** mermaid.js (bundled as Qt resource, ~3MB)
 - **SSH Filesystem:** sshfs / FUSE
 - **Build System:** CMake 3.16+
 - **Settings:** QSettings (INI-based, per-user)
@@ -38,6 +41,9 @@ src/
 ├── titlebar.h/cpp        Custom title bar (CSD) with minimize/maximize/close
 ├── themeddialog.h/cpp    Frameless dialog wrapper with themed title bar
 ├── zedthemeloader.h/cpp  Zed editor theme JSON parser and color mapper
+├── markdownpreview.h/cpp Markdown preview with QWebEngineView + mermaid.js
+├── resources/resources.qrc  Qt resource file (bundled mermaid.min.js)
+├── resources/mermaid.min.js Mermaid.js library (~3MB, offline diagram rendering)
 ```
 
 ## Component Responsibilities
@@ -57,15 +63,17 @@ src/
 - Status bar: file info, SSH profile combo, transfer progress bar
 - **Session persistence:** window geometry via `normalGeometry()`, splitter states, open files. Multi-monitor aware: finds target screen by geometry match, uses `setGeometry()` + deferred `showMaximized()`
 - File watcher: auto-reload externally changed files (300ms debounce)
-- Keyboard shortcuts: Ctrl+S save, Ctrl+F find, Ctrl+H find & replace, Ctrl+Shift+P command palette
+- Keyboard shortcuts: Ctrl+S save, Ctrl+F find, Ctrl+H find & replace, Ctrl+Shift+P command palette, Ctrl+M markdown preview
 - **Stop button** — sends configurable stop sequence to terminal (default: `\x03`), supports escape sequences
 - **Unsaved changes tracking** — `●` tab marker, Save/Discard/Cancel on tab close, Save All/Discard/Cancel on app close
 - **Tab context menu** — Close, Close Others, Close All, Close to Right, Close to Left (all check unsaved changes)
 - Tab close properly deletes CodeEditor widget (no memory leak)
 - **Tab close icons** — dynamically generated PNG with theme-colored cross (✕), applied via stylesheet `image: url()` — automatically updates on theme change
-- Async git commit via chained QProcess callbacks
+- Async git commit via chained QProcess callbacks with `std::shared_ptr<QString>` (no leak on error)
 - Notification system: centralized logging with unread badge count
 - Changes monitor integration: tracks file changes per project, badge count on tab
+- **Markdown preview** — `MarkdownPreview` widget pre-created hidden at startup (avoids QWebEngineView first-use flicker). Toggled as editor tab via Ctrl+M. Live updates connected to source editor's `textChanged` signal
+- **Commit moved to Git tab** — commit button in GitGraph toolbar, shows themed dialog with editable commit message
 
 ### TitleBar
 - Custom window title bar replacing system decorations (CSD — Client-Side Decorations)
@@ -99,8 +107,9 @@ src/
   - Uses `beginFilterChange()/endFilterChange()` to preserve tree expansion state and scroll position
   - SSH model filters in `sshPopulateDir()`
 - Context menu: New File, New Directory, Rename, Delete
+- **Drag & drop** — `FileBrowserTreeView` subclass handles drop events, moves files/directories via `QFile::rename()`. Prevents moving into self or overwriting existing files
+- **Simplified UI** — removed path text field, replaced with "Open Directory…" button showing current directory name
 - SSH path translation: toRemotePath() maps mount paths to remote paths
-- Path bar accepts remote paths when SSH is active
 - Theme-aware: accepts bg/fg color parameters from global theme, uses darker() for light themes / lighter() for dark themes
 - Path traversal protection in file operations
 - **QFileSystemWatcher limits** — max 4000 entries to stay within OS limits (~8192 on Linux)
@@ -223,6 +232,17 @@ src/
 - Badge count on bottom tab: "Changes (N)"
 - Configurable font via Settings (changes section)
 
+### MarkdownPreview
+- QWebEngineView-based live markdown preview, opened as editor tab via Ctrl+M
+- **Markdown conversion:** libcmark loaded via `dlopen()` at runtime (tries libcmark.so, .so.0, etc.). Falls back to built-in regex converter supporting: headings, bold/italic/strikethrough, code blocks with language class, tables, lists, blockquotes, horizontal rules, links, images
+- **Mermaid diagrams:** mermaid.js (~3MB) bundled as Qt resource, extracted to temp file at startup (`/tmp/vibe-coder-mermaid.min.js`). Loaded via `<script src="file://...">` to avoid QWebEngineView's 2MB `setHtml()` limit
+- **Rendering architecture:** base HTML page (CSS + mermaid.js) loaded once from temp file. Content updates via `runJavaScript("updateBody('...')")` — no page reload, preserves scroll position
+- **Mermaid re-rendering:** JS `updateBody()` decodes HTML entities in `<pre class="mermaid">` blocks, calls `mermaid.run()` only when mermaid blocks present
+- **Dark/light theme:** full CSS theming with theme-appropriate mermaid theme (`dark`/`default`)
+- **Pre-created at startup** — `setVisible(false)` until added to tab, avoids QWebEngineView/Chromium initialization flicker
+- **500ms debounce timer** prevents excessive re-renders during fast typing
+- **Offline operation:** all resources local, `LocalContentCanAccessRemoteUrls` disabled
+
 ### GitGraph
 - Visual commit history graph as bottom tab ("Git")
 - Custom `GitGraphView` widget with QPainter-drawn commit graph:
@@ -235,6 +255,8 @@ src/
 - **Remote operations:** Fetch (`git fetch --all --prune`), Pull (`git pull`), Push (`git push`) buttons with loading state
 - **Upstream tracking info:** label showing `branch -> upstream [ahead N, behind M]` with color coding (green=ahead, yellow=behind, red=both)
 - **Remotes dialog:** view/add/edit/remove multiple git remotes (name + URL). Supports `git remote add/set-url/rename/remove`
+- **Commit button** in toolbar: shows themed dialog with editable commit message (default: timestamp), runs `git add .` + `git commit -m "message"`, auto-refreshes graph after commit
+- **User info button** in toolbar: displays `git config --global user.name <email>`. Click opens edit dialog to change name/email
 - Auto-refreshes on directory change and tab activation
 - Configurable font and colors from Settings (uses diff font settings)
 - `outputMessage` signal for notification integration
@@ -263,7 +285,7 @@ src/
 1. **File Opening:** FileBrowser emits `fileOpened` -> MainWindow creates CodeEditor tab, adds to FileWatcher
 2. **Prompt Sending:** PromptEdit emits `sendRequested` -> MainWindow logs to Project + sends to Terminal
 3. **Save+Send:** PromptEdit emits `saveAndSendRequested` -> MainWindow saves prompt ID + sends to Terminal
-4. **Git Commit:** Commit button -> async QProcess chain: init -> add -A -> commit (non-blocking)
+4. **Git Commit:** Commit button (Git tab) -> themed dialog for message -> async QProcess chain: init -> add . -> commit -m "message" -> refresh git graph (non-blocking, shared_ptr for output)
 5. **Settings:** SettingsDialog -> MainWindow applies `applyGlobalTheme()` first, then `applySettings()` to all components (language set before theme for single rehighlight)
 6. **Git Status:** Timer (10s) + QFileSystemWatcher (instant) -> async QProcess pipeline (git status + ls-files + check-ignore) -> cache rebuild -> viewport update
 7. **SSH Connect:** SshDialog -> MainWindow adds profile -> SshManager async mount -> profileConnected signal -> setup file browser + terminals
@@ -275,8 +297,9 @@ src/
 13. **Command Palette:** Ctrl+Shift+P -> CommandPalette.show() -> user selects command -> action callback executed
 14. **Changes Monitor:** QFileSystemWatcher + scan timer (10s) -> changeDetected -> badge update on tab; user selects file -> git diff preview; Revert -> git checkout
 15. **Theme Switch:** Settings/CommandPalette -> applyGlobalTheme() (global QSS) -> applySettings() (per-widget overrides) -> force repaint all children
-16. **Git Graph:** Tab activation -> loadBranches + loadLog + loadTrackingInfo + loadRemotes -> GitGraphView.setCommits() -> QPainter render
+16. **Git Graph:** Tab activation -> loadBranches + loadLog + loadTrackingInfo + loadRemotes + loadUserInfo -> GitGraphView.setCommits() -> QPainter render
 17. **Remote Operations:** Fetch/Pull/Push buttons -> async QProcess -> outputMessage signal -> NotificationPanel; Remotes dialog -> git remote add/set-url/rename/remove
+18. **Markdown Preview:** Ctrl+M on .md file -> add MarkdownPreview as tab -> connect editor.textChanged -> 500ms debounce -> markdownToHtml (cmark or regex) -> runJavaScript("updateBody(html)") -> mermaid.run() if needed
 
 ## Session Persistence
 
@@ -300,3 +323,9 @@ Stored in QSettings on application close:
 - Git commit auto-adds .env, *.pem, *.key, credentials.json to .gitignore
 - Path traversal protection in file browser operations
 - StrictHostKeyChecking=accept-new for SSH connections
+- SSH tunnel remoteHost validated with `^[a-zA-Z0-9._-]+$` regex
+- SSH tunnel direction must be exactly "local" or "remote"
+- SSH mount point includes random suffix (QRandomGenerator) to prevent TOCTOU
+- Terminal `cd` commands quote paths with double quotes (handles spaces and special chars)
+- WebEngine `LocalContentCanAccessRemoteUrls` disabled in markdown preview
+- QFileSystemWatcher `addPaths()` return value checked for platform limit failures

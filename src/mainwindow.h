@@ -25,6 +25,7 @@
 #include "diffviewer.h"
 #include "changesmonitor.h"
 #include "gitgraph.h"
+#include "markdownpreview.h"
 
 class QSplitter;
 class TitleBar;
@@ -61,7 +62,6 @@ private:
     PromptEdit *m_editor;
     QPushButton *m_sendBtn;
     QPushButton *m_stopBtn;
-    QPushButton *m_commitBtn;
     QPushButton *m_savePromptBtn;
     QComboBox *m_savedPromptsCombo;
     void refreshSavedPrompts();
@@ -138,6 +138,12 @@ protected:
 
     // Git graph
     GitGraph *m_gitGraph;
+
+    // Markdown preview (created once at startup to avoid first-use flicker)
+    MarkdownPreview *m_mdPreview;
+    bool m_mdPreviewVisible = false;
+    CodeEditor *m_mdPreviewEditor = nullptr;
+    void toggleMarkdownPreview();
 
     // Global theme
     void applyGlobalTheme();

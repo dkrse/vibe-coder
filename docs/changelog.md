@@ -2,6 +2,41 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.10.0] - 2026-03-14
+
+### Added
+- **Markdown Preview (Ctrl+M)** — live preview for `.md` files as editor tab. Uses QWebEngineView with bundled mermaid.js (~3MB) for diagram rendering. libcmark for markdown conversion (dlopen, optional) with regex fallback. 500ms debounced live updates. Dark/light theme variants. Pre-created at startup to avoid flicker
+- **Mermaid diagram rendering** — `\`\`\`mermaid` code blocks rendered as actual diagrams via embedded mermaid.js. Works fully offline, no CDN dependencies
+- **Commit dialog** — commit button moved to Git tab toolbar. Shows themed dialog with editable commit message (default: timestamp). Runs `git add .` + `git commit -m "message"`
+- **Git user info** — User button in Git tab toolbar shows `git config --global user.name/email`. Click to edit via themed dialog
+- **File browser drag & drop** — files and directories can be moved by dragging within the tree view. Custom `FileBrowserTreeView` subclass handles drop events with filesystem rename
+- **File browser simplified** — removed path text field, replaced with "Open Directory…" button showing current directory name
+
+### Performance
+- **Markdown regex optimization** — all 7 inline regex patterns pre-compiled as `static` (compile once, reuse). Horizontal rule regex also static
+- **Diff caching** — ChangesMonitor caches last diff result per file, invalidates on file change
+- **QFileSystemWatcher error checking** — `addPaths()` return value checked, warns on platform limit failures
+
+### Security
+- **SSH tunnel host validation** — `remoteHost` validated with `^[a-zA-Z0-9._-]+$` regex before use
+- **SSH tunnel direction validation** — must be exactly "local" or "remote", rejects unknown values
+- **SSH mount point TOCTOU fix** — random suffix via `QRandomGenerator` prevents race condition on temp directory creation
+- **WebEngine isolation** — `LocalContentCanAccessRemoteUrls` disabled, prevents markdown content from making network requests
+
+### Fixed
+- **Terminal paths with spaces** — all `cd` commands now quote paths with double quotes. Fixes directories like `__pre github/_IDE-ed`
+- **First-use preview flicker** — `MarkdownPreview` (QWebEngineView) pre-created hidden at startup, Chromium subprocess initializes early
+- **Black square on startup** — preview widget hidden with `setVisible(false)` until added to tab
+
+### Memory & Resources
+- **Commit chain memory safety** — replaced `new QString` with `std::make_shared<QString>`. Added `QProcess::errorOccurred` handler for cleanup on crash
+- **Preview widget lifecycle** — created once, reused across toggle cycles (no repeated QWebEngineView allocation)
+
+### Dependencies
+- **Qt6::WebEngineWidgets** — new required dependency for markdown preview
+- **libdl** — for dlopen of libcmark (optional runtime dependency)
+- **mermaid.js** — bundled as Qt resource (`src/resources/mermaid.min.js`, ~3MB)
+
 ## [0.9.0] - 2026-03-14
 
 ### Added

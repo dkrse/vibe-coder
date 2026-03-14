@@ -10,6 +10,93 @@
 #include <QFile>
 #include <QPainter>
 #include <QFileInfo>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
+
+// ── FileBrowserTreeView (drag & drop) ───────────────────────────────
+
+FileBrowserTreeView::FileBrowserTreeView(FileBrowser *fb, QWidget *parent)
+    : QTreeView(parent), m_fb(fb)
+{
+}
+
+void FileBrowserTreeView::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (event->mimeData()->hasUrls() || event->source() == this)
+        event->acceptProposedAction();
+    else
+        QTreeView::dragEnterEvent(event);
+}
+
+void FileBrowserTreeView::dragMoveEvent(QDragMoveEvent *event)
+{
+    QModelIndex idx = indexAt(event->position().toPoint());
+    if (idx.isValid() && m_fb->isDir(idx)) {
+        event->acceptProposedAction();
+        setDropIndicatorShown(true);
+    } else if (!idx.isValid()) {
+        // dropping on root
+        event->acceptProposedAction();
+    } else {
+        // dropping on a file — target is its parent dir
+        event->acceptProposedAction();
+    }
+    QTreeView::dragMoveEvent(event);
+}
+
+void FileBrowserTreeView::dropEvent(QDropEvent *event)
+{
+    QModelIndex idx = indexAt(event->position().toPoint());
+    QString targetDir;
+
+    if (idx.isValid()) {
+        if (m_fb->isDir(idx))
+            targetDir = m_fb->filePath(idx);
+        else
+            targetDir = QFileInfo(m_fb->filePath(idx)).absolutePath();
+    } else {
+        targetDir = m_fb->rootPath();
+    }
+
+    // Get source paths from selection
+    QModelIndex srcIdx = currentIndex();
+    if (!srcIdx.isValid()) {
+        event->ignore();
+        return;
+    }
+
+    QString srcPath = m_fb->filePath(srcIdx);
+    if (srcPath.isEmpty() || srcPath == targetDir) {
+        event->ignore();
+        return;
+    }
+
+    QString srcName = QFileInfo(srcPath).fileName();
+    QString destPath = targetDir + "/" + srcName;
+
+    // Don't move into itself
+    if (destPath == srcPath || targetDir.startsWith(srcPath + "/")) {
+        event->ignore();
+        return;
+    }
+
+    // Check if destination already exists
+    if (QFileInfo::exists(destPath)) {
+        event->ignore();
+        return;
+    }
+
+    // Move file or directory
+    bool ok = QFile::rename(srcPath, destPath);
+    if (ok) {
+        event->acceptProposedAction();
+        if (m_fb->isSshActive())
+            m_fb->setRootPath(m_fb->rootPath()); // refresh SSH model
+    } else {
+        event->ignore();
+    }
+}
 
 // ── FileItemDelegate (Zed-style + git colors) ──────────────────────
 
@@ -187,7 +274,7 @@ FileBrowser::FileBrowser(QWidget *parent)
     m_delegate = new FileItemDelegate(this);
     m_delegate->setFileBrowser(this);
 
-    m_treeView = new QTreeView(this);
+    m_treeView = new FileBrowserTreeView(this, this);
     m_treeView->setModel(m_proxyModel);
     m_treeView->setItemDelegate(m_delegate);
     m_treeView->setAnimated(false);
@@ -205,25 +292,21 @@ FileBrowser::FileBrowser(QWidget *parent)
     m_treeView->setFocusPolicy(Qt::StrongFocus);
     m_treeView->setSelectionMode(QAbstractItemView::SingleSelection);
     m_treeView->setFrameShape(QFrame::NoFrame);
+    m_treeView->setDragEnabled(true);
+    m_treeView->setAcceptDrops(true);
+    m_treeView->setDropIndicatorShown(true);
+    m_treeView->setDragDropMode(QAbstractItemView::InternalMove);
+    m_treeView->setDefaultDropAction(Qt::MoveAction);
 
-    m_pathEdit = new QLineEdit(this);
-    m_pathEdit->setPlaceholderText("Directory path...");
-    m_pathEdit->setFrame(false);
+    m_pathEdit = nullptr; // no longer displayed
 
-    m_openBtn = new QPushButton("\u2026", this);
-    m_openBtn->setFixedWidth(30);
+    m_openBtn = new QPushButton("Open Directory…", this);
     m_openBtn->setFlat(true);
-
-    auto *topLayout = new QHBoxLayout;
-    topLayout->setContentsMargins(4, 2, 4, 2);
-    topLayout->setSpacing(2);
-    topLayout->addWidget(m_pathEdit, 1);
-    topLayout->addWidget(m_openBtn);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    layout->addLayout(topLayout);
+    layout->addWidget(m_openBtn);
     layout->addWidget(m_treeView, 1);
 
     applyStyle();
@@ -255,29 +338,9 @@ FileBrowser::FileBrowser(QWidget *parent)
 
     connect(m_openBtn, &QPushButton::clicked, this, [this]() {
         if (isSshActive()) return; // no local dialog for SSH
-        QString dir = QFileDialog::getExistingDirectory(this, "Open Directory", m_pathEdit->text());
+        QString dir = QFileDialog::getExistingDirectory(this, "Open Directory", m_currentRoot);
         if (!dir.isEmpty())
             setRootPath(dir);
-    });
-
-    connect(m_pathEdit, &QLineEdit::returnPressed, this, [this]() {
-        QString text = m_pathEdit->text();
-        if (isSshActive()) {
-            if (text.startsWith("/"))
-                text = m_sshMountPoint + text;
-            // Prevent path traversal outside mount point
-            QString canonical = QFileInfo(text).canonicalFilePath();
-            if (!canonical.isEmpty() && !canonical.startsWith(m_sshMountPoint)) {
-                m_pathEdit->setText(toRemotePath(m_currentRoot));
-                return;
-            }
-        }
-        // Validate path exists
-        if (!QDir(text).exists()) {
-            m_pathEdit->setText(isSshActive() ? toRemotePath(m_currentRoot) : m_currentRoot);
-            return;
-        }
-        setRootPath(text);
     });
 
     connect(m_treeView, &QTreeView::clicked, this, [this](const QModelIndex &index) {
@@ -403,13 +466,8 @@ void FileBrowser::applyStyle()
         QTreeView::branch { background-color: %1; }
         QTreeView::branch:has-children:closed,
         QTreeView::branch:has-children:open { image: none; }
-        QLineEdit {
-            background-color: %3; color: %2;
-            border: 1px solid %4; padding: 3px 6px; border-radius: 3px;
-        }
-        QLineEdit:focus { border-color: #007acc; }
-        QPushButton { color: %2; background: transparent; font-size: 14px; }
-        QPushButton:hover { background-color: %4; border-radius: 3px; }
+        QPushButton { color: %2; background: %3; border: none; padding: 4px 8px; text-align: left; }
+        QPushButton:hover { background-color: %4; }
         QScrollBar:vertical {
             background: %1; width: 8px;
         }
@@ -814,7 +872,10 @@ void FileBrowser::setRootPath(const QString &path)
         m_treeView->setRootIndex(m_proxyModel->mapFromSource(rootIndex));
     }
 
-    m_pathEdit->setText(isSshActive() ? toRemotePath(path) : path);
+    // Show directory name on the button
+    QString dirName = QFileInfo(path).fileName();
+    if (dirName.isEmpty()) dirName = path;
+    m_openBtn->setText(isSshActive() ? toRemotePath(path) : dirName);
 
     // Rewire filesystem watcher for new root
     if (!m_fsWatcher->directories().isEmpty())
@@ -856,7 +917,7 @@ QString FileBrowser::toRemotePath(const QString &localPath) const
 void FileBrowser::setFont(const QFont &font)
 {
     m_treeView->setFont(font);
-    m_pathEdit->setFont(font);
+    m_openBtn->setFont(font);
 }
 
 void FileBrowser::setTheme(const QString &theme, const QColor &bg, const QColor &fg)
