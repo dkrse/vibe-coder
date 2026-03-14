@@ -33,6 +33,11 @@ void AppSettings::load()
     changesFontSize = s.value("changes/fontSize", changesFontSize).toInt();
     gitignoreVisibility = s.value("visibility/gitignore", gitignoreVisibility).toString();
     dotGitVisibility = s.value("visibility/dotGit", dotGitVisibility).toString();
+    pdfMarginLeft = s.value("pdf/marginLeft", pdfMarginLeft).toInt();
+    pdfMarginRight = s.value("pdf/marginRight", pdfMarginRight).toInt();
+    pdfPageNumbering = s.value("pdf/pageNumbering", pdfPageNumbering).toString();
+    pdfOrientation = s.value("pdf/orientation", pdfOrientation).toString();
+    pdfPageBorder = s.value("pdf/pageBorder", pdfPageBorder).toBool();
 
     // Clamp font sizes to valid range
     auto clampSize = [](int &size) { if (size < 6) size = 6; if (size > 72) size = 72; };
@@ -123,6 +128,11 @@ void AppSettings::save()
     s.setValue("changes/fontSize", changesFontSize);
     s.setValue("visibility/gitignore", gitignoreVisibility);
     s.setValue("visibility/dotGit", dotGitVisibility);
+    s.setValue("pdf/marginLeft", pdfMarginLeft);
+    s.setValue("pdf/marginRight", pdfMarginRight);
+    s.setValue("pdf/pageNumbering", pdfPageNumbering);
+    s.setValue("pdf/orientation", pdfOrientation);
+    s.setValue("pdf/pageBorder", pdfPageBorder);
 }
 
 // --- SettingsDialog ---
@@ -293,6 +303,38 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
 
     tabs->addTab(visPage, "Visibility");
 
+    // ── PDF tab ────────────────────────────────────────────────────
+    auto *pdfPage = new QWidget;
+    auto *pdfLayout = new QFormLayout(pdfPage);
+
+    m_pdfMarginLeftSpin = new QSpinBox;
+    m_pdfMarginLeftSpin->setRange(0, 50);
+    m_pdfMarginLeftSpin->setSuffix(" mm");
+    m_pdfMarginLeftSpin->setValue(current.pdfMarginLeft);
+
+    m_pdfMarginRightSpin = new QSpinBox;
+    m_pdfMarginRightSpin->setRange(0, 50);
+    m_pdfMarginRightSpin->setSuffix(" mm");
+    m_pdfMarginRightSpin->setValue(current.pdfMarginRight);
+
+    m_pdfPageNumberingCombo = new QComboBox;
+    m_pdfPageNumberingCombo->addItems({"none", "page", "page/total"});
+    m_pdfPageNumberingCombo->setCurrentText(current.pdfPageNumbering);
+
+    m_pdfOrientationCombo = new QComboBox;
+    m_pdfOrientationCombo->addItems({"portrait", "landscape"});
+    m_pdfOrientationCombo->setCurrentText(current.pdfOrientation);
+
+    m_pdfPageBorderCheck = new QCheckBox("Draw border around page");
+    m_pdfPageBorderCheck->setChecked(current.pdfPageBorder);
+
+    pdfLayout->addRow("Orientation:", m_pdfOrientationCombo);
+    pdfLayout->addRow("Left margin:", m_pdfMarginLeftSpin);
+    pdfLayout->addRow("Right margin:", m_pdfMarginRightSpin);
+    pdfLayout->addRow("Page numbering:", m_pdfPageNumberingCombo);
+    pdfLayout->addRow(m_pdfPageBorderCheck);
+    tabs->addTab(pdfPage, "PDF");
+
     mainLayout->addWidget(tabs, 1);
 
     // Buttons
@@ -329,6 +371,11 @@ AppSettings SettingsDialog::result() const
     s.changesFontSize = m_changesFontSizeSpin->value();
     s.gitignoreVisibility = m_gitignoreVisibilityCombo->currentText();
     s.dotGitVisibility = m_dotGitVisibilityCombo->currentText();
+    s.pdfMarginLeft = m_pdfMarginLeftSpin->value();
+    s.pdfMarginRight = m_pdfMarginRightSpin->value();
+    s.pdfPageNumbering = m_pdfPageNumberingCombo->currentText();
+    s.pdfOrientation = m_pdfOrientationCombo->currentText();
+    s.pdfPageBorder = m_pdfPageBorderCheck->isChecked();
     s.zedThemes = m_zedThemes;
     s.applyThemeDefaults();
     return s;

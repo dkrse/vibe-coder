@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Core Gui WebEngineWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Core Gui WebEngineWidgets PdfWidgets)
 
 add_executable(vibe-coder
     src/main.cpp
@@ -65,7 +65,7 @@ message(STATUS "Found qtermwidget: ${QTERMWIDGET_LIB}")
 
 target_include_directories(vibe-coder PRIVATE /usr/include)
 target_link_libraries(vibe-coder PRIVATE
-    Qt6::Widgets Qt6::Core Qt6::Gui Qt6::WebEngineWidgets
+    Qt6::Widgets Qt6::Core Qt6::Gui Qt6::WebEngineWidgets Qt6::PdfWidgets
     ${QTERMWIDGET_LIB}
     dl
 )

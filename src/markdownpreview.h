@@ -4,6 +4,8 @@
 #include <QWebEngineView>
 #include <QWebEnginePage>
 #include <QTimer>
+#include <QPageLayout>
+#include <functional>
 
 class MarkdownPreview : public QWidget {
     Q_OBJECT
@@ -13,6 +15,8 @@ public:
 
     void setDarkMode(bool dark);
     void setFont(const QFont &font);
+    void exportToPdf(const QString &filePath, int marginLeft, int marginRight,
+                     const QString &pageNumbering, bool landscape, bool pageBorder);
 
 public slots:
     void updateContent(const QString &markdown);
@@ -36,4 +40,8 @@ private:
     QString regexConvert(const QString &md);
     void loadBasePage();
     void render();
+    void injectPrintCss(std::function<void()> then);
+    void removePrintCss();
+    void postProcessPdf(const QByteArray &pdfData, const QString &filePath,
+                        const QPageLayout &layout, const QString &pageNumbering, bool pageBorder);
 };

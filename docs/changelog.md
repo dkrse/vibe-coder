@@ -2,6 +2,25 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.11.0] - 2026-03-14
+
+### Added
+- **PDF Export from Markdown Preview** — export current preview to PDF via Command Palette ("Export Preview to PDF"). Renders exactly as shown in preview using `QWebEnginePage::printToPdf`. Two-pass rendering: first generates base PDF, then post-processes with `QPdfDocument` + `QPdfWriter` + `QPainter` for page numbers and border overlay
+- **PDF Settings tab** — new "PDF" tab in Settings dialog with:
+  - Orientation: portrait / landscape
+  - Left margin (0–50mm, default 15mm)
+  - Right margin (0–50mm, default 15mm)
+  - Page numbering: none / page / page/total (rendered via QPainter at bottom center)
+  - Page border: optional border around content area
+- **Print-safe text wrapping** — `@media print` CSS injected before PDF export: `pre`/`code` use `white-space: pre-wrap`, tables use `table-layout: fixed` with `word-wrap: break-word`
+
+### Fixed
+- **Preview tab crash** — closing all tabs except markdown preview, then closing preview tab caused crash. `closeTab()` now checks if closed widget is `m_mdPreviewEditor` (clears dangling pointer) or `m_mdPreview` (hides without deleting)
+- **PDF page border artifact** — QPainter renders white rectangles over margin areas (with 3px overlap into content) to cover body background edge artifacts from Chromium's `printToPdf`. Border only drawn when explicitly enabled in Settings
+
+### Dependencies
+- **Qt6::PdfWidgets** — new required dependency for PDF post-processing (page counting, re-rendering with page numbers)
+
 ## [0.10.0] - 2026-03-14
 
 ### Added

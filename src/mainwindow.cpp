@@ -1089,11 +1089,26 @@ bool MainWindow::event(QEvent *event)
 void MainWindow::closeTab(QTabWidget *tabWidget, int index)
 {
     if (index == 0) return; // never close AI-terminal
+    QWidget *w = tabWidget->widget(index);
+    // Handle markdown preview tab — don't delete, just hide
+    if (w == m_mdPreview) {
+        tabWidget->removeTab(index);
+        m_mdPreviewVisible = false;
+        if (m_mdPreviewEditor) {
+            disconnect(m_mdPreviewEditor, &QPlainTextEdit::textChanged, m_mdPreview, nullptr);
+            m_mdPreviewEditor = nullptr;
+        }
+        return;
+    }
     if (!maybeSaveTab(tabWidget, index)) return;
+    // If this editor is the source for markdown preview, disconnect it
+    if (m_mdPreviewEditor && w == m_mdPreviewEditor) {
+        disconnect(m_mdPreviewEditor, &QPlainTextEdit::textChanged, m_mdPreview, nullptr);
+        m_mdPreviewEditor = nullptr;
+    }
     QString path = tabWidget->tabToolTip(index);
     if (!path.isEmpty())
         m_fileWatcher->removePath(path);
-    QWidget *w = tabWidget->widget(index);
     tabWidget->removeTab(index);
     w->deleteLater();
 }
@@ -1593,6 +1608,37 @@ void MainWindow::toggleMarkdownPreview()
     });
 }
 
+void MainWindow::exportMarkdownToPdf()
+{
+    if (!m_mdPreviewVisible) {
+        notify("Open Markdown Preview first (Ctrl+M)", 1);
+        return;
+    }
+
+    // Suggest filename based on source file
+    QString suggested = "preview.pdf";
+    if (m_mdPreviewEditor) {
+        for (int i = 0; i < m_tabWidget->count(); ++i) {
+            if (m_tabWidget->widget(i) == m_mdPreviewEditor) {
+                QString path = m_tabWidget->tabToolTip(i);
+                if (!path.isEmpty()) {
+                    QFileInfo fi(path);
+                    suggested = fi.absolutePath() + "/" + fi.completeBaseName() + ".pdf";
+                }
+                break;
+            }
+        }
+    }
+
+    QString filePath = QFileDialog::getSaveFileName(this, "Export to PDF", suggested, "PDF Files (*.pdf)");
+    if (filePath.isEmpty()) return;
+
+    m_mdPreview->exportToPdf(filePath, m_settings.pdfMarginLeft, m_settings.pdfMarginRight,
+                             m_settings.pdfPageNumbering, m_settings.pdfOrientation == "landscape",
+                             m_settings.pdfPageBorder);
+    notify("PDF exported: " + QFileInfo(filePath).fileName(), 3);
+}
+
 // ── Command Palette ─────────────────────────────────────────────────
 
 void MainWindow::setupCommandPalette()
@@ -1611,6 +1657,7 @@ void MainWindow::setupCommandPalette()
     m_commandPalette->addCommand("Split Editor Vertical", "", [this]() { splitEditorVertical(); });
     m_commandPalette->addCommand("Unsplit Editor", "", [this]() { unsplitEditor(); });
     m_commandPalette->addCommand("Markdown Preview", "Ctrl+M", [this]() { toggleMarkdownPreview(); });
+    m_commandPalette->addCommand("Export Preview to PDF", "", [this]() { exportMarkdownToPdf(); });
     m_commandPalette->addCommand("Show Diff", "", [this]() {
         m_diffViewer->refresh(m_fileBrowser->rootPath());
         m_bottomTabWidget->setCurrentWidget(m_diffViewer);

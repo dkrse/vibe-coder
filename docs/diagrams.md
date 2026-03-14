@@ -227,11 +227,15 @@ classDiagram
         -QString m_mermaidJsPath
         +updateContent(QString)
         +setDarkMode(bool)
+        +exportToPdf(QString, int, int, QString, bool, bool)
         -markdownToHtml(QString) QString
         -cmarkConvert(QString) QString
         -regexConvert(QString) QString
         -loadBasePage()
         -render()
+        -injectPrintCss(function)
+        -removePrintCss()
+        -postProcessPdf(QByteArray, QString, QPageLayout, QString, bool)
     }
 
     class ZedThemeLoader {
@@ -581,6 +585,7 @@ flowchart LR
     B -->|applySettings| G[PromptEdit font/colors/sendKey/highlightLine]
     B -->|applySettings| DV[DiffViewer font]
     B -->|applySettings| CM2[ChangesMonitor font]
+    B -->|exportToPdf| PDF[PDF margins/orientation/numbering/border]
     C -->|load on startup| B
 ```
 
@@ -683,4 +688,47 @@ flowchart TD
     FULL_JS --> WEB[QWebEngineView.setHtml]
     WEB --> INIT[runJavaScript: mermaid.run]
     INIT --> RENDER[Rendered Preview]
+```
+
+## PDF Export Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant MainWindow
+    participant Preview as MarkdownPreview
+    participant WebEngine as QWebEnginePage
+    participant PdfDoc as QPdfDocument
+    participant PdfWriter as QPdfWriter + QPainter
+
+    User->>MainWindow: Command Palette: "Export Preview to PDF"
+    MainWindow->>MainWindow: QFileDialog (save path)
+    MainWindow->>Preview: exportToPdf(path, margins, numbering, landscape, border)
+
+    Preview->>WebEngine: injectPrintCss() [pre-wrap, word-break]
+
+    alt No post-processing needed
+        Preview->>WebEngine: printToPdf(filePath, layout)
+        Preview->>WebEngine: removePrintCss()
+    else Page numbers or border requested
+        Preview->>WebEngine: printToPdf(callback, layout)
+        WebEngine-->>Preview: QByteArray pdfData
+
+        Preview->>PdfDoc: load(pdfData)
+        PdfDoc-->>Preview: pageCount
+
+        loop For each page
+            Preview->>PdfDoc: render(page, 300 DPI) → QImage
+            Preview->>PdfWriter: drawImage (full page)
+            Preview->>PdfWriter: drawRect (white margin overlays, 3px overlap)
+            opt Border enabled
+                Preview->>PdfWriter: drawRect (border around paint rect)
+            end
+            opt Page numbering enabled
+                Preview->>PdfWriter: drawText (centered page number)
+            end
+        end
+
+        Preview->>WebEngine: removePrintCss()
+    end
 ```

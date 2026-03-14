@@ -4,8 +4,12 @@
 #include <QRegularExpression>
 #include <QFile>
 #include <QDir>
+#include <QBuffer>
 #include <QWebEngineSettings>
 #include <QWebChannel>
+#include <QPdfDocument>
+#include <QPdfWriter>
+#include <QPainter>
 #include <dlfcn.h>
 #include <cstdlib>
 
@@ -203,6 +207,159 @@ void MarkdownPreview::render()
     // Call JS to update body — no page reload
     QString js = QString("updateBody('%1');").arg(html);
     m_webView->page()->runJavaScript(js);
+}
+
+void MarkdownPreview::injectPrintCss(std::function<void()> then)
+{
+    QString js = R"(
+        (function() {
+            var old = document.getElementById('pdf-print-fix');
+            if (old) old.remove();
+            var style = document.createElement('style');
+            style.id = 'pdf-print-fix';
+            style.textContent = '@page { margin: 0; } @media print { html, body { border: none !important; outline: none !important; box-shadow: none !important; } pre { white-space: pre-wrap !important; word-wrap: break-word !important; overflow-x: visible !important; } pre code { white-space: pre-wrap !important; word-wrap: break-word !important; } table { table-layout: fixed; } td, th { word-wrap: break-word; overflow-wrap: break-word; } img { max-width: 100% !important; } body { overflow-wrap: break-word; word-break: break-word; } }';
+            document.head.appendChild(style);
+        })()
+    )";
+    m_webView->page()->runJavaScript(js, [then](const QVariant &) { then(); });
+}
+
+void MarkdownPreview::removePrintCss()
+{
+    m_webView->page()->runJavaScript(
+        "var el = document.getElementById('pdf-print-fix'); if (el) el.remove();");
+}
+
+void MarkdownPreview::postProcessPdf(const QByteArray &pdfData, const QString &filePath,
+                                      const QPageLayout &layout, const QString &pageNumbering, bool pageBorder)
+{
+    // Load the source PDF to count pages and get page sizes
+    QPdfDocument doc;
+    QBuffer buf;
+    buf.setData(pdfData);
+    buf.open(QIODevice::ReadOnly);
+    doc.load(&buf);
+
+    int pageCount = doc.pageCount();
+    if (pageCount <= 0) {
+        // Fallback: just save the raw PDF
+        QFile f(filePath);
+        if (f.open(QIODevice::WriteOnly))
+            f.write(pdfData);
+        return;
+    }
+
+    // Render each page at 300 DPI and create a new PDF with page numbers
+    const int dpi = 300;
+    QSizeF pageSizePt = layout.fullRect(QPageLayout::Point).size();
+
+    QPdfWriter writer(filePath);
+    writer.setPageLayout(layout);
+    writer.setResolution(dpi);
+
+    QPainter painter(&writer);
+
+    for (int i = 0; i < pageCount; ++i) {
+        if (i > 0) writer.newPage();
+
+        QSizeF srcSize = doc.pagePointSize(i);
+        QSize renderSize(static_cast<int>(srcSize.width() * dpi / 72.0),
+                         static_cast<int>(srcSize.height() * dpi / 72.0));
+        QImage img = doc.render(i, renderSize);
+
+        // Draw the rendered page image into the full page area (including margins)
+        QRectF fullRect = layout.fullRect(QPageLayout::Point);
+        QRectF paintRect = layout.paintRect(QPageLayout::Point);
+        // QPdfWriter paints relative to the paint rect (margins already accounted for)
+        // So we need to offset the image to cover the full page including margins
+        double scaleX = paintRect.width() / static_cast<double>(renderSize.width()) * dpi / 72.0;
+        double scaleY = paintRect.height() / static_cast<double>(renderSize.height()) * dpi / 72.0;
+
+        // Map from points to device coords
+        double pxPerPt = dpi / 72.0;
+        QMarginsF margins = layout.margins(QPageLayout::Point);
+
+        // Draw the full-page image (offset by negative margin since painter starts at paint rect)
+        QRectF target(-margins.left() * pxPerPt, -margins.top() * pxPerPt,
+                      fullRect.width() * pxPerPt, fullRect.height() * pxPerPt);
+        painter.drawImage(target, img);
+
+        // The source PDF may contain visible edges from body background/padding.
+        // Paint white rectangles over the margin areas to cover any artifacts.
+        double pw = paintRect.width() * pxPerPt;
+        double ph = paintRect.height() * pxPerPt;
+        double ml = margins.left() * pxPerPt;
+        double mt = margins.top() * pxPerPt;
+        double mr = margins.right() * pxPerPt;
+        double mb = margins.bottom() * pxPerPt;
+        double fw = fullRect.width() * pxPerPt;
+        double fh = fullRect.height() * pxPerPt;
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(Qt::white);
+        // Overlap into content area by a few pixels to cover edge artifacts
+        double overlap = 3.0;
+        // top margin strip
+        painter.drawRect(QRectF(-ml, -mt, fw, mt + overlap));
+        // bottom margin strip
+        painter.drawRect(QRectF(-ml, ph - overlap, fw, mb + overlap));
+        // left margin strip
+        painter.drawRect(QRectF(-ml, -mt, ml + overlap, fh));
+        // right margin strip
+        painter.drawRect(QRectF(pw - overlap, -mt, mr + overlap, fh));
+
+        // Draw border around the paint rect if requested
+        if (pageBorder) {
+            painter.setPen(QPen(QColor(180, 180, 180), 1.0));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRect(QRectF(0, 0, pw, ph));
+        }
+
+        // Draw page number centered at the bottom of the paint rect
+        QString numText;
+        if (pageNumbering == "page/total")
+            numText = QString("%1 / %2").arg(i + 1).arg(pageCount);
+        else
+            numText = QString::number(i + 1);
+
+        QFont font("Helvetica", 9);
+        painter.setFont(font);
+        painter.setPen(QColor(136, 136, 136));
+        QFontMetricsF fm(font, &writer);
+        double textWidth = fm.horizontalAdvance(numText);
+        double paintWidthDev = paintRect.width() * pxPerPt;
+        double paintHeightDev = paintRect.height() * pxPerPt;
+        double x = (paintWidthDev - textWidth) / 2.0;
+        double y = paintHeightDev + margins.bottom() * pxPerPt * 0.4;
+        painter.drawText(QPointF(x, y), numText);
+    }
+
+    painter.end();
+}
+
+void MarkdownPreview::exportToPdf(const QString &filePath, int marginLeft, int marginRight,
+                                  const QString &pageNumbering, bool landscape, bool pageBorder)
+{
+    auto orientation = landscape ? QPageLayout::Landscape : QPageLayout::Portrait;
+    QPageLayout layout(QPageSize(QPageSize::A4), orientation,
+                       QMarginsF(marginLeft, 10, marginRight, 10),
+                       QPageLayout::Millimeter);
+
+    bool needsPostProcess = (pageNumbering != "none") || pageBorder;
+
+    injectPrintCss([this, filePath, layout, pageNumbering, pageBorder, needsPostProcess]() {
+        if (!needsPostProcess) {
+            m_webView->page()->printToPdf(filePath, layout);
+            removePrintCss();
+            return;
+        }
+
+        // Two-pass: first generate PDF to memory, then post-process with page numbers / border
+        m_webView->page()->printToPdf(
+            [this, filePath, layout, pageNumbering, pageBorder](const QByteArray &pdfData) {
+                postProcessPdf(pdfData, filePath, layout, pageNumbering, pageBorder);
+                removePrintCss();
+            }, layout);
+    });
 }
 
 // ── Markdown → HTML ─────────────────────────────────────────────────

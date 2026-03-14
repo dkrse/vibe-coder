@@ -144,6 +144,7 @@ protected:
     bool m_mdPreviewVisible = false;
     CodeEditor *m_mdPreviewEditor = nullptr;
     void toggleMarkdownPreview();
+    void exportMarkdownToPdf();
 
     // Global theme
     void applyGlobalTheme();

@@ -52,6 +52,15 @@ struct AppSettings {
     QString gitignoreVisibility = "grayed";
     QString dotGitVisibility = "hidden";
 
+    // PDF export
+    int pdfMarginLeft = 15;   // mm
+    int pdfMarginRight = 15;  // mm
+    // "none", "page", "page/total"
+    QString pdfPageNumbering = "none";
+    // "portrait", "landscape"
+    QString pdfOrientation = "portrait";
+    bool pdfPageBorder = false;
+
     // Derived from globalTheme (not saved)
     QString terminalColorScheme;
     QString editorColorScheme;
@@ -113,4 +122,11 @@ private:
     // Visibility
     QComboBox *m_gitignoreVisibilityCombo;
     QComboBox *m_dotGitVisibilityCombo;
+
+    // PDF
+    QSpinBox *m_pdfMarginLeftSpin;
+    QSpinBox *m_pdfMarginRightSpin;
+    QComboBox *m_pdfPageNumberingCombo;
+    QComboBox *m_pdfOrientationCombo;
+    QCheckBox *m_pdfPageBorderCheck;
 };

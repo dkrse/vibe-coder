@@ -8,7 +8,8 @@ Vibe Coder is a Qt6 C++ IDE-like application designed for AI-assisted developmen
 
 - **Language:** C++17
 - **UI Framework:** Qt6 Widgets
-- **Web Engine:** Qt6 WebEngineWidgets (markdown preview, mermaid rendering)
+- **Web Engine:** Qt6 WebEngineWidgets (markdown preview, mermaid rendering, PDF export)
+- **PDF:** Qt6 PdfWidgets (QPdfDocument for page counting/rendering, QPdfWriter for output)
 - **Terminal:** QTermWidget (libqtermwidget6)
 - **Markdown:** libcmark (optional, loaded via dlopen) with regex fallback
 - **Diagrams:** mermaid.js (bundled as Qt resource, ~3MB)
@@ -242,6 +243,13 @@ src/
 - **Pre-created at startup** — `setVisible(false)` until added to tab, avoids QWebEngineView/Chromium initialization flicker
 - **500ms debounce timer** prevents excessive re-renders during fast typing
 - **Offline operation:** all resources local, `LocalContentCanAccessRemoteUrls` disabled
+- **PDF Export** — two-pass rendering pipeline:
+  1. `injectPrintCss()` adds `@media print` CSS for text wrapping (`pre-wrap`, `word-break`, `table-layout: fixed`)
+  2. `printToPdf()` with callback generates base PDF as QByteArray
+  3. `postProcessPdf()` opens PDF via `QPdfDocument`, renders each page to QImage at 300 DPI
+  4. `QPdfWriter` + `QPainter` creates final PDF: draws page image, white margin overlays (3px overlap to cover edge artifacts), optional page border, and centered page numbers
+  - Configurable: left/right margins, portrait/landscape, page numbering (none/page/page+total), page border
+  - Print CSS cleanup via `removePrintCss()` after export completes
 
 ### GitGraph
 - Visual commit history graph as bottom tab ("Git")
@@ -275,7 +283,7 @@ src/
   - `applyThemeDefaults()` derives all component colors from globalTheme (editor/browser/terminal color schemes, bgColor, textColor)
 - **Theme cascade:** `applyGlobalTheme()` sets comprehensive QSS stylesheet covering QWidget, QLabel, QPlainTextEdit, QTextEdit, QLineEdit, QSpinBox, QComboBox, QCheckBox, QPushButton, QToolButton, QListWidget, QMenu, QDialog, QGroupBox, QScrollBar, QProgressBar, QTabWidget, QTabBar, QFontComboBox, QDialogButtonBox
 - **Live theme switching:** theme changes apply immediately without restart
-- Tabbed SettingsDialog: Global Theme (top, includes separator + Zed themes), Terminal (theme override + font), Editor, File Browser, Prompt, Diff Viewer, Changes Monitor, Visibility tabs
+- Tabbed SettingsDialog: Global Theme (top, includes separator + Zed themes), Terminal (theme override + font), Editor, File Browser, Prompt, Diff Viewer, Changes Monitor, Visibility, PDF tabs
 - **Terminal theme override:** "Auto" (follows global theme) or explicit: Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight
 - SettingsDialog preserves zedThemes list through `result()` method
 - **Font size clamping:** all font sizes clamped to 6–72 range after loading to prevent invalid values from corrupted settings
@@ -300,6 +308,7 @@ src/
 16. **Git Graph:** Tab activation -> loadBranches + loadLog + loadTrackingInfo + loadRemotes + loadUserInfo -> GitGraphView.setCommits() -> QPainter render
 17. **Remote Operations:** Fetch/Pull/Push buttons -> async QProcess -> outputMessage signal -> NotificationPanel; Remotes dialog -> git remote add/set-url/rename/remove
 18. **Markdown Preview:** Ctrl+M on .md file -> add MarkdownPreview as tab -> connect editor.textChanged -> 500ms debounce -> markdownToHtml (cmark or regex) -> runJavaScript("updateBody(html)") -> mermaid.run() if needed
+19. **PDF Export:** Command Palette "Export Preview to PDF" -> QFileDialog for path -> injectPrintCss -> printToPdf (QByteArray callback) -> QPdfDocument count pages -> QPdfWriter+QPainter render each page (image + white margin overlays + optional border + optional page number) -> removePrintCss
 
 ## Session Persistence
 
