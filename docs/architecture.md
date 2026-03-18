@@ -13,6 +13,8 @@ Vibe Coder is a Qt6 C++ IDE-like application designed for AI-assisted developmen
 - **Terminal:** QTermWidget (libqtermwidget6)
 - **Markdown:** libcmark (optional, loaded via dlopen) with regex fallback
 - **Diagrams:** mermaid.js (bundled as Qt resource, ~3MB)
+- **Math:** KaTeX (bundled JS + CSS + woff2 fonts)
+- **Code Highlighting:** highlight.js 11.9.0 (bundled, 46+ languages)
 - **SSH Filesystem:** sshfs / FUSE
 - **Build System:** CMake 3.16+
 - **Settings:** QSettings (INI-based, per-user)
@@ -42,9 +44,16 @@ src/
 ├── titlebar.h/cpp        Custom title bar (CSD) with minimize/maximize/close
 ├── themeddialog.h/cpp    Frameless dialog wrapper with themed title bar
 ├── zedthemeloader.h/cpp  Zed editor theme JSON parser and color mapper
-├── markdownpreview.h/cpp Markdown preview with QWebEngineView + mermaid.js
-├── resources/resources.qrc  Qt resource file (bundled mermaid.min.js)
+├── markdownpreview.h/cpp Markdown preview with QWebEngineView + mermaid.js + highlight.js + KaTeX
+├── resources/resources.qrc  Qt resource file (bundled JS/CSS/fonts)
 ├── resources/mermaid.min.js Mermaid.js library (~3MB, offline diagram rendering)
+├── resources/highlight.min.js Highlight.js + 46 language modules (~270KB)
+├── resources/hljs-dark.min.css VS2015 dark theme for code blocks
+├── resources/hljs-light.min.css VS light theme for code blocks
+├── resources/katex.min.js   KaTeX math rendering library
+├── resources/katex.min.css  KaTeX stylesheet
+├── resources/auto-render.min.js KaTeX auto-render extension
+├── resources/fonts/         KaTeX woff2 fonts
 ```
 
 ## Component Responsibilities
@@ -64,7 +73,7 @@ src/
 - Status bar: file info, SSH profile combo, transfer progress bar
 - **Session persistence:** window geometry via `normalGeometry()`, splitter states, open files. Multi-monitor aware: finds target screen by geometry match, uses `setGeometry()` + deferred `showMaximized()`
 - File watcher: auto-reload externally changed files (300ms debounce)
-- Keyboard shortcuts: Ctrl+S save, Ctrl+F find, Ctrl+H find & replace, Ctrl+Shift+P command palette, Ctrl+M markdown preview
+- Keyboard shortcuts: Ctrl+S save, Ctrl+F find, Ctrl+H find & replace, Ctrl+Shift+P command palette, Ctrl+M markdown preview, Ctrl+= / Ctrl+- context-dependent zoom (editor/prompt/browser/preview)
 - **Stop button** — sends configurable stop sequence to terminal (default: `\x03`), supports escape sequences
 - **Unsaved changes tracking** — `●` tab marker, Save/Discard/Cancel on tab close, Save All/Discard/Cancel on app close
 - **Tab context menu** — Close, Close Others, Close All, Close to Right, Close to Left (all check unsaved changes)
@@ -73,7 +82,7 @@ src/
 - Async git commit via chained QProcess callbacks with `std::shared_ptr<QString>` (no leak on error)
 - Notification system: centralized logging with unread badge count
 - Changes monitor integration: tracks file changes per project, badge count on tab
-- **Markdown preview** — `MarkdownPreview` widget pre-created hidden at startup (avoids QWebEngineView first-use flicker). Toggled as editor tab via Ctrl+M. Live updates connected to source editor's `textChanged` signal
+- **Markdown preview** — multiple `MarkdownPreview` instances (one per .md file). Toggled as editor tab via Ctrl+M or 👁 tab button. Each preview has live updates connected to its source editor's `textChanged` signal. Source editor destruction auto-closes preview. Chromium pre-initialized via hidden 0x0 QWebEngineView at startup
 - **Commit moved to Git tab** — commit button in GitGraph toolbar, shows themed dialog with editable commit message
 
 ### TitleBar
@@ -234,15 +243,19 @@ src/
 - Configurable font via Settings (changes section)
 
 ### MarkdownPreview
-- QWebEngineView-based live markdown preview, opened as editor tab via Ctrl+M
-- **Markdown conversion:** libcmark loaded via `dlopen()` at runtime (tries libcmark.so, .so.0, etc.). Falls back to built-in regex converter supporting: headings, bold/italic/strikethrough, code blocks with language class, tables, lists, blockquotes, horizontal rules, links, images
-- **Mermaid diagrams:** mermaid.js (~3MB) bundled as Qt resource, extracted to temp file at startup (`/tmp/vibe-coder-mermaid.min.js`). Loaded via `<script src="file://...">` to avoid QWebEngineView's 2MB `setHtml()` limit
-- **Rendering architecture:** base HTML page (CSS + mermaid.js) loaded once from temp file. Content updates via `runJavaScript("updateBody('...')")` — no page reload, preserves scroll position
-- **Mermaid re-rendering:** JS `updateBody()` decodes HTML entities in `<pre class="mermaid">` blocks, calls `mermaid.run()` only when mermaid blocks present
-- **Dark/light theme:** full CSS theming with theme-appropriate mermaid theme (`dark`/`default`)
-- **Pre-created at startup** — `setVisible(false)` until added to tab, avoids QWebEngineView/Chromium initialization flicker
+- QWebEngineView-based live markdown preview, opened as editor tab via Ctrl+M or 👁 tab button
+- **Multiple instances** — each `.md` file can have its own independent preview tab. Source editor tracked via `QObject::property("sourceEditor")`. Closing source editor auto-closes preview via `QObject::destroyed` signal
+- **Markdown conversion:** libcmark loaded via `dlopen()` at runtime (tries libcmark.so, .so.0, etc.). Falls back to built-in regex converter supporting: headings, bold/italic/strikethrough, code blocks with language class, tables, lists, blockquotes, horizontal rules, links, images. If `dlsym` fails, handle is properly `dlclose`d (no leak)
+- **Syntax highlighting:** highlight.js 11.9.0 bundled with 46+ language modules (core + x86asm, armasm, avrasm, mipsasm, glsl, vhdl, verilog, cmake, dockerfile, makefile, kotlin, swift, dart, julia, matlab, fortran, haskell, erlang, elixir, clojure, scala, lua, latex, protobuf, graphql, wasm, arduino, powershell, and more). VS2015 (dark) and VS (light) themes. `hljs.highlightElement()` called on every content update for `<code>` blocks with language class
+- **KaTeX math** — bundled KaTeX JS + CSS + woff2 fonts. Supports `$$...$$` (display), `$...$` (inline), `\(...\)`, `\[...\]` delimiters. Math expressions protected from markdown processing before conversion, restored as HTML-escaped text for KaTeX to render
+- **Mermaid diagrams:** mermaid.js (~3MB) bundled as Qt resource, extracted to temp dir at startup. Loaded via `<script src="file://...">` to avoid QWebEngineView's 2MB `setHtml()` limit
+- **Rendering architecture:** base HTML page (CSS + mermaid.js + highlight.js + KaTeX) loaded once from temp file. Content updates via `runJavaScript("updateBody('...')")` — no page reload, preserves scroll position. Update pipeline: innerHTML → highlight.js → mermaid.run() → KaTeX renderMathInElement()
+- **Dark/light theme:** full CSS theming with theme-appropriate mermaid theme (`dark`/`default`) and matching highlight.js theme
+- **Chromium pre-initialization** — hidden 0x0 QWebEngineView loads `about:blank` at startup, forcing Chromium engine init without visible flicker
+- **Zoom** — `zoomIn()`/`zoomOut()` methods adjust `QWebEngineView::setZoomFactor()` (0.25x–5.0x). Context-dependent: Ctrl+=/- only affects the focused component
 - **500ms debounce timer** prevents excessive re-renders during fast typing
 - **Offline operation:** all resources local, `LocalContentCanAccessRemoteUrls` disabled
+- **Security hardening** — `PluginsEnabled`, `PdfViewerEnabled`, `NavigateOnDropEnabled` all disabled
 - **PDF Export** — two-pass rendering pipeline:
   1. `injectPrintCss()` adds `@media print` CSS for text wrapping (`pre-wrap`, `word-break`, `table-layout: fixed`)
   2. `printToPdf()` with callback generates base PDF as QByteArray
@@ -307,7 +320,7 @@ src/
 15. **Theme Switch:** Settings/CommandPalette -> applyGlobalTheme() (global QSS) -> applySettings() (per-widget overrides) -> force repaint all children
 16. **Git Graph:** Tab activation -> loadBranches + loadLog + loadTrackingInfo + loadRemotes + loadUserInfo -> GitGraphView.setCommits() -> QPainter render
 17. **Remote Operations:** Fetch/Pull/Push buttons -> async QProcess -> outputMessage signal -> NotificationPanel; Remotes dialog -> git remote add/set-url/rename/remove
-18. **Markdown Preview:** Ctrl+M on .md file -> add MarkdownPreview as tab -> connect editor.textChanged -> 500ms debounce -> markdownToHtml (cmark or regex) -> runJavaScript("updateBody(html)") -> mermaid.run() if needed
+18. **Markdown Preview:** Ctrl+M on .md file (or 👁 tab button) -> create new MarkdownPreview instance -> add as tab -> connect editor.textChanged -> 500ms debounce -> markdownToHtml (cmark or regex) -> runJavaScript("updateBody(html)") -> hljs.highlightElement() -> mermaid.run() if needed -> renderMathInElement() for KaTeX
 19. **PDF Export:** Command Palette "Export Preview to PDF" -> QFileDialog for path -> injectPrintCss -> printToPdf (QByteArray callback) -> QPdfDocument count pages -> QPdfWriter+QPainter render each page (image + white margin overlays + optional border + optional page number) -> removePrintCss
 
 ## Session Persistence
@@ -337,4 +350,5 @@ Stored in QSettings on application close:
 - SSH mount point includes random suffix (QRandomGenerator) to prevent TOCTOU
 - Terminal `cd` commands quote paths with double quotes (handles spaces and special chars)
 - WebEngine `LocalContentCanAccessRemoteUrls` disabled in markdown preview
+- WebEngine `PluginsEnabled`, `PdfViewerEnabled`, `NavigateOnDropEnabled` disabled
 - QFileSystemWatcher `addPaths()` return value checked for platform limit failures

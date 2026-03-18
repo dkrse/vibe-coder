@@ -83,7 +83,7 @@ classDiagram
     MainWindow --> NotificationPanel
     MainWindow --> DiffViewer
     MainWindow --> GitGraph
-    MainWindow --> MarkdownPreview
+    MainWindow --> MarkdownPreview : m_mdPreviews list
     GitGraph --> GitGraphView
     FileBrowser --> FileBrowserTreeView
 
@@ -225,8 +225,13 @@ classDiagram
         -bool m_pageLoaded
         -void* m_cmarkLib
         -QString m_mermaidJsPath
+        -QString m_hljsPath
+        -QString m_katexDir
         +updateContent(QString)
         +setDarkMode(bool)
+        +setFont(QFont)
+        +zoomIn()
+        +zoomOut()
         +exportToPdf(QString, int, int, QString, bool, bool)
         -markdownToHtml(QString) QString
         -cmarkConvert(QString) QString
@@ -642,13 +647,14 @@ sequenceDiagram
     participant User
     participant MainWindow
     participant Editor as CodeEditor
-    participant Preview as MarkdownPreview
+    participant Preview as MarkdownPreview (new instance)
     participant WebView as QWebEngineView
 
-    Note over Preview: Pre-created hidden at startup
-    Note over WebView: Chromium initialized early
+    Note over MainWindow: Chromium pre-initialized via hidden 0x0 QWebEngineView at startup
 
-    User->>MainWindow: Ctrl+M on .md file
+    User->>MainWindow: Ctrl+M on .md file (or 👁 tab button)
+    MainWindow->>Preview: new MarkdownPreview()
+    MainWindow->>MainWindow: Store in m_mdPreviews list
     MainWindow->>MainWindow: Add Preview as tab
     MainWindow->>Preview: updateContent(editor.text)
     Preview->>Preview: 500ms debounce
@@ -659,12 +665,18 @@ sequenceDiagram
     Preview->>WebView: runJavaScript("updateBody(html)")
 
     Note over WebView: innerHTML update (no reload)
-    WebView->>WebView: Decode HTML entities in mermaid
+    WebView->>WebView: hljs.highlightElement() on code blocks
     WebView->>WebView: mermaid.run() if blocks present
+    WebView->>WebView: renderMathInElement() for KaTeX
 
     loop Live updates
         Editor-->>Preview: textChanged signal
         Preview->>Preview: debounce → render
+    end
+
+    alt Source editor closed
+        Editor-->>Preview: destroyed signal
+        MainWindow->>MainWindow: Remove tab + deleteLater()
     end
 ```
 
@@ -672,22 +684,26 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    MD[Markdown Source] --> CMARK{libcmark available?}
+    MD[Markdown Source] --> PROT[Protect math expressions]
+    PROT --> CMARK{libcmark available?}
     CMARK -->|Yes| CM[cmark_markdown_to_html]
     CMARK -->|No| RX[Regex Converter]
     CM --> HTML[HTML body]
     RX --> HTML
+    HTML --> RESTORE[Restore math expressions]
 
-    HTML --> MERM[Convert to pre class='mermaid']
-    
-    subgraph Injection_Logic
-        SCR[Load mermaid.min.js content] -->|Inline into Script Tag| FULL_JS
-        MERM -->|Escape HTML| FULL_JS[Full HTML String]
+    RESTORE --> MERM[Convert to pre class='mermaid']
+    MERM --> ESC[Escape for JS string]
+    ESC --> JS[runJavaScript: updateBody]
+
+    subgraph Base_Page[Base HTML Page - loaded once from temp file]
+        CSS[Theme CSS] & MJS[mermaid.min.js] & HLJS[highlight.min.js] & HCSS[hljs theme CSS] & KJS[katex.min.js + auto-render.min.js] & KCSS[katex.min.css + fonts]
     end
 
-    FULL_JS --> WEB[QWebEngineView.setHtml]
-    WEB --> INIT[runJavaScript: mermaid.run]
-    INIT --> RENDER[Rendered Preview]
+    JS --> HIGHLIGHT[hljs.highlightElement on code blocks]
+    HIGHLIGHT --> MRUN[mermaid.run if blocks present]
+    MRUN --> KATEX[renderMathInElement for KaTeX]
+    KATEX --> RENDER[Rendered Preview]
 ```
 
 ## PDF Export Flow

@@ -23,6 +23,10 @@ SshManager::SshManager(QObject *parent)
         m_rsyncChecked = true;
         which->deleteLater();
     });
+    connect(which, &QProcess::errorOccurred, this, [this, which](QProcess::ProcessError) {
+        m_rsyncChecked = true;
+        which->deleteLater();
+    });
     which->start("which", {"rsync"});
 }
 
@@ -609,7 +613,7 @@ int SshManager::addTunnel(int profileIndex, const SshTunnel &tunnel)
 
     if (!t.process->waitForStarted(5000)) {
         emit sshError("Failed to start tunnel: " + t.process->errorString());
-        delete t.process;
+        t.process->deleteLater();
         return -1;
     }
 

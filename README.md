@@ -13,7 +13,7 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 - **Dual Terminals** — AI-terminal (top, sends prompts) + general Terminal (bottom tab). Both follow file browser directory and support SSH. Stop button sends configurable stop sequence (default: Ctrl+C)
 - **Prompt System** — Prompt input with configurable send key (Enter / Ctrl+Enter). Shift modifier = send + save. Saved/recurring prompts per project
 - **Project Management** — `.LLM/instructions.json` stores project metadata, numbered prompt history, and saved prompt IDs. Auto-creates `.gitignore`
-- **Markdown Preview** — Ctrl+M opens live preview for `.md` files with full mermaid diagram rendering. Uses QWebEngineView with bundled mermaid.js (offline, no CDN). Optional libcmark for conversion with regex fallback. 500ms debounced live updates. Dark/light theme support. **PDF Export** via Command Palette — renders preview to PDF with configurable margins, orientation, page numbering, and optional page border
+- **Markdown Preview** — Ctrl+M opens live preview for `.md` files. Multiple previews can be open simultaneously (one per .md file). Markdown tab icon (👁) for quick toggle. Syntax-highlighted code blocks via bundled highlight.js (46+ languages including assembly, VHDL, GLSL, LaTeX, etc.). KaTeX math rendering ($$...$$ and $...$). Mermaid diagram rendering. Dark/light themes (VS2015/VS style for code). Optional libcmark for conversion with regex fallback. 500ms debounced live updates. Context-dependent zoom (Ctrl+=/Ctrl+- affects only the focused component). **PDF Export** via Command Palette — renders preview to PDF with configurable margins, orientation, page numbering, and optional page border
 - **Git Integration** — Commit button in Git tab with editable commit message dialog (auto-init + add + commit). Auto-filters sensitive files (.env, *.pem, *.key). Async git status with instant updates for file browser colors. **Git Graph tab** with visual commit history, branch/merge visualization, Fetch/Pull/Push, upstream tracking, git user info editing, and multi-remote management
 - **Changes Monitor** — Real-time file change tracking with diff preview (cached) and one-click revert to git version
 - **Diff Viewer** — Git diff viewer with syntax highlighting (working changes, staged, last commit)
@@ -31,6 +31,7 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 - **Global Themes** — Unified theme system: Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord. Auto-imports installed Zed editor themes. Live switching without restart
 - **Settings** — Tabbed dialog with configurable fonts, sizes, and global theme for all components (terminal, editor, file browser, prompt, diff viewer, changes monitor, visibility, PDF export)
 - **Session Persistence** — Remembers window size, splitter positions, open files, active tab. Multi-monitor aware
+- **Fully Offline** — All resources (mermaid.js, KaTeX, highlight.js, fonts) are bundled. No network requests. WebEngine remote URL access explicitly disabled
 
 ## Installation
 
@@ -43,9 +44,9 @@ sudo apt install -y \
     build-essential cmake \
     qt6-base-dev \
     qt6-webengine-dev \
+    qt6-webchannel-dev \
     qt6-pdf-dev \
-    libqtermwidget6-1-dev \
-    libutf8proc-dev \
+    libqtermwidget-dev \
     sshfs
 
 # Clone and build
@@ -59,7 +60,7 @@ make -j$(nproc)
 ./vibe-coder
 ```
 
-> **Note:** `sshfs` is required for SSH remote file browsing and transfers. `qt6-webengine-dev` is required for markdown preview with mermaid diagram rendering. `qt6-pdf-dev` is required for PDF export with page numbering. Optional: install `libcmark-dev` for better markdown conversion (loaded at runtime via dlopen).
+> **Note:** `sshfs` is required for SSH remote file browsing and transfers. `qt6-webengine-dev` requires `qt6-webchannel-dev` as a dependency on some Debian versions. `qt6-pdf-dev` is required for PDF export with page numbering. On older Debian/Ubuntu the qtermwidget package may be named `libqtermwidget6-1-dev` instead of `libqtermwidget-dev`. Optional: install `libcmark-dev` for better markdown conversion (loaded at runtime via dlopen).
 
 ### Fedora
 
@@ -70,7 +71,6 @@ sudo dnf install -y \
     qt6-qtwebengine-devel \
     qt6-qtpdf-devel \
     qtermwidget-devel \
-    utf8proc-devel \
     fuse-sshfs
 
 git clone https://github.com/krse/vibe-coder.git
@@ -89,7 +89,6 @@ sudo pacman -S --needed \
     qt6-webengine \
     qt6-pdf \
     qtermwidget \
-    utf8proc \
     sshfs
 
 git clone https://github.com/krse/vibe-coder.git
@@ -116,9 +115,10 @@ make -j$(nproc)
 13. **Git Graph** — Bottom "Git" tab shows commit history as a visual graph. Use Fetch/Pull/Push buttons, manage remotes via "Remotes" button
 14. **Settings** — Hamburger menu (☰) → Settings. Tabbed dialog for fonts, themes, and behavior
 15. **Zed Themes** — Install themes in Zed editor and they automatically appear in Settings and command palette
-16. **Markdown Preview** — Open a `.md` file and press Ctrl+M. Live preview with mermaid diagram rendering. Press Ctrl+M again to close
+16. **Markdown Preview** — Open a `.md` file and press Ctrl+M (or click the 👁 icon on the tab). Multiple previews can be open at once. Press Ctrl+M again to close the current preview
 17. **Export to PDF** — With preview open, use Command Palette (Ctrl+Shift+P) → "Export Preview to PDF". Configure margins, orientation, page numbering, and border in Settings > PDF
 18. **Git User** — Click "User" in Git tab to view/edit git global name and email
+19. **Zoom** — Ctrl+= / Ctrl+- zooms only the focused component (editor, prompt, file browser, or markdown preview)
 
 ## Documentation
 

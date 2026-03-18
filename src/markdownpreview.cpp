@@ -22,22 +22,57 @@ MarkdownPreview::MarkdownPreview(QWidget *parent)
     m_webView = new QWebEngineView(this);
     m_webView->settings()->setAttribute(QWebEngineSettings::JavascriptEnabled, true);
     m_webView->settings()->setAttribute(QWebEngineSettings::LocalContentCanAccessRemoteUrls, false);
-    // file:// access needed for loading mermaid.js and preview HTML from temp dir
+    // file:// access needed for loading mermaid.js, katex and preview HTML from temp dir
     m_webView->settings()->setAttribute(QWebEngineSettings::LocalContentCanAccessFileUrls, true);
+    m_webView->settings()->setAttribute(QWebEngineSettings::PluginsEnabled, false);
+    m_webView->settings()->setAttribute(QWebEngineSettings::PdfViewerEnabled, false);
+    m_webView->settings()->setAttribute(QWebEngineSettings::NavigateOnDropEnabled, false);
     layout->addWidget(m_webView);
 
-    // Extract mermaid.js to temp file
-    m_mermaidJsPath = QDir::tempPath() + "/vibe-coder-mermaid.min.js";
-    if (!QFile::exists(m_mermaidJsPath)) {
-        QFile res(":/js/mermaid.min.js");
+    // Extract bundled JS/CSS to temp dir
+    QString tmpDir = QDir::tempPath() + "/vibe-coder-assets";
+    QDir().mkpath(tmpDir + "/fonts");
+
+    auto extractResource = [](const QString &resPath, const QString &outPath) {
+        if (QFile::exists(outPath)) return;
+        QFile res(resPath);
         if (res.open(QIODevice::ReadOnly)) {
-            QFile out(m_mermaidJsPath);
+            QFile out(outPath);
             if (out.open(QIODevice::WriteOnly)) {
                 out.write(res.readAll());
-                out.close();
             }
-            res.close();
         }
+    };
+
+    m_mermaidJsPath = tmpDir + "/mermaid.min.js";
+    extractResource(":/js/mermaid.min.js", m_mermaidJsPath);
+
+    m_hljsPath = tmpDir + "/highlight.min.js";
+    extractResource(":/js/highlight.min.js", m_hljsPath);
+    extractResource(":/hljs/hljs-dark.min.css", tmpDir + "/hljs-dark.min.css");
+    extractResource(":/hljs/hljs-light.min.css", tmpDir + "/hljs-light.min.css");
+
+    m_katexDir = tmpDir;
+    extractResource(":/katex/katex.min.js", tmpDir + "/katex.min.js");
+    extractResource(":/katex/auto-render.min.js", tmpDir + "/auto-render.min.js");
+
+    // Extract katex CSS with patched font paths (fonts/ -> file:// absolute)
+    QString katexCssPath = tmpDir + "/katex.min.css";
+    if (!QFile::exists(katexCssPath)) {
+        QFile res(":/katex/katex.min.css");
+        if (res.open(QIODevice::ReadOnly)) {
+            QString css = QString::fromUtf8(res.readAll());
+            css.replace("fonts/", "file://" + tmpDir + "/fonts/");
+            QFile out(katexCssPath);
+            if (out.open(QIODevice::WriteOnly))
+                out.write(css.toUtf8());
+        }
+    }
+
+    // Extract KaTeX woff2 fonts
+    QDir fontsRes(":/katex/fonts");
+    for (const auto &entry : fontsRes.entryList()) {
+        extractResource(":/katex/fonts/" + entry, tmpDir + "/fonts/" + entry);
     }
 
     // Try to load libcmark
@@ -50,6 +85,10 @@ MarkdownPreview::MarkdownPreview(QWidget *parent)
     if (m_cmarkLib) {
         m_cmarkToHtml = reinterpret_cast<CmarkToHtmlFn>(dlsym(m_cmarkLib, "cmark_markdown_to_html"));
         m_hasCmark = (m_cmarkToHtml != nullptr);
+        if (!m_hasCmark) {
+            dlclose(m_cmarkLib);
+            m_cmarkLib = nullptr;
+        }
     }
 
     // 500ms debounce
@@ -88,6 +127,16 @@ void MarkdownPreview::setFont(const QFont &font)
 {
     m_webView->settings()->setFontFamily(QWebEngineSettings::StandardFont, font.family());
     m_webView->settings()->setFontSize(QWebEngineSettings::DefaultFontSize, font.pointSize());
+}
+
+void MarkdownPreview::zoomIn()
+{
+    m_webView->setZoomFactor(qMin(m_webView->zoomFactor() + 0.1, 5.0));
+}
+
+void MarkdownPreview::zoomOut()
+{
+    m_webView->setZoomFactor(qMax(m_webView->zoomFactor() - 0.1, 0.25));
 }
 
 void MarkdownPreview::updateContent(const QString &markdown)
@@ -151,9 +200,27 @@ th { background: %11; font-weight: 600; }
 img { max-width: 100%%; border-radius: 4px; }
 del { text-decoration: line-through; opacity: 0.6; }
 </style>
+<link rel="stylesheet" href="file://%14/katex.min.css">
+<link rel="stylesheet" href="file://%15">
+<script src="file://%14/katex.min.js"></script>
+<script src="file://%14/auto-render.min.js"></script>
 <script src="file://%12"></script>
+<script src="file://%16"></script>
 <script>
 var mermaidTheme = '%13';
+function renderKatex() {
+    if (typeof renderMathInElement === 'function') {
+        renderMathInElement(document.getElementById('content'), {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false},
+                {left: '\\\\(', right: '\\\\)', display: false},
+                {left: '\\\\[', right: '\\\\]', display: true}
+            ],
+            throwOnError: false
+        });
+    }
+}
 function updateBody(html) {
     document.getElementById('content').innerHTML = html;
     // Decode HTML entities in mermaid blocks
@@ -168,6 +235,14 @@ function updateBody(html) {
             flowchart: { useMaxWidth: true, htmlLabels: true } });
         mermaid.run({ querySelector: 'pre.mermaid' });
     }
+    // Syntax highlighting
+    if (typeof hljs !== 'undefined') {
+        document.querySelectorAll('pre code[class^="language-"]').forEach(function(el) {
+            hljs.highlightElement(el);
+        });
+    }
+    // Render KaTeX math
+    renderKatex();
 }
 </script>
 </head><body>
@@ -175,7 +250,9 @@ function updateBody(html) {
 </body></html>)")
         .arg(bg, fg, codeBg, codeFg, borderC, linkC, headC,
              bqBorder, bqFg, hrC, thBg,
-             m_mermaidJsPath, mermaidTheme);
+             m_mermaidJsPath, mermaidTheme, m_katexDir,
+             m_katexDir + (m_dark ? "/hljs-dark.min.css" : "/hljs-light.min.css"),
+             m_hljsPath);
 
     // Write base page to file (avoids setHtml 2MB limit)
     QString tmpPath = QDir::tempPath() + "/vibe-coder-preview.html";
@@ -366,9 +443,40 @@ void MarkdownPreview::exportToPdf(const QString &filePath, int marginLeft, int m
 
 QString MarkdownPreview::markdownToHtml(const QString &md)
 {
+    // Protect $$...$$ and $...$ from markdown processing (both cmark and regex)
+    static QRegularExpression reDisplayMath(R"(\$\$[\s\S]+?\$\$)");
+    static QRegularExpression reInlineMath(R"(\$(?!\s)(?:[^$\\]|\\.)+?\$)");
+
+    QVector<QString> mathFragments;
+    QString protected_ = md;
+
+    // Protect display math first ($$...$$), then inline ($...$)
+    auto protectMath = [&](const QRegularExpression &re) {
+        QRegularExpressionMatchIterator it = re.globalMatch(protected_);
+        QVector<QRegularExpressionMatch> matches;
+        while (it.hasNext()) matches.append(it.next());
+        for (int i = matches.size() - 1; i >= 0; --i) {
+            const auto &m = matches[i];
+            QString placeholder = QString("\x02MATH%1\x02").arg(mathFragments.size());
+            mathFragments.append(m.captured());
+            protected_.replace(m.capturedStart(), m.capturedLength(), placeholder);
+        }
+    };
+    protectMath(reDisplayMath);
+    protectMath(reInlineMath);
+
+    QString html;
     if (m_hasCmark)
-        return cmarkConvert(md);
-    return regexConvert(md);
+        html = cmarkConvert(protected_);
+    else
+        html = regexConvert(protected_);
+
+    // Restore math expressions (HTML-escaped so KaTeX can read them from innerHTML)
+    for (int i = 0; i < mathFragments.size(); ++i) {
+        html.replace(QString("\x02MATH%1\x02").arg(i), mathFragments[i].toHtmlEscaped());
+    }
+
+    return html;
 }
 
 QString MarkdownPreview::cmarkConvert(const QString &md)

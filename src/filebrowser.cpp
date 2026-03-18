@@ -337,7 +337,14 @@ FileBrowser::FileBrowser(QWidget *parent)
     });
 
     connect(m_openBtn, &QPushButton::clicked, this, [this]() {
-        if (isSshActive()) return; // no local dialog for SSH
+        if (isSshActive()) {
+            // Browse within the SSH mount point
+            QString dir = QFileDialog::getExistingDirectory(
+                this, "Open Remote Directory", m_currentRoot);
+            if (!dir.isEmpty() && dir.startsWith(m_sshMountPoint))
+                setRootPath(dir);
+            return;
+        }
         QString dir = QFileDialog::getExistingDirectory(this, "Open Directory", m_currentRoot);
         if (!dir.isEmpty())
             setRootPath(dir);
@@ -815,7 +822,7 @@ void FileBrowser::showContextMenu(const QPoint &pos)
             QString newName = QInputDialog::getText(this, "Rename", "New name:",
                                                      QLineEdit::Normal, itemName, &ok);
             if (ok && !newName.isEmpty() && newName != itemName) {
-                if (newName.contains('/') || newName.contains("..")) {
+                if (newName.contains('/') || newName.contains("..") || newName.contains('\0') || newName.contains('\n')) {
                     ThemedMessageBox::warning(this, "Error", "Invalid name.");
                     return;
                 }

@@ -15,6 +15,8 @@ public:
 
     void setDarkMode(bool dark);
     void setFont(const QFont &font);
+    void zoomIn();
+    void zoomOut();
     void exportToPdf(const QString &filePath, int marginLeft, int marginRight,
                      const QString &pageNumbering, bool landscape, bool pageBorder);
 
@@ -28,6 +30,8 @@ private:
     bool m_dark = true;
     bool m_pageLoaded = false;
     QString m_mermaidJsPath;
+    QString m_hljsPath;
+    QString m_katexDir;
 
     // libcmark via dlopen (optional)
     void *m_cmarkLib = nullptr;

@@ -6,6 +6,32 @@
 #include <QDialogButtonBox>
 #include <QGroupBox>
 
+// Font weight helpers
+static const struct { const char *label; int value; } kWeights[] = {
+    {"Thin",     25},
+    {"Light",    37},
+    {"Normal",   50},
+    {"Medium",   57},
+    {"DemiBold", 63},
+    {"Bold",     75},
+};
+static const int kWeightCount = sizeof(kWeights) / sizeof(kWeights[0]);
+
+static QComboBox *createWeightCombo(int currentWeight) {
+    auto *combo = new QComboBox;
+    int sel = 2; // default Normal
+    for (int i = 0; i < kWeightCount; ++i) {
+        combo->addItem(kWeights[i].label, kWeights[i].value);
+        if (kWeights[i].value == currentWeight) sel = i;
+    }
+    combo->setCurrentIndex(sel);
+    return combo;
+}
+
+static int weightFromCombo(const QComboBox *combo) {
+    return combo->currentData().toInt();
+}
+
 // --- AppSettings ---
 
 void AppSettings::load()
@@ -14,23 +40,30 @@ void AppSettings::load()
     globalTheme = s.value("global/theme", globalTheme).toString();
     termFontFamily = s.value("terminal/fontFamily", termFontFamily).toString();
     termFontSize = s.value("terminal/fontSize", termFontSize).toInt();
+    termFontWeight = s.value("terminal/fontWeight", termFontWeight).toInt();
     termTheme = s.value("terminal/theme", termTheme).toString();
     editorFontFamily = s.value("editor/fontFamily", editorFontFamily).toString();
     editorFontSize = s.value("editor/fontSize", editorFontSize).toInt();
+    editorFontWeight = s.value("editor/fontWeight", editorFontWeight).toInt();
+    editorLineSpacing = s.value("editor/lineSpacing", editorLineSpacing).toDouble();
     showLineNumbers = s.value("editor/lineNumbers", showLineNumbers).toBool();
     syntaxHighlighting = s.value("editor/syntaxHighlighting", syntaxHighlighting).toBool();
     editorHighlightLine = s.value("editor/highlightLine", editorHighlightLine).toBool();
     browserFontFamily = s.value("browser/fontFamily", browserFontFamily).toString();
     browserFontSize = s.value("browser/fontSize", browserFontSize).toInt();
+    browserFontWeight = s.value("browser/fontWeight", browserFontWeight).toInt();
     promptFontFamily = s.value("prompt/fontFamily", promptFontFamily).toString();
     promptFontSize = s.value("prompt/fontSize", promptFontSize).toInt();
+    promptFontWeight = s.value("prompt/fontWeight", promptFontWeight).toInt();
     promptSendKey = s.value("prompt/sendKey", promptSendKey).toString();
     modelStopSequence = s.value("prompt/modelStopSequence", modelStopSequence).toString();
     promptHighlightLine = s.value("prompt/highlightLine", promptHighlightLine).toBool();
     diffFontFamily = s.value("diff/fontFamily", diffFontFamily).toString();
     diffFontSize = s.value("diff/fontSize", diffFontSize).toInt();
+    diffFontWeight = s.value("diff/fontWeight", diffFontWeight).toInt();
     changesFontFamily = s.value("changes/fontFamily", changesFontFamily).toString();
     changesFontSize = s.value("changes/fontSize", changesFontSize).toInt();
+    changesFontWeight = s.value("changes/fontWeight", changesFontWeight).toInt();
     gitignoreVisibility = s.value("visibility/gitignore", gitignoreVisibility).toString();
     dotGitVisibility = s.value("visibility/dotGit", dotGitVisibility).toString();
     pdfMarginLeft = s.value("pdf/marginLeft", pdfMarginLeft).toInt();
@@ -38,6 +71,10 @@ void AppSettings::load()
     pdfPageNumbering = s.value("pdf/pageNumbering", pdfPageNumbering).toString();
     pdfOrientation = s.value("pdf/orientation", pdfOrientation).toString();
     pdfPageBorder = s.value("pdf/pageBorder", pdfPageBorder).toBool();
+    guiFontFamily = s.value("gui/fontFamily", guiFontFamily).toString();
+    guiFontSize = s.value("gui/fontSize", guiFontSize).toInt();
+    guiFontWeight = s.value("gui/fontWeight", guiFontWeight).toInt();
+    promptStayOnTab = s.value("prompt/stayOnTab", promptStayOnTab).toBool();
 
     // Clamp font sizes to valid range
     auto clampSize = [](int &size) { if (size < 6) size = 6; if (size > 72) size = 72; };
@@ -47,6 +84,7 @@ void AppSettings::load()
     clampSize(promptFontSize);
     clampSize(diffFontSize);
     clampSize(changesFontSize);
+    clampSize(guiFontSize);
 
     loadZedThemes();
     applyThemeDefaults();
@@ -109,23 +147,30 @@ void AppSettings::save()
     s.setValue("global/theme", globalTheme);
     s.setValue("terminal/fontFamily", termFontFamily);
     s.setValue("terminal/fontSize", termFontSize);
+    s.setValue("terminal/fontWeight", termFontWeight);
     s.setValue("terminal/theme", termTheme);
     s.setValue("editor/fontFamily", editorFontFamily);
     s.setValue("editor/fontSize", editorFontSize);
+    s.setValue("editor/fontWeight", editorFontWeight);
+    s.setValue("editor/lineSpacing", editorLineSpacing);
     s.setValue("editor/lineNumbers", showLineNumbers);
     s.setValue("editor/syntaxHighlighting", syntaxHighlighting);
     s.setValue("editor/highlightLine", editorHighlightLine);
     s.setValue("browser/fontFamily", browserFontFamily);
     s.setValue("browser/fontSize", browserFontSize);
+    s.setValue("browser/fontWeight", browserFontWeight);
     s.setValue("prompt/fontFamily", promptFontFamily);
     s.setValue("prompt/fontSize", promptFontSize);
+    s.setValue("prompt/fontWeight", promptFontWeight);
     s.setValue("prompt/sendKey", promptSendKey);
     s.setValue("prompt/modelStopSequence", modelStopSequence);
     s.setValue("prompt/highlightLine", promptHighlightLine);
     s.setValue("diff/fontFamily", diffFontFamily);
     s.setValue("diff/fontSize", diffFontSize);
+    s.setValue("diff/fontWeight", diffFontWeight);
     s.setValue("changes/fontFamily", changesFontFamily);
     s.setValue("changes/fontSize", changesFontSize);
+    s.setValue("changes/fontWeight", changesFontWeight);
     s.setValue("visibility/gitignore", gitignoreVisibility);
     s.setValue("visibility/dotGit", dotGitVisibility);
     s.setValue("pdf/marginLeft", pdfMarginLeft);
@@ -133,6 +178,10 @@ void AppSettings::save()
     s.setValue("pdf/pageNumbering", pdfPageNumbering);
     s.setValue("pdf/orientation", pdfOrientation);
     s.setValue("pdf/pageBorder", pdfPageBorder);
+    s.setValue("gui/fontFamily", guiFontFamily);
+    s.setValue("gui/fontSize", guiFontSize);
+    s.setValue("gui/fontWeight", guiFontWeight);
+    s.setValue("prompt/stayOnTab", promptStayOnTab);
 }
 
 // --- SettingsDialog ---
@@ -162,6 +211,23 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     // Tab widget for sections
     auto *tabs = new QTabWidget;
 
+    // ── GUI tab ─────────────────────────────────────────────────────
+    auto *guiPage = new QWidget;
+    auto *guiLayout = new QFormLayout(guiPage);
+
+    m_guiFontCombo = new QFontComboBox;
+    m_guiFontCombo->setCurrentFont(QFont(current.guiFontFamily));
+
+    m_guiFontSizeSpin = new QSpinBox;
+    m_guiFontSizeSpin->setRange(6, 32);
+    m_guiFontSizeSpin->setValue(current.guiFontSize);
+    m_guiFontWeightCombo = createWeightCombo(current.guiFontWeight);
+
+    guiLayout->addRow("Font family:", m_guiFontCombo);
+    guiLayout->addRow("Font size:", m_guiFontSizeSpin);
+    guiLayout->addRow("Font weight:", m_guiFontWeightCombo);
+    tabs->addTab(guiPage, "GUI");
+
     // ── Terminal tab ────────────────────────────────────────────────
     auto *termPage = new QWidget;
     auto *termLayout = new QFormLayout(termPage);
@@ -173,6 +239,7 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     m_termFontSizeSpin = new QSpinBox;
     m_termFontSizeSpin->setRange(6, 32);
     m_termFontSizeSpin->setValue(current.termFontSize);
+    m_termFontWeightCombo = createWeightCombo(current.termFontWeight);
 
     m_termThemeCombo = new QComboBox;
     m_termThemeCombo->addItems({"Auto", "Linux", "BlackOnWhite", "DarkPastels", "Solarized", "SolarizedLight"});
@@ -181,6 +248,7 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     termLayout->addRow("Theme:", m_termThemeCombo);
     termLayout->addRow("Font family:", m_termFontCombo);
     termLayout->addRow("Font size:", m_termFontSizeSpin);
+    termLayout->addRow("Font weight:", m_termFontWeightCombo);
     tabs->addTab(termPage, "Terminal");
 
     // ── Editor tab ──────────────────────────────────────────────────
@@ -194,6 +262,20 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     m_editorFontSizeSpin = new QSpinBox;
     m_editorFontSizeSpin->setRange(6, 32);
     m_editorFontSizeSpin->setValue(current.editorFontSize);
+    m_editorFontWeightCombo = createWeightCombo(current.editorFontWeight);
+
+    m_editorLineSpacingCombo = new QComboBox;
+    m_editorLineSpacingCombo->addItem("1.0", 1.0);
+    m_editorLineSpacingCombo->addItem("1.2", 1.2);
+    m_editorLineSpacingCombo->addItem("1.5", 1.5);
+    m_editorLineSpacingCombo->addItem("1.8", 1.8);
+    m_editorLineSpacingCombo->addItem("2.0", 2.0);
+    for (int i = 0; i < m_editorLineSpacingCombo->count(); ++i) {
+        if (qAbs(m_editorLineSpacingCombo->itemData(i).toDouble() - current.editorLineSpacing) < 0.01) {
+            m_editorLineSpacingCombo->setCurrentIndex(i);
+            break;
+        }
+    }
 
     m_lineNumbersCheck = new QCheckBox("Show line numbers");
     m_lineNumbersCheck->setChecked(current.showLineNumbers);
@@ -206,6 +288,8 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
 
     editorLayout->addRow("Font family:", m_editorFontCombo);
     editorLayout->addRow("Font size:", m_editorFontSizeSpin);
+    editorLayout->addRow("Font weight:", m_editorFontWeightCombo);
+    editorLayout->addRow("Line spacing:", m_editorLineSpacingCombo);
     editorLayout->addRow(m_lineNumbersCheck);
     editorLayout->addRow(m_syntaxHighlightCheck);
     editorLayout->addRow(m_editorHighlightLineCheck);
@@ -221,9 +305,11 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     m_browserFontSizeSpin = new QSpinBox;
     m_browserFontSizeSpin->setRange(6, 32);
     m_browserFontSizeSpin->setValue(current.browserFontSize);
+    m_browserFontWeightCombo = createWeightCombo(current.browserFontWeight);
 
     browserLayout->addRow("Font family:", m_browserFontCombo);
     browserLayout->addRow("Font size:", m_browserFontSizeSpin);
+    browserLayout->addRow("Font weight:", m_browserFontWeightCombo);
     tabs->addTab(browserPage, "File Browser");
 
     // ── Prompt tab ──────────────────────────────────────────────────
@@ -237,6 +323,7 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     m_promptFontSizeSpin = new QSpinBox;
     m_promptFontSizeSpin->setRange(6, 32);
     m_promptFontSizeSpin->setValue(current.promptFontSize);
+    m_promptFontWeightCombo = createWeightCombo(current.promptFontWeight);
 
     m_promptSendKeyCombo = new QComboBox;
     m_promptSendKeyCombo->addItems({"Ctrl+Enter", "Enter"});
@@ -250,9 +337,15 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
 
     promptLayout->addRow("Font family:", m_promptFontCombo);
     promptLayout->addRow("Font size:", m_promptFontSizeSpin);
+    promptLayout->addRow("Font weight:", m_promptFontWeightCombo);
     promptLayout->addRow("Send key:", m_promptSendKeyCombo);
     promptLayout->addRow("Stop sequence:", m_modelStopSequenceEdit);
+    m_promptStayOnTabCheck = new QCheckBox("Stay on current tab after sending");
+    m_promptStayOnTabCheck->setChecked(current.promptStayOnTab);
+    m_promptStayOnTabCheck->setToolTip("Don't switch to AI-terminal when sending a prompt");
+
     promptLayout->addRow(m_promptHighlightLineCheck);
+    promptLayout->addRow(m_promptStayOnTabCheck);
     tabs->addTab(promptPage, "Prompt");
 
     // ── Diff tab ────────────────────────────────────────────────────
@@ -266,9 +359,11 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     m_diffFontSizeSpin = new QSpinBox;
     m_diffFontSizeSpin->setRange(6, 32);
     m_diffFontSizeSpin->setValue(current.diffFontSize);
+    m_diffFontWeightCombo = createWeightCombo(current.diffFontWeight);
 
     diffLayout->addRow("Font family:", m_diffFontCombo);
     diffLayout->addRow("Font size:", m_diffFontSizeSpin);
+    diffLayout->addRow("Font weight:", m_diffFontWeightCombo);
     tabs->addTab(diffPage, "Diff");
 
     // ── Changes tab ─────────────────────────────────────────────────
@@ -282,9 +377,11 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     m_changesFontSizeSpin = new QSpinBox;
     m_changesFontSizeSpin->setRange(6, 32);
     m_changesFontSizeSpin->setValue(current.changesFontSize);
+    m_changesFontWeightCombo = createWeightCombo(current.changesFontWeight);
 
     changesLayout->addRow("Font family:", m_changesFontCombo);
     changesLayout->addRow("Font size:", m_changesFontSizeSpin);
+    changesLayout->addRow("Font weight:", m_changesFontWeightCombo);
     tabs->addTab(changesPage, "Changes");
 
     // ── Visibility tab ─────────────────────────────────────────────
@@ -352,23 +449,30 @@ AppSettings SettingsDialog::result() const
     s.globalTheme = m_globalThemeCombo->currentText();
     s.termFontFamily = m_termFontCombo->currentFont().family();
     s.termFontSize = m_termFontSizeSpin->value();
+    s.termFontWeight = weightFromCombo(m_termFontWeightCombo);
     s.termTheme = m_termThemeCombo->currentText();
     s.editorFontFamily = m_editorFontCombo->currentFont().family();
     s.editorFontSize = m_editorFontSizeSpin->value();
+    s.editorFontWeight = weightFromCombo(m_editorFontWeightCombo);
+    s.editorLineSpacing = m_editorLineSpacingCombo->currentData().toDouble();
     s.showLineNumbers = m_lineNumbersCheck->isChecked();
     s.syntaxHighlighting = m_syntaxHighlightCheck->isChecked();
     s.editorHighlightLine = m_editorHighlightLineCheck->isChecked();
     s.browserFontFamily = m_browserFontCombo->currentFont().family();
     s.browserFontSize = m_browserFontSizeSpin->value();
+    s.browserFontWeight = weightFromCombo(m_browserFontWeightCombo);
     s.promptFontFamily = m_promptFontCombo->currentFont().family();
     s.promptFontSize = m_promptFontSizeSpin->value();
+    s.promptFontWeight = weightFromCombo(m_promptFontWeightCombo);
     s.promptSendKey = m_promptSendKeyCombo->currentText();
     s.modelStopSequence = m_modelStopSequenceEdit->text();
     s.promptHighlightLine = m_promptHighlightLineCheck->isChecked();
     s.diffFontFamily = m_diffFontCombo->currentFont().family();
     s.diffFontSize = m_diffFontSizeSpin->value();
+    s.diffFontWeight = weightFromCombo(m_diffFontWeightCombo);
     s.changesFontFamily = m_changesFontCombo->currentFont().family();
     s.changesFontSize = m_changesFontSizeSpin->value();
+    s.changesFontWeight = weightFromCombo(m_changesFontWeightCombo);
     s.gitignoreVisibility = m_gitignoreVisibilityCombo->currentText();
     s.dotGitVisibility = m_dotGitVisibilityCombo->currentText();
     s.pdfMarginLeft = m_pdfMarginLeftSpin->value();
@@ -376,6 +480,10 @@ AppSettings SettingsDialog::result() const
     s.pdfPageNumbering = m_pdfPageNumberingCombo->currentText();
     s.pdfOrientation = m_pdfOrientationCombo->currentText();
     s.pdfPageBorder = m_pdfPageBorderCheck->isChecked();
+    s.guiFontFamily = m_guiFontCombo->currentFont().family();
+    s.guiFontSize = m_guiFontSizeSpin->value();
+    s.guiFontWeight = weightFromCombo(m_guiFontWeightCombo);
+    s.promptStayOnTab = m_promptStayOnTabCheck->isChecked();
     s.zedThemes = m_zedThemes;
     s.applyThemeDefaults();
     return s;

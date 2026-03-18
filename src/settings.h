@@ -19,11 +19,14 @@ struct AppSettings {
     // Terminal
     QString termFontFamily = "Adwaita Mono";
     int termFontSize = 14;
+    int termFontWeight = 50; // QFont::Normal
     QString termTheme = "Auto"; // "Auto" or specific: Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight
 
     // Editor
     QString editorFontFamily = "Monaco";
     int editorFontSize = 14;
+    int editorFontWeight = 50;
+    double editorLineSpacing = 1.0; // 1.0, 1.2, 1.5, etc.
     bool showLineNumbers = true;
     bool syntaxHighlighting = true;
     bool editorHighlightLine = true;
@@ -31,10 +34,12 @@ struct AppSettings {
     // File browser
     QString browserFontFamily = "Noto Sans";
     int browserFontSize = 12;
+    int browserFontWeight = 50;
 
     // Prompt
     QString promptFontFamily = "Monospace";
     int promptFontSize = 14;
+    int promptFontWeight = 50;
     QString promptSendKey = "Ctrl+Enter"; // "Ctrl+Enter" or "Enter"
     QString modelStopSequence = "\\x03"; // sent to terminal to stop model (default: Ctrl+C)
     bool promptHighlightLine = false;
@@ -42,10 +47,12 @@ struct AppSettings {
     // Diff viewer
     QString diffFontFamily = "Monospace";
     int diffFontSize = 13;
+    int diffFontWeight = 50;
 
     // Changes monitor
     QString changesFontFamily = "Monospace";
     int changesFontSize = 13;
+    int changesFontWeight = 50;
 
     // Visibility
     // "visible" = normal, "grayed" = shown but gray, "hidden" = not shown
@@ -60,6 +67,14 @@ struct AppSettings {
     // "portrait", "landscape"
     QString pdfOrientation = "portrait";
     bool pdfPageBorder = false;
+
+    // GUI (tabs, buttons, status bar, menus)
+    QString guiFontFamily = "Noto Sans";
+    int guiFontSize = 11;
+    int guiFontWeight = 50;
+
+    // Prompt behavior
+    bool promptStayOnTab = false; // don't switch to AI-terminal after sending
 
     // Derived from globalTheme (not saved)
     QString terminalColorScheme;
@@ -88,14 +103,22 @@ private:
     // Global theme
     QComboBox *m_globalThemeCombo;
 
+    // GUI
+    QFontComboBox *m_guiFontCombo;
+    QSpinBox *m_guiFontSizeSpin;
+    QComboBox *m_guiFontWeightCombo;
+
     // Terminal
     QFontComboBox *m_termFontCombo;
     QSpinBox *m_termFontSizeSpin;
+    QComboBox *m_termFontWeightCombo;
     QComboBox *m_termThemeCombo;
 
     // Editor
     QFontComboBox *m_editorFontCombo;
     QSpinBox *m_editorFontSizeSpin;
+    QComboBox *m_editorFontWeightCombo;
+    QComboBox *m_editorLineSpacingCombo;
     QCheckBox *m_lineNumbersCheck;
     QCheckBox *m_syntaxHighlightCheck;
     QCheckBox *m_editorHighlightLineCheck;
@@ -103,21 +126,26 @@ private:
     // File browser
     QFontComboBox *m_browserFontCombo;
     QSpinBox *m_browserFontSizeSpin;
+    QComboBox *m_browserFontWeightCombo;
 
     // Prompt
     QFontComboBox *m_promptFontCombo;
     QSpinBox *m_promptFontSizeSpin;
+    QComboBox *m_promptFontWeightCombo;
     QComboBox *m_promptSendKeyCombo;
     QLineEdit *m_modelStopSequenceEdit;
     QCheckBox *m_promptHighlightLineCheck;
+    QCheckBox *m_promptStayOnTabCheck;
 
     // Diff
     QFontComboBox *m_diffFontCombo;
     QSpinBox *m_diffFontSizeSpin;
+    QComboBox *m_diffFontWeightCombo;
 
     // Changes
     QFontComboBox *m_changesFontCombo;
     QSpinBox *m_changesFontSizeSpin;
+    QComboBox *m_changesFontWeightCombo;
 
     // Visibility
     QComboBox *m_gitignoreVisibilityCombo;

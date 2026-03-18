@@ -57,12 +57,15 @@ private:
     QTabWidget *m_tabWidget;
     TerminalWidget *m_terminal;
     TerminalWidget *m_bottomTerminal;
+    TerminalWidget *m_bottomTerminal2;
     QTabWidget *m_bottomTabWidget;
     FileBrowser *m_fileBrowser;
     PromptEdit *m_editor;
     QPushButton *m_sendBtn;
     QPushButton *m_stopBtn;
     QPushButton *m_savePromptBtn;
+    QPushButton *m_repeatPromptBtn;
+    QString m_lastPrompt;
     QComboBox *m_savedPromptsCombo;
     void refreshSavedPrompts();
     QToolButton *m_menuBtn;
@@ -139,12 +142,11 @@ protected:
     // Git graph
     GitGraph *m_gitGraph;
 
-    // Markdown preview (created once at startup to avoid first-use flicker)
-    MarkdownPreview *m_mdPreview;
-    bool m_mdPreviewVisible = false;
-    CodeEditor *m_mdPreviewEditor = nullptr;
+    // Markdown previews (multiple allowed, one per source file)
+    QList<MarkdownPreview *> m_mdPreviews;
     void toggleMarkdownPreview();
     void exportMarkdownToPdf();
+    MarkdownPreview *currentMarkdownPreview();
 
     // Global theme
     void applyGlobalTheme();

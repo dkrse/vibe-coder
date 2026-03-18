@@ -12,6 +12,7 @@
 #include <QFileInfo>
 #include "themeddialog.h"
 #include <QFont>
+#include <QTextBlockFormat>
 #include <QProcess>
 #include <QToolBar>
 #include <QMenuBar>
@@ -31,6 +32,7 @@
 #include <QCloseEvent>
 #include <QPainter>
 #include <QPixmap>
+#include <QWebEngineView>
 
 static QString langFromSuffix(const QString &suffix)
 {
@@ -80,14 +82,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_tabWidget, &QTabWidget::tabCloseRequested, this, [this](int index) {
         if (index == 0) return;
         QWidget *w = m_tabWidget->widget(index);
-        // Handle markdown preview tab — don't delete, just hide
-        if (w == m_mdPreview) {
+        // Handle markdown preview tab — delete it
+        if (auto *mdp = qobject_cast<MarkdownPreview *>(w)) {
             m_tabWidget->removeTab(index);
-            m_mdPreviewVisible = false;
-            if (m_mdPreviewEditor) {
-                disconnect(m_mdPreviewEditor, &QPlainTextEdit::textChanged, m_mdPreview, nullptr);
-                m_mdPreviewEditor = nullptr;
-            }
+            m_mdPreviews.removeOne(mdp);
+            mdp->deleteLater();
             return;
         }
         if (!maybeSaveTab(m_tabWidget, index)) return;
@@ -195,8 +194,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_stopBtn->setToolTip("Stop model generation");
     m_savePromptBtn = new QPushButton("Save Prompt");
     m_savePromptBtn->setToolTip("Save current prompt for reuse");
+    m_repeatPromptBtn = new QPushButton("Repeat");
+    m_repeatPromptBtn->setToolTip("Repeat last sent prompt");
+    m_repeatPromptBtn->setEnabled(false);
     btnLayout->addWidget(m_sendBtn);
     btnLayout->addWidget(m_stopBtn);
+    btnLayout->addWidget(m_repeatPromptBtn);
     btnLayout->addWidget(m_savePromptBtn);
     btnLayout->addStretch();
 
@@ -207,6 +210,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_bottomTerminal = new TerminalWidget;
     m_bottomTabWidget->addTab(m_bottomTerminal, "Terminal");
+
+    m_bottomTerminal2 = new TerminalWidget;
+    m_bottomTabWidget->addTab(m_bottomTerminal2, "Terminal 2");
 
     // Notifications tab
     m_notificationPanel = new NotificationPanel;
@@ -329,6 +335,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_fileBrowser, &FileBrowser::fileOpened, this, &MainWindow::onFileOpened);
     connect(m_sendBtn, &QPushButton::clicked, this, &MainWindow::onSendClicked);
     connect(m_stopBtn, &QPushButton::clicked, this, &MainWindow::onStopClicked);
+    connect(m_repeatPromptBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_lastPrompt.isEmpty()) {
+            m_editor->setPlainText(m_lastPrompt);
+        }
+    });
     connect(m_gitGraph, &GitGraph::commitRequested, this, &MainWindow::onCommitClicked);
     connect(m_editor, &PromptEdit::sendRequested, this, &MainWindow::onSendClicked);
     connect(m_editor, &PromptEdit::saveAndSendRequested, this, [this]() {
@@ -342,7 +353,8 @@ MainWindow::MainWindow(QWidget *parent)
         }
         m_terminal->sendText(text);
         m_editor->clear();
-        m_tabWidget->setCurrentIndex(0);
+        if (!m_settings.promptStayOnTab)
+            m_tabWidget->setCurrentIndex(0);
     });
 
     // Saved prompts
@@ -484,15 +496,61 @@ MainWindow::MainWindow(QWidget *parent)
     auto *mdShortcut = new QShortcut(QKeySequence("Ctrl+M"), this);
     connect(mdShortcut, &QShortcut::activated, this, &MainWindow::toggleMarkdownPreview);
 
+    // Ctrl+= / Ctrl+- — zoom font size (context-dependent)
+    auto zoomFocused = [this](int delta) {
+        QWidget *fw = QApplication::focusWidget();
+        // Editor tab
+        if (auto *editor = qobject_cast<CodeEditor *>(fw)) {
+            Q_UNUSED(editor);
+            m_settings.editorFontSize = qBound(6, m_settings.editorFontSize + delta, 48);
+            m_settings.save();
+            applySettings();
+            return;
+        }
+        // Prompt edit
+        if (fw == m_editor || (fw && fw->parentWidget() == m_editor)) {
+            m_settings.promptFontSize = qBound(6, m_settings.promptFontSize + delta, 48);
+            m_settings.save();
+            applySettings();
+            return;
+        }
+        // File browser
+        if (fw && (fw == m_fileBrowser || m_fileBrowser->isAncestorOf(fw))) {
+            m_settings.browserFontSize = qBound(6, m_settings.browserFontSize + delta, 48);
+            m_settings.save();
+            applySettings();
+            return;
+        }
+        // Markdown preview
+        if (auto *mdp = currentMarkdownPreview()) {
+            if (delta > 0) mdp->zoomIn(); else mdp->zoomOut();
+            return;
+        }
+        // Fallback: check if current tab is a markdown preview
+        for (auto *mdp : m_mdPreviews) {
+            if (mdp->isAncestorOf(fw)) {
+                if (delta > 0) mdp->zoomIn(); else mdp->zoomOut();
+                return;
+            }
+        }
+    };
+    auto *zoomInShortcut = new QShortcut(QKeySequence("Ctrl+="), this);
+    connect(zoomInShortcut, &QShortcut::activated, this, [zoomFocused]() { zoomFocused(1); });
+    auto *zoomOutShortcut = new QShortcut(QKeySequence("Ctrl+-"), this);
+    connect(zoomOutShortcut, &QShortcut::activated, this, [zoomFocused]() { zoomFocused(-1); });
+
     // Command palette
     m_commandPalette = new CommandPalette(this);
     setupCommandPalette();
     auto *paletteShortcut = new QShortcut(QKeySequence("Ctrl+Shift+P"), this);
     connect(paletteShortcut, &QShortcut::activated, m_commandPalette, &CommandPalette::show);
 
-    // Pre-create markdown preview (QWebEngineView init causes flicker on first use)
-    m_mdPreview = new MarkdownPreview(this);
-    m_mdPreview->setVisible(false);
+    // Pre-initialize QWebEngine to avoid flicker on first MarkdownPreview
+    auto *warmup = new QWebEngineView(this);
+    warmup->setFixedSize(0, 0);
+    warmup->setVisible(false);
+    warmup->load(QUrl("about:blank"));
+    connect(warmup, &QWebEngineView::loadFinished, warmup, &QObject::deleteLater);
 
     applyGlobalTheme();
     applySettings();
@@ -691,8 +749,18 @@ void MainWindow::onSshDownload()
 void MainWindow::applySettingsToEditor(CodeEditor *editor, const QString &lang)
 {
     QFont font(m_settings.editorFontFamily, m_settings.editorFontSize);
+    font.setWeight(static_cast<QFont::Weight>(m_settings.editorFontWeight));
     editor->setFont(font);
     editor->setShowLineNumbers(m_settings.showLineNumbers);
+
+    // Line spacing
+    if (qAbs(m_settings.editorLineSpacing - 1.0) > 0.01) {
+        QTextCursor cursor(editor->document());
+        cursor.select(QTextCursor::Document);
+        QTextBlockFormat fmt;
+        fmt.setLineHeight(m_settings.editorLineSpacing * 100, QTextBlockFormat::ProportionalHeight);
+        cursor.mergeBlockFormat(fmt);
+    }
 
     // Set language first (no rehighlight), then color scheme triggers single rehighlight
     if (m_settings.syntaxHighlighting && !lang.isEmpty()) {
@@ -729,17 +797,36 @@ void MainWindow::updateStatusBar()
 
 void MainWindow::applySettings()
 {
+    // GUI font for tabs, buttons, status bar, menus
+    QFont guiFont(m_settings.guiFontFamily, m_settings.guiFontSize);
+    guiFont.setWeight(static_cast<QFont::Weight>(m_settings.guiFontWeight));
+    m_tabWidget->setFont(guiFont);
+    m_bottomTabWidget->setFont(guiFont);
+    m_sendBtn->setFont(guiFont);
+    m_stopBtn->setFont(guiFont);
+    m_savePromptBtn->setFont(guiFont);
+    m_repeatPromptBtn->setFont(guiFont);
+    m_savedPromptsCombo->setFont(guiFont);
+    statusBar()->setFont(guiFont);
+    m_statusFileLabel->setFont(guiFont);
+    m_statusInfoLabel->setFont(guiFont);
+    if (m_menuBtn) m_menuBtn->setFont(guiFont);
+
     QFont termFont;
     termFont.setFamily(m_settings.termFontFamily);
     termFont.setPointSize(m_settings.termFontSize);
+    termFont.setWeight(static_cast<QFont::Weight>(m_settings.termFontWeight));
     termFont.setStyleHint(QFont::Monospace);
     termFont.setFixedPitch(true);
     m_terminal->terminal()->setTerminalFont(termFont);
     m_terminal->terminal()->setColorScheme(m_settings.terminalColorScheme);
     m_bottomTerminal->terminal()->setTerminalFont(termFont);
     m_bottomTerminal->terminal()->setColorScheme(m_settings.terminalColorScheme);
+    m_bottomTerminal2->terminal()->setTerminalFont(termFont);
+    m_bottomTerminal2->terminal()->setColorScheme(m_settings.terminalColorScheme);
 
     QFont promptFont(m_settings.promptFontFamily, m_settings.promptFontSize);
+    promptFont.setWeight(static_cast<QFont::Weight>(m_settings.promptFontWeight));
     m_editor->setFont(promptFont);
     m_editor->setStyleSheet(
         QString("QPlainTextEdit { background-color: %1; color: %2; font-family: '%3'; font-size: %4pt; }")
@@ -751,6 +838,7 @@ void MainWindow::applySettings()
     m_editor->setHighlightCurrentLine(m_settings.promptHighlightLine);
 
     QFont browserFont(m_settings.browserFontFamily, m_settings.browserFontSize);
+    browserFont.setWeight(static_cast<QFont::Weight>(m_settings.browserFontWeight));
     m_fileBrowser->setFont(browserFont);
     m_fileBrowser->setTheme(m_settings.browserTheme, m_settings.bgColor, m_settings.textColor);
     m_fileBrowser->setGitignoreVisibility(m_settings.gitignoreVisibility);
@@ -758,17 +846,27 @@ void MainWindow::applySettings()
 
     // Diff viewer
     QFont diffFont(m_settings.diffFontFamily, m_settings.diffFontSize);
+    diffFont.setWeight(static_cast<QFont::Weight>(m_settings.diffFontWeight));
     m_diffViewer->setViewerFont(diffFont);
     m_diffViewer->setViewerColors(m_settings.bgColor, m_settings.textColor);
 
     // Changes monitor
     QFont changesFont(m_settings.changesFontFamily, m_settings.changesFontSize);
+    changesFont.setWeight(static_cast<QFont::Weight>(m_settings.changesFontWeight));
     m_changesMonitor->setViewerFont(changesFont);
     m_changesMonitor->setViewerColors(m_settings.bgColor, m_settings.textColor);
 
     // Git graph
-    m_gitGraph->setViewerFont(QFont(m_settings.diffFontFamily, m_settings.diffFontSize));
+    QFont gitGraphFont(m_settings.diffFontFamily, m_settings.diffFontSize);
+    gitGraphFont.setWeight(static_cast<QFont::Weight>(m_settings.diffFontWeight));
+    m_gitGraph->setViewerFont(gitGraphFont);
     m_gitGraph->setViewerColors(m_settings.bgColor, m_settings.textColor);
+
+    // Markdown previews — update font
+    for (auto *mdp : m_mdPreviews) {
+        QFont previewFont(m_settings.editorFontFamily, m_settings.editorFontSize);
+        mdp->setFont(previewFont);
+    }
 
     for (int i = 1; i < m_tabWidget->count(); ++i) {
         auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(i));
@@ -852,6 +950,28 @@ void MainWindow::onFileOpened(const QString &filePath)
     int idx = m_tabWidget->addTab(editor, info.fileName());
     m_tabWidget->setTabToolTip(idx, filePath);
     m_tabWidget->setCurrentIndex(idx);
+
+    // Add preview button for markdown files
+    QString sfx = info.suffix().toLower();
+    if (sfx == "md" || sfx == "markdown" || sfx == "mkd" || sfx == "mdx") {
+        auto *previewBtn = new QToolButton;
+        previewBtn->setText("\xF0\x9F\x91\x81");  // 👁 eye emoji
+        previewBtn->setToolTip("Markdown Preview");
+        previewBtn->setAutoRaise(true);
+        previewBtn->setFixedSize(20, 20);
+        previewBtn->setStyleSheet("QToolButton { border: none; padding: 0; font-size: 12px; }");
+        connect(previewBtn, &QToolButton::clicked, this, [this, editor]() {
+            // Switch to editor tab first so toggleMarkdownPreview finds it
+            for (int i = 0; i < m_tabWidget->count(); ++i) {
+                if (m_tabWidget->widget(i) == editor) {
+                    m_tabWidget->setCurrentIndex(i);
+                    break;
+                }
+            }
+            toggleMarkdownPreview();
+        });
+        m_tabWidget->tabBar()->setTabButton(idx, QTabBar::LeftSide, previewBtn);
+    }
 
     m_fileWatcher->addPath(filePath);
 
@@ -1090,22 +1210,14 @@ void MainWindow::closeTab(QTabWidget *tabWidget, int index)
 {
     if (index == 0) return; // never close AI-terminal
     QWidget *w = tabWidget->widget(index);
-    // Handle markdown preview tab — don't delete, just hide
-    if (w == m_mdPreview) {
+    // Handle markdown preview tab — delete it
+    if (auto *mdp = qobject_cast<MarkdownPreview *>(w)) {
         tabWidget->removeTab(index);
-        m_mdPreviewVisible = false;
-        if (m_mdPreviewEditor) {
-            disconnect(m_mdPreviewEditor, &QPlainTextEdit::textChanged, m_mdPreview, nullptr);
-            m_mdPreviewEditor = nullptr;
-        }
+        m_mdPreviews.removeOne(mdp);
+        mdp->deleteLater();
         return;
     }
     if (!maybeSaveTab(tabWidget, index)) return;
-    // If this editor is the source for markdown preview, disconnect it
-    if (m_mdPreviewEditor && w == m_mdPreviewEditor) {
-        disconnect(m_mdPreviewEditor, &QPlainTextEdit::textChanged, m_mdPreview, nullptr);
-        m_mdPreviewEditor = nullptr;
-    }
     QString path = tabWidget->tabToolTip(index);
     if (!path.isEmpty())
         m_fileWatcher->removePath(path);
@@ -1144,11 +1256,14 @@ void MainWindow::onSendClicked()
 {
     QString text = m_editor->toPlainText();
     if (!text.isEmpty()) {
+        m_lastPrompt = text;
+        m_repeatPromptBtn->setEnabled(true);
         if (m_project.isLoaded())
             m_project.addPrompt(text);
         m_terminal->sendText(text);
         m_editor->clear();
-        m_tabWidget->setCurrentIndex(0);
+        if (!m_settings.promptStayOnTab)
+            m_tabWidget->setCurrentIndex(0);
     }
 }
 
@@ -1383,14 +1498,20 @@ void MainWindow::onEditProject()
     if (!cfg.gitRemote.isEmpty()) {
         QString dir = m_fileBrowser->rootPath();
         if (QDir(dir + "/.git").exists()) {
-            QProcess git;
-            git.setWorkingDirectory(dir);
-            git.start("git", {"remote", "set-url", "origin", cfg.gitRemote});
-            git.waitForFinished(3000);
-            if (git.exitCode() != 0) {
-                git.start("git", {"remote", "add", "origin", cfg.gitRemote});
-                git.waitForFinished(3000);
-            }
+            auto *git = new QProcess(this);
+            git->setWorkingDirectory(dir);
+            connect(git, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                    this, [git, dir, remote = cfg.gitRemote](int exitCode, QProcess::ExitStatus) {
+                if (exitCode != 0) {
+                    auto *git2 = new QProcess(git->parent());
+                    git2->setWorkingDirectory(dir);
+                    connect(git2, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                            git2, &QObject::deleteLater);
+                    git2->start("git", {"remote", "add", "origin", remote});
+                }
+                git->deleteLater();
+            });
+            git->start("git", {"remote", "set-url", "origin", cfg.gitRemote});
         }
     }
 
@@ -1415,7 +1536,14 @@ void MainWindow::onFileChanged(const QString &path)
             if (editor->toPlainText() == content) break;
 
             int cursorPos = editor->textCursor().position();
+
+            // Set savedContent BEFORE setPlainText — because setPlainText
+            // triggers contentsChanged synchronously which compares to savedContent
+            editor->setProperty("savedContent", content);
             editor->setPlainText(content);
+            editor->document()->setModified(false);
+            QString name = QFileInfo(path).fileName();
+            m_tabWidget->setTabText(i, name);
 
             QTextCursor cursor = editor->textCursor();
             cursor.setPosition(qMin(cursorPos, editor->document()->characterCount() - 1));
@@ -1554,28 +1682,10 @@ void MainWindow::unsplitEditor()
 
 void MainWindow::toggleMarkdownPreview()
 {
-    // If preview tab is open, close it
-    if (m_mdPreviewVisible) {
-        for (int i = 0; i < m_tabWidget->count(); ++i) {
-            if (m_tabWidget->widget(i) == m_mdPreview) {
-                m_tabWidget->removeTab(i);
-                break;
-            }
-        }
-        m_mdPreviewVisible = false;
-        // Disconnect live updates from previous editor
-        if (m_mdPreviewEditor) {
-            disconnect(m_mdPreviewEditor, &QPlainTextEdit::textChanged, m_mdPreview, nullptr);
-            m_mdPreviewEditor = nullptr;
-        }
-        return;
-    }
-
     // Get current editor
     auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->currentWidget());
     if (!editor) return;
 
-    // Check if current file is markdown
     QString filePath = m_tabWidget->tabToolTip(m_tabWidget->currentIndex());
     QString suffix = QFileInfo(filePath).suffix().toLower();
     if (suffix != "md" && suffix != "markdown" && suffix != "mkd" && suffix != "mdx") {
@@ -1583,43 +1693,70 @@ void MainWindow::toggleMarkdownPreview()
         return;
     }
 
-    // Update theme/font (may have changed since init)
-    bool dark = m_settings.globalTheme.contains("Dark") || m_settings.globalTheme == "Monokai" || m_settings.globalTheme == "Nord";
-    m_mdPreview->setDarkMode(dark);
-    QFont previewFont;
-    previewFont.setFamily(m_settings.editorFontFamily);
-    previewFont.setPointSize(m_settings.editorFontSize);
-    m_mdPreview->setFont(previewFont);
+    // If a preview for this editor already exists, close it (toggle off)
+    for (int i = 0; i < m_tabWidget->count(); ++i) {
+        auto *mdp = qobject_cast<MarkdownPreview *>(m_tabWidget->widget(i));
+        if (mdp && mdp->property("sourceEditor").value<QWidget *>() == editor) {
+            m_tabWidget->removeTab(i);
+            m_mdPreviews.removeOne(mdp);
+            mdp->deleteLater();
+            return;
+        }
+    }
 
-    // Add as tab
+    // Create a new preview for this file
+    auto *preview = new MarkdownPreview(this);
+    preview->setProperty("sourceEditor", QVariant::fromValue<QWidget *>(editor));
+
+    bool dark = m_settings.globalTheme.contains("Dark") || m_settings.globalTheme == "Monokai" || m_settings.globalTheme == "Nord";
+    preview->setDarkMode(dark);
+    QFont previewFont(m_settings.editorFontFamily, m_settings.editorFontSize);
+    preview->setFont(previewFont);
+
     QString tabName = "Preview: " + QFileInfo(filePath).fileName();
-    int idx = m_tabWidget->addTab(m_mdPreview, tabName);
+    int idx = m_tabWidget->addTab(preview, tabName);
     m_tabWidget->setCurrentIndex(idx);
-    m_mdPreviewVisible = true;
+    m_mdPreviews.append(preview);
 
     // Initial content
-    m_mdPreview->updateContent(editor->toPlainText());
+    preview->updateContent(editor->toPlainText());
 
-    // Live updates — connect to the source editor
-    m_mdPreviewEditor = editor;
-    connect(editor, &QPlainTextEdit::textChanged, m_mdPreview, [this, editor]() {
-        if (!m_mdPreviewVisible) return;
-        m_mdPreview->updateContent(editor->toPlainText());
+    // Live updates
+    connect(editor, &QPlainTextEdit::textChanged, preview, [preview, editor]() {
+        preview->updateContent(editor->toPlainText());
     });
+    // Clean up if source editor is destroyed
+    connect(editor, &QObject::destroyed, preview, [this, preview]() {
+        for (int i = 0; i < m_tabWidget->count(); ++i) {
+            if (m_tabWidget->widget(i) == preview) {
+                m_tabWidget->removeTab(i);
+                break;
+            }
+        }
+        m_mdPreviews.removeOne(preview);
+        preview->deleteLater();
+    });
+}
+
+MarkdownPreview *MainWindow::currentMarkdownPreview()
+{
+    return qobject_cast<MarkdownPreview *>(m_tabWidget->currentWidget());
 }
 
 void MainWindow::exportMarkdownToPdf()
 {
-    if (!m_mdPreviewVisible) {
+    auto *preview = currentMarkdownPreview();
+    if (!preview) {
         notify("Open Markdown Preview first (Ctrl+M)", 1);
         return;
     }
 
     // Suggest filename based on source file
     QString suggested = "preview.pdf";
-    if (m_mdPreviewEditor) {
+    auto *srcEditor = preview->property("sourceEditor").value<QWidget *>();
+    if (srcEditor) {
         for (int i = 0; i < m_tabWidget->count(); ++i) {
-            if (m_tabWidget->widget(i) == m_mdPreviewEditor) {
+            if (m_tabWidget->widget(i) == srcEditor) {
                 QString path = m_tabWidget->tabToolTip(i);
                 if (!path.isEmpty()) {
                     QFileInfo fi(path);
@@ -1633,9 +1770,9 @@ void MainWindow::exportMarkdownToPdf()
     QString filePath = QFileDialog::getSaveFileName(this, "Export to PDF", suggested, "PDF Files (*.pdf)");
     if (filePath.isEmpty()) return;
 
-    m_mdPreview->exportToPdf(filePath, m_settings.pdfMarginLeft, m_settings.pdfMarginRight,
-                             m_settings.pdfPageNumbering, m_settings.pdfOrientation == "landscape",
-                             m_settings.pdfPageBorder);
+    preview->exportToPdf(filePath, m_settings.pdfMarginLeft, m_settings.pdfMarginRight,
+                         m_settings.pdfPageNumbering, m_settings.pdfOrientation == "landscape",
+                         m_settings.pdfPageBorder);
     notify("PDF exported: " + QFileInfo(filePath).fileName(), 3);
 }
 

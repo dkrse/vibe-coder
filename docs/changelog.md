@@ -2,6 +2,36 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.12.0] - 2026-03-18
+
+### Added
+- **Multiple Markdown Previews** — each `.md` file can have its own independent preview tab (no more single-preview limit). Ctrl+M toggles preview for the current file. Closing the source editor auto-closes its preview
+- **Markdown tab preview icon** — `.md` file tabs show a 👁 button on the left side for quick preview toggle without switching tabs first
+- **Syntax-highlighted code blocks** — bundled highlight.js 11.9.0 with 46+ language modules: x86asm, armasm, avrasm, mipsasm, glsl, vhdl, verilog, cmake, dockerfile, makefile, gradle, groovy, kotlin, swift, dart, r, julia, matlab, fortran, delphi, ada, haskell, erlang, elixir, clojure, scheme, lisp, ocaml, fsharp, scala, lua, vim, latex, properties, ini, nginx, apache, protobuf, thrift, graphql, wasm, arduino, powershell, dos, tcl, awk (plus all core languages: C, C++, Python, JS, TS, Rust, Go, Java, etc.)
+- **VS Code-style code themes** — VS2015 (dark) and VS (light) highlight.js themes for code blocks in markdown preview
+- **Context-dependent zoom** — Ctrl+= / Ctrl+- now zooms only the focused component: code editor changes `editorFontSize`, prompt changes `promptFontSize`, file browser changes `browserFontSize`, markdown preview changes WebEngine zoom factor
+- **Markdown preview zoom** — `zoomIn()`/`zoomOut()` methods on MarkdownPreview using QWebEngineView zoom factor (0.25x–5.0x range)
+
+### Fixed
+- **First-use preview flicker** — hidden QWebEngineView (0x0) pre-initializes Chromium engine at startup, eliminating the full-window flicker when opening the first markdown preview
+- **dlopen memory leak** — if `dlsym` fails to find `cmark_markdown_to_html`, the library handle is now properly closed with `dlclose` instead of being leaked
+- **Rename path traversal** — rename operation now validates against null bytes (`\0`) and newlines (`\n`), matching the validation in "New File" and "New Directory" operations
+- **SSH tunnel process cleanup** — replaced `delete t.process` with `deleteLater()` on tunnel start failure to avoid deleting while signal handlers may be pending
+- **SSH rsync check cleanup** — added `errorOccurred` handler to the async `which rsync` process to ensure cleanup if the process fails to start
+- **Git remote async** — `git remote set-url`/`add` operations converted from blocking `waitForFinished()` to async `QProcess::finished` signal (no more UI freeze)
+
+### Security
+- **WebEngine hardening** — disabled `PluginsEnabled`, `PdfViewerEnabled`, and `NavigateOnDropEnabled` in markdown preview to reduce attack surface
+
+### Dependencies
+- **highlight.js** — bundled as Qt resource (`src/resources/highlight.min.js`, ~270KB with 46 language modules)
+- **highlight.js themes** — VS2015 dark (`hljs-dark.min.css`) and VS light (`hljs-light.min.css`)
+
+### Documentation
+- **README** — fixed Debian package name (`libqtermwidget-dev` instead of `libqtermwidget6-1-dev`), added `qt6-webchannel-dev` to Debian deps, removed unnecessary `libutf8proc-dev` and `utf8proc-devel`, updated feature descriptions for multiple previews, syntax highlighting, context-dependent zoom, offline operation
+- **Architecture** — updated for multiple preview instances, highlight.js integration, KaTeX math support, security hardening, context-dependent zoom
+- **Diagrams** — updated class diagram and markdown preview flow for multi-instance architecture
+
 ## [0.11.0] - 2026-03-14
 
 ### Added
@@ -24,7 +54,7 @@ All notable changes to Vibe Coder are documented in this file.
 ## [0.10.0] - 2026-03-14
 
 ### Added
-- **Markdown Preview (Ctrl+M)** — live preview for `.md` files as editor tab. Uses QWebEngineView with bundled mermaid.js (~3MB) for diagram rendering. libcmark for markdown conversion (dlopen, optional) with regex fallback. 500ms debounced live updates. Dark/light theme variants. Pre-created at startup to avoid flicker
+- **Markdown Preview (Ctrl+M)** — live preview for `.md` files as editor tab. Uses QWebEngineView with bundled mermaid.js (~3MB) for diagram rendering. libcmark for markdown conversion (dlopen, optional) with regex fallback. 500ms debounced live updates. Dark/light theme variants
 - **Mermaid diagram rendering** — `\`\`\`mermaid` code blocks rendered as actual diagrams via embedded mermaid.js. Works fully offline, no CDN dependencies
 - **Commit dialog** — commit button moved to Git tab toolbar. Shows themed dialog with editable commit message (default: timestamp). Runs `git add .` + `git commit -m "message"`
 - **Git user info** — User button in Git tab toolbar shows `git config --global user.name/email`. Click to edit via themed dialog
