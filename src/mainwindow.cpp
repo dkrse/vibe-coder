@@ -239,6 +239,14 @@ MainWindow::MainWindow(QWidget *parent)
     m_gitGraph = new GitGraph;
     m_bottomTabWidget->addTab(m_gitGraph, "Git");
 
+    // Workspace search tab (created early so currentChanged handler can reference it)
+    m_workspaceSearch = new WorkspaceSearch;
+    m_bottomTabWidget->addTab(m_workspaceSearch, "Search");
+
+    // Git blame tab (created early so currentChanged handler can reference it)
+    m_gitBlame = new GitBlame;
+    m_bottomTabWidget->addTab(m_gitBlame, "Blame");
+
     connect(m_gitGraph, &GitGraph::outputMessage, this, [this](const QString &msg, int level) {
         notify(msg, level);
     });
@@ -276,6 +284,9 @@ MainWindow::MainWindow(QWidget *parent)
         } else if (m_bottomTabWidget->widget(idx) == m_changesMonitor) {
             // Clear badge
             m_bottomTabWidget->setTabText(idx, "Changes");
+        } else if (m_bottomTabWidget->widget(idx) == m_gitBlame) {
+            // Auto-blame current file when switching to Blame tab
+            blameCurrentFile();
         }
     });
 
@@ -396,6 +407,7 @@ MainWindow::MainWindow(QWidget *parent)
     // File browser directory changes — also update changes monitor
     connect(m_fileBrowser, &FileBrowser::rootPathChanged, this, [this](const QString &path) {
         m_changesMonitor->setProjectDir(path);
+        m_workspaceSearch->setProjectDir(path);
         m_gitGraph->refresh(path);
         if (m_sshManager->activeProfileIndex() >= 0) {
             QString remotePath = m_fileBrowser->toRemotePath(path);
@@ -546,6 +558,41 @@ MainWindow::MainWindow(QWidget *parent)
     setupCommandPalette();
     auto *paletteShortcut = new QShortcut(QKeySequence("Ctrl+Shift+P"), this);
     connect(paletteShortcut, &QShortcut::activated, m_commandPalette, &CommandPalette::show);
+
+    // Fuzzy file opener (Ctrl+P)
+    m_fileOpener = new FileOpener(this);
+    connect(m_fileOpener, &FileOpener::fileSelected, this, &MainWindow::onFileOpened);
+    auto *fileOpenerShortcut = new QShortcut(QKeySequence("Ctrl+P"), this);
+    connect(fileOpenerShortcut, &QShortcut::activated, this, [this]() {
+        m_fileOpener->setRootPath(m_fileBrowser->rootPath());
+        m_fileOpener->show();
+    });
+
+    // Workspace search (Ctrl+Shift+F) — connects for already-created widget
+    connect(m_workspaceSearch, &WorkspaceSearch::fileRequested, this, [this](const QString &path, int line) {
+        onFileOpened(path);
+        // Jump to line
+        int idx = m_tabWidget->currentIndex();
+        auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(idx));
+        if (editor) {
+            QTextCursor cursor = editor->textCursor();
+            cursor.movePosition(QTextCursor::Start);
+            cursor.movePosition(QTextCursor::Down, QTextCursor::MoveAnchor, line - 1);
+            editor->setTextCursor(cursor);
+            editor->centerCursor();
+        }
+    });
+    auto *wsSearchShortcut = new QShortcut(QKeySequence("Ctrl+Shift+F"), this);
+    connect(wsSearchShortcut, &QShortcut::activated, this, [this]() {
+        m_workspaceSearch->setProjectDir(m_fileBrowser->rootPath());
+        m_bottomTabWidget->setCurrentWidget(m_workspaceSearch);
+        m_workspaceSearch->focusSearch();
+    });
+
+    // Git blame — connects for already-created widget
+    connect(m_gitBlame, &GitBlame::outputMessage, this, [this](const QString &msg, int level) {
+        notify(msg, level);
+    });
 
     // Pre-initialize QWebEngine to avoid flicker on first MarkdownPreview
     auto *warmup = new QWebEngineView(this);
@@ -869,6 +916,14 @@ void MainWindow::applySettings()
     gitGraphFont.setWeight(static_cast<QFont::Weight>(m_settings.diffFontWeight));
     m_gitGraph->setViewerFont(gitGraphFont);
     m_gitGraph->setViewerColors(m_settings.bgColor, m_settings.textColor);
+
+    // Workspace search
+    m_workspaceSearch->setViewerFont(diffFont);
+    m_workspaceSearch->setViewerColors(m_settings.bgColor, m_settings.textColor);
+
+    // Git blame
+    m_gitBlame->setViewerFont(diffFont);
+    m_gitBlame->setViewerColors(m_settings.bgColor, m_settings.textColor);
 
     // Markdown previews — update font
     for (auto *mdp : m_mdPreviews) {
@@ -1826,6 +1881,18 @@ void MainWindow::setupCommandPalette()
     m_commandPalette->addCommand("Show Changes", "", [this]() {
         m_bottomTabWidget->setCurrentWidget(m_changesMonitor);
     });
+    m_commandPalette->addCommand("Open File...", "Ctrl+P", [this]() {
+        m_fileOpener->setRootPath(m_fileBrowser->rootPath());
+        m_fileOpener->show();
+    });
+    m_commandPalette->addCommand("Search in Workspace", "Ctrl+Shift+F", [this]() {
+        m_workspaceSearch->setProjectDir(m_fileBrowser->rootPath());
+        m_bottomTabWidget->setCurrentWidget(m_workspaceSearch);
+        m_workspaceSearch->focusSearch();
+    });
+    m_commandPalette->addCommand("Git Blame Current File", "", [this]() {
+        blameCurrentFile();
+    });
 
     // Theme switching commands
     for (const QString &theme : {"Dark", "Dark Soft", "Dark Warm", "Light", "Monokai", "Solarized Dark", "Solarized Light", "Nord"}) {
@@ -2017,13 +2084,27 @@ void MainWindow::saveSession()
     s.setValue("session/browserPath", m_fileBrowser->rootPath());
 
     QStringList openFiles;
+    QList<QVariant> cursorPositions;
+    QList<QVariant> scrollPositions;
     for (int i = 1; i < m_tabWidget->count(); ++i) {
         QString path = m_tabWidget->tabToolTip(i);
-        if (!path.isEmpty())
+        if (!path.isEmpty()) {
             openFiles.append(path);
+            auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(i));
+            if (editor) {
+                cursorPositions.append(editor->textCursor().position());
+                scrollPositions.append(editor->verticalScrollBar()->value());
+            } else {
+                cursorPositions.append(0);
+                scrollPositions.append(0);
+            }
+        }
     }
     s.setValue("session/openFiles", openFiles);
+    s.setValue("session/cursorPositions", cursorPositions);
+    s.setValue("session/scrollPositions", scrollPositions);
     s.setValue("session/activeTab", m_tabWidget->currentIndex());
+    s.setValue("session/bottomTab", m_bottomTabWidget->currentIndex());
 }
 
 void MainWindow::restoreSession()
@@ -2075,12 +2156,47 @@ void MainWindow::restoreSession()
     }
 
     QStringList openFiles = s.value("session/openFiles").toStringList();
-    for (const QString &path : openFiles) {
-        if (QFile::exists(path))
+    QList<QVariant> cursorPositions = s.value("session/cursorPositions").toList();
+    QList<QVariant> scrollPositions = s.value("session/scrollPositions").toList();
+    for (int fi = 0; fi < openFiles.size(); ++fi) {
+        const QString &path = openFiles[fi];
+        if (QFile::exists(path)) {
             onFileOpened(path);
+            // Restore cursor and scroll position
+            int tabIdx = m_tabWidget->count() - 1;
+            auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(tabIdx));
+            if (editor) {
+                if (fi < cursorPositions.size()) {
+                    int pos = cursorPositions[fi].toInt();
+                    QTextCursor cursor = editor->textCursor();
+                    cursor.setPosition(qMin(pos, editor->document()->characterCount() - 1));
+                    editor->setTextCursor(cursor);
+                }
+                if (fi < scrollPositions.size()) {
+                    int scroll = scrollPositions[fi].toInt();
+                    editor->verticalScrollBar()->setValue(scroll);
+                }
+            }
+        }
     }
 
     int activeTab = s.value("session/activeTab", 0).toInt();
     if (activeTab >= 0 && activeTab < m_tabWidget->count())
         m_tabWidget->setCurrentIndex(activeTab);
+
+    int bottomTab = s.value("session/bottomTab", 0).toInt();
+    if (bottomTab >= 0 && bottomTab < m_bottomTabWidget->count())
+        m_bottomTabWidget->setCurrentIndex(bottomTab);
+}
+
+void MainWindow::blameCurrentFile()
+{
+    int idx = m_tabWidget->currentIndex();
+    if (idx < 1) return; // no file tab open — silently do nothing
+
+    QString filePath = m_tabWidget->tabToolTip(idx);
+    if (filePath.isEmpty()) return;
+
+    // Don't re-blame the same file
+    m_gitBlame->blameFile(m_fileBrowser->rootPath(), filePath);
 }

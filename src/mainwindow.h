@@ -26,6 +26,9 @@
 #include "changesmonitor.h"
 #include "gitgraph.h"
 #include "markdownpreview.h"
+#include "fileopener.h"
+#include "workspacesearch.h"
+#include "gitblame.h"
 
 class QSplitter;
 class TitleBar;
@@ -153,4 +156,14 @@ protected:
 
     // Custom title bar
     TitleBar *m_titleBar;
+
+    // Fuzzy file opener (Ctrl+P)
+    FileOpener *m_fileOpener;
+
+    // Workspace search (Ctrl+Shift+F)
+    WorkspaceSearch *m_workspaceSearch;
+
+    // Git blame
+    GitBlame *m_gitBlame;
+    void blameCurrentFile();
 };

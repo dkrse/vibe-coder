@@ -45,6 +45,9 @@ src/
 ├── themeddialog.h/cpp    Frameless dialog wrapper with themed title bar
 ├── zedthemeloader.h/cpp  Zed editor theme JSON parser and color mapper
 ├── markdownpreview.h/cpp Markdown preview with QWebEngineView + mermaid.js + highlight.js + KaTeX
+├── fileopener.h/cpp      Fuzzy file opener popup (Ctrl+P)
+├── workspacesearch.h/cpp Full-text workspace search (Ctrl+Shift+F)
+├── gitblame.h/cpp        Git blame viewer with gutter annotations
 ├── resources/resources.qrc  Qt resource file (bundled JS/CSS/fonts)
 ├── resources/mermaid.min.js Mermaid.js library (~3MB, offline diagram rendering)
 ├── resources/highlight.min.js Highlight.js + 46 language modules (~270KB)
@@ -65,7 +68,7 @@ src/
 - Right panel: vertical splitter (editor splitter | bottom tab widget)
 - Editor splitter: wraps main tab widget, supports horizontal/vertical split view for side-by-side editing
 - Tab widget: AI-terminal (tab 0, non-closable) + editor tabs
-- Bottom tab widget: Prompt tab + Terminal tab + Notifications tab + Diff Viewer tab + Changes tab + Git Graph tab
+- Bottom tab widget: Prompt tab + Terminal tab + Notifications tab + Diff Viewer tab + Changes tab + Git Graph tab + Search tab + Blame tab
 - Hamburger menu (top-right): Create/Edit Project, SSH Connect/Disconnect/Tunnels/Upload/Download, Split Horizontal/Vertical/Unsplit, Settings
 - Command palette (Ctrl+Shift+P): fuzzy-searchable list of all registered commands (split, focus, theme switching, diff refresh)
 - **Unified global theme system:** Built-in themes (Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord) + auto-discovered Zed editor themes. Single global stylesheet cascades to all widgets including title bar, menus, dialogs, tabs, splitters, status bar
@@ -73,7 +76,7 @@ src/
 - Status bar: file info, SSH profile combo, transfer progress bar
 - **Session persistence:** window geometry via `normalGeometry()`, splitter states, open files. Multi-monitor aware: finds target screen by geometry match, uses `setGeometry()` + deferred `showMaximized()`
 - File watcher: auto-reload externally changed files (300ms debounce)
-- Keyboard shortcuts: Ctrl+S save, Ctrl+F find, Ctrl+H find & replace, Ctrl+Shift+P command palette, Ctrl+M markdown preview, Ctrl+= / Ctrl+- context-dependent zoom (editor/prompt/browser/preview)
+- Keyboard shortcuts: Ctrl+S save, Ctrl+F find, Ctrl+H find & replace, Ctrl+P fuzzy file opener, Ctrl+Shift+P command palette, Ctrl+Shift+F workspace search, Ctrl+M markdown preview, Ctrl+= / Ctrl+- context-dependent zoom (editor/prompt/browser/preview)
 - **Stop button** — sends configurable stop sequence to terminal (default: `\x03`), supports escape sequences
 - **Unsaved changes tracking** — `●` tab marker, Save/Discard/Cancel on tab close, Save All/Discard/Cancel on app close
 - **Tab context menu** — Close, Close Others, Close All, Close to Right, Close to Left (all check unsaved changes)
@@ -150,6 +153,8 @@ src/
 - **Large file mode** — files >1MB disable syntax highlighting and line wrapping for performance
 - **O(1) match navigation** — `onFindNext()`/`onFindPrev()` use counter increment instead of O(n) document scan
 - **Optimized line number painting** — reuses QString via `setNum()`, caches font metrics and area width
+- **Bracket matching** — highlights matching `()`, `{}`, `[]` pairs at cursor position via extra selections. Searches forward for opening brackets, backward for closing. Depth-tracked for nested brackets
+- **Auto-close brackets** — typing `(`, `{`, `[`, `"`, `'` inserts closing pair and positions cursor between them. Typing a closing bracket skips over existing one. Backspace between a pair deletes both characters
 
 ### TerminalWidget
 - Thin wrapper around QTermWidget
@@ -283,6 +288,30 @@ src/
 - Configurable font and colors from Settings (uses diff font settings)
 - `outputMessage` signal for notification integration
 
+### FileOpener
+- Popup widget (Ctrl+P) for fuzzy file search and quick opening
+- Scans up to 50,000 files in project directory, skips `.git`, `node_modules`, `__pycache__`, `.LLM`, `build`, `dist`, `.cache`, `venv`, `target`, `cmake-build-*`
+- Fuzzy scoring: substring matches score higher, filename-only matches get bonus, shorter paths preferred
+- Arrow keys navigate, Enter opens, Escape dismisses
+- File list cached per root path, rescan on directory change
+
+### WorkspaceSearch
+- Full-text search across project files (Ctrl+Shift+F), implemented as bottom tab ("Search")
+- Uses system `grep` with `--max-count=500` for performance
+- Excludes `.git`, `node_modules`, `__pycache__`, `build`, `dist`, `.cache`, `target`, `.LLM`
+- Options: case sensitive (`-i`), regex (`-E`) / fixed string (`-F`)
+- Split view: result list (left) + context preview (right, 7 lines around match)
+- Single click shows context, double click opens file at line in editor
+- `fileRequested` signal carries file path + line number; MainWindow opens file and jumps to line
+
+### GitBlame
+- Git blame viewer as bottom tab ("Blame"), auto-triggers when tab is activated with a file open
+- Runs `git blame --porcelain` and parses output (40-char hex hash detection, author, author-time, tab-prefixed code lines)
+- `BlameView` (QPlainTextEdit subclass) with `BlameGutter` widget (same pattern as CodeEditor's LineNumberArea)
+- Gutter shows: commit hash (8 chars), author (16 chars), date — first line of each commit group shows full annotation, subsequent lines show dimmed hash only
+- Alternating background colors per commit for visual grouping
+- Refresh button to re-blame current file
+
 ### NotificationPanel
 - Timestamped log entries with 4 severity levels: Info, Warning, Error, Success
 - QListWidget with color-coded entries and level icons
@@ -324,6 +353,9 @@ src/
 17. **Remote Operations:** Fetch/Pull/Push buttons -> async QProcess -> outputMessage signal -> NotificationPanel; Remotes dialog -> git remote add/set-url/rename/remove
 18. **Markdown Preview:** Ctrl+M on .md file (or 👁 tab button) -> create new MarkdownPreview instance -> add as tab -> connect editor.textChanged -> 500ms debounce -> markdownToHtml (cmark or regex) -> runJavaScript("updateBody(html)") -> hljs.highlightElement() -> mermaid.run() if needed -> renderMathInElement() for KaTeX
 19. **PDF Export:** Command Palette "Export Preview to PDF" -> QFileDialog for path -> injectPrintCss -> printToPdf (QByteArray callback) -> QPdfDocument count pages -> QPdfWriter+QPainter render each page (image + white margin overlays + optional border + optional page number) -> removePrintCss
+20. **Fuzzy File Opener:** Ctrl+P -> FileOpener.show() -> scan project files (cached) -> fuzzy filter on keystroke -> Enter opens file via onFileOpened()
+21. **Workspace Search:** Ctrl+Shift+F -> WorkspaceSearch.focusSearch() -> Enter triggers grep process -> results parsed (file:line:text) -> click shows context preview -> double-click emits fileRequested(path, line) -> MainWindow opens file and jumps to line
+22. **Git Blame:** Blame tab activated (or Command Palette) -> blameCurrentFile() -> GitBlame.blameFile(workDir, filePath) -> async `git blame --porcelain` -> parse output -> BlameView.setBlameData() -> gutter paint with annotations
 
 ## Session Persistence
 
@@ -332,8 +364,9 @@ Stored in QSettings on application close:
 - Target screen identification by geometry match for multi-monitor setups
 - Main splitter and right splitter positions
 - File browser root path
-- List of open file paths
-- Active tab index
+- List of open file paths with per-file cursor positions and scroll positions
+- Active editor tab index
+- Active bottom tab index
 
 ## Security Model
 

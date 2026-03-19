@@ -50,6 +50,12 @@ add_executable(vibe-coder
     src/themeddialog.h
     src/markdownpreview.cpp
     src/markdownpreview.h
+    src/fileopener.cpp
+    src/fileopener.h
+    src/workspacesearch.cpp
+    src/workspacesearch.h
+    src/gitblame.cpp
+    src/gitblame.h
     src/resources/resources.qrc
 )
 

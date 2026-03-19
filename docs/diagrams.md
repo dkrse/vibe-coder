@@ -32,6 +32,8 @@ graph TB
                     DV[Diff Viewer Tab]
                     CM[Changes Tab]
                     GG[Git Graph Tab: Commit/Fetch/Pull/Push/User/Remotes]
+                    WS[Search Tab: Workspace Search]
+                    GB[Blame Tab: Git Blame]
                 end
             end
         end
@@ -69,6 +71,11 @@ classDiagram
     QObject <|-- SshManager
     QWidget <|-- MarkdownPreview
     QTreeView <|-- FileBrowserTreeView
+    QWidget <|-- FileOpener
+    QWidget <|-- WorkspaceSearch
+    QWidget <|-- GitBlame
+    QPlainTextEdit <|-- BlameView
+    QWidget <|-- BlameGutter
 
     MainWindow --> TitleBar
     MainWindow --> FileBrowser
@@ -84,7 +91,12 @@ classDiagram
     MainWindow --> DiffViewer
     MainWindow --> GitGraph
     MainWindow --> MarkdownPreview : m_mdPreviews list
+    MainWindow --> FileOpener
+    MainWindow --> WorkspaceSearch
+    MainWindow --> GitBlame
     GitGraph --> GitGraphView
+    GitBlame --> BlameView
+    BlameView --> BlameGutter
     FileBrowser --> FileBrowserTreeView
 
     FileBrowser --> FileItemDelegate
@@ -132,6 +144,10 @@ classDiagram
         +splitEditorHorizontal()
         +splitEditorVertical()
         +unsplitEditor()
+        +blameCurrentFile()
+        -FileOpener* m_fileOpener
+        -WorkspaceSearch* m_workspaceSearch
+        -GitBlame* m_gitBlame
     }
 
     class FileBrowser {
@@ -190,6 +206,8 @@ classDiagram
         +showFindBar()
         +hideFindBar()
         +setHighlightCurrentLine(bool)
+        +setBracketMatching(bool)
+        +setAutoCloseBrackets(bool)
     }
 
     class AppSettings {

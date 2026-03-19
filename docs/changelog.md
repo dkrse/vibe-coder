@@ -2,6 +2,23 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.14.0] - 2026-03-19
+
+### Added
+- **Fuzzy File Opener (Ctrl+P)** — popup for quick file opening by name with fuzzy matching. Scans up to 50k files, skips build/cache directories (`.git`, `node_modules`, `build`, `dist`, `.cache`, `target`, etc.). Scoring prioritizes substring matches in filename over path. Arrow keys navigate, Enter opens, Escape dismisses. File list cached per root path
+- **Workspace Search (Ctrl+Shift+F)** — full-text search across project files as bottom tab ("Search"). Uses system `grep` with `--max-count=500`. Options: case sensitive, regex/fixed string. Split view with result list + context preview (7 lines around match). Double-click opens file at line in editor
+- **Git Blame** — per-line blame annotations as bottom tab ("Blame"). Auto-blames current file when tab is activated. Runs `git blame --porcelain`, displays commit hash, author, date in a gutter widget. Alternating background colors per commit. Refresh button for re-blame
+- **Bracket matching** — highlights matching `()`, `{}`, `[]` pairs at cursor position in code editor. Depth-tracked for nested brackets, searches forward for opening brackets, backward for closing
+- **Auto-close brackets** — typing `(`, `{`, `[`, `"`, `'` auto-inserts closing pair and positions cursor between them. Typing a closing bracket skips over existing one. Backspace between a pair deletes both characters
+
+### Enhanced
+- **Session restore** — now saves and restores per-file cursor positions and scroll positions, plus active bottom tab index. Previously only saved file paths and active editor tab
+
+### New Files
+- `src/fileopener.h/cpp` — FileOpener popup widget
+- `src/workspacesearch.h/cpp` — WorkspaceSearch bottom tab widget
+- `src/gitblame.h/cpp` — GitBlame + BlameView + BlameGutter widgets
+
 ## [0.13.0] - 2026-03-19
 
 ### Added

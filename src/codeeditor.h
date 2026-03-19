@@ -135,6 +135,12 @@ public:
     void showFindBar(bool withReplace = false);
     void hideFindBar();
 
+    void setBracketMatching(bool enable);
+    bool bracketMatching() const { return m_bracketMatching; }
+
+    void setAutoCloseBrackets(bool enable);
+    bool autoCloseBrackets() const { return m_autoClose; }
+
 protected:
     void resizeEvent(QResizeEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
@@ -166,4 +172,10 @@ private:
     void positionFindBar();
     int m_currentMatch = -1;
     int m_totalMatches = 0;
+
+    // Bracket matching
+    bool m_bracketMatching = true;
+    bool m_autoClose = true;
+    void highlightMatchingBracket();
+    int findMatchingBracket(int pos, QChar open, QChar close, bool forward) const;
 };

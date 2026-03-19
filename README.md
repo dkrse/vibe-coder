@@ -9,12 +9,12 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 ## Features
 
 - **File Browser** — Zed editor-style tree view with git status colors (modified, untracked, added, ignored), context menu (new file/dir, rename, delete), drag & drop file moving. Configurable visibility for gitignored files and .git directory (visible/grayed/hidden). Instant git status updates via QFileSystemWatcher + 10s polling. Works over SSH via sshfs
-- **Code Editor** — Tabbed editor with syntax highlighting for C/C++, Python, JavaScript/TypeScript, Rust. Line numbers, Ctrl+S save. Split view (horizontal/vertical). Find & Replace (Ctrl+F/Ctrl+H) with yellow match highlighting and scrollbar markers. Undo/Redo. Unsaved changes tracking with `●` tab marker. Configurable current line highlighting
+- **Code Editor** — Tabbed editor with syntax highlighting for C/C++, Python, JavaScript/TypeScript, Rust. Line numbers, Ctrl+S save. Split view (horizontal/vertical). Find & Replace (Ctrl+F/Ctrl+H) with yellow match highlighting and scrollbar markers. Undo/Redo. Unsaved changes tracking with `●` tab marker. Configurable current line highlighting. **Bracket matching** — highlights matching `()`, `{}`, `[]` pairs at cursor. **Auto-close brackets** — typing `(`, `{`, `[`, `"`, `'` auto-inserts the closing pair; Backspace between a pair deletes both; typing a closing bracket skips over it if already present
 - **Dual Terminals** — AI-terminal (top, sends prompts) + general Terminal (bottom tab). Both follow file browser directory and support SSH. Stop button sends configurable stop sequence (default: Ctrl+C)
 - **Prompt System** — Prompt input with configurable send key (Enter / Ctrl+Enter). Shift modifier = send + save. Saved/recurring prompts per project
 - **Project Management** — `.LLM/instructions.json` stores project metadata, numbered prompt history, and saved prompt IDs. Auto-creates `.gitignore`
 - **Markdown Preview** — Ctrl+M opens live preview for `.md` files. Multiple previews can be open simultaneously (one per .md file). Markdown tab icon (👁) for quick toggle. Syntax-highlighted code blocks via bundled highlight.js (46+ languages including assembly, VHDL, GLSL, LaTeX, etc.). KaTeX math rendering ($$...$$ and $...$). Mermaid diagram rendering. Dark/light themes (VS2015/VS style for code). Optional libcmark for conversion with regex fallback. 500ms debounced live updates. Context-dependent zoom (Ctrl+=/Ctrl+- affects only the focused component). **PDF Export** via Command Palette — renders preview to PDF with configurable margins, orientation, page numbering, and optional page border
-- **Git Integration** — Commit button in Git tab with editable commit message dialog (auto-init + add + commit). Auto-filters sensitive files (.env, *.pem, *.key). Async git status with instant updates for file browser colors. **Git Graph tab** with visual commit history, branch/merge visualization, Fetch/Pull/Push, upstream tracking, git user info editing, and multi-remote management
+- **Git Integration** — Commit button in Git tab with editable commit message dialog (auto-init + add + commit). Auto-filters sensitive files (.env, *.pem, *.key). Async git status with instant updates for file browser colors. **Git Graph tab** with visual commit history, branch/merge visualization, Fetch/Pull/Push, upstream tracking, git user info editing, and multi-remote management. **Git Blame** — per-line blame annotations with commit hash, author, and date in a dedicated bottom tab; auto-blames current file on tab switch
 - **Changes Monitor** — Real-time file change tracking with diff preview (cached) and one-click revert to git version
 - **Diff Viewer** — Git diff viewer with syntax highlighting (working changes, staged, last commit)
 - **SSH Remote Development**
@@ -25,13 +25,15 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
   - SSH port forwarding management (local -L / remote -R tunnels)
   - Saved connections (passwords never persisted, memfd_create on Linux)
   - Terminals auto-cd when opening remote files
-- **Command Palette** — Ctrl+Shift+P for fuzzy-searchable commands (split view, focus, themes, diff refresh)
+- **Fuzzy File Opener** — Ctrl+P for quick file opening by name with fuzzy matching. Scans up to 50k files, skips build/cache directories, scores by substring and filename match
+- **Workspace Search** — Ctrl+Shift+F for full-text search across the entire project. Case-sensitive and regex options, result preview with context, double-click to open file at line
+- **Command Palette** — Ctrl+Shift+P for fuzzy-searchable commands (split view, focus, themes, diff refresh, blame, search)
 - **Notifications** — Centralized log with Info/Warning/Error/Success levels and unread badge
 - **Custom Title Bar** — VS Code/Zed-style frameless window (CSD) with themed minimize/maximize/close buttons. All dialogs use themed title bars
 - **Global Themes** — Unified theme system: Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord. Auto-imports installed Zed editor themes. Live switching without restart
 - **Widget Styles** — Configurable Qt widget style (Fusion, Windows, Breeze, Adwaita, Oxygen, Kvantum). Auto-detects installed Qt6 style plugins. Affects button shapes, scrollbars, checkboxes, and other GUI component rendering
 - **Settings** — Tabbed dialog with configurable fonts, sizes, global theme, and widget style for all components (terminal, editor, file browser, prompt, diff viewer, changes monitor, visibility, PDF export)
-- **Session Persistence** — Remembers window size, splitter positions, open files, active tab. Multi-monitor aware
+- **Session Persistence** — Remembers window size, splitter positions, open files, active tab, cursor positions, scroll positions, and active bottom tab. Multi-monitor aware
 - **Fully Offline** — All resources (mermaid.js, KaTeX, highlight.js, fonts) are bundled with integrity verification on startup. No network requests. WebEngine remote URL access explicitly disabled
 
 ## Installation
@@ -111,15 +113,18 @@ make -j$(nproc)
 8. **SSH Tunnels** — Hamburger menu (☰) → SSH Tunnels. Create local (-L) or remote (-R) port forwards
 9. **Upload/Download** — Hamburger menu (☰) → SSH Upload/Download. Transfers via sshfs mount with progress
 10. **Commit** — Click Commit in Git tab. Enter commit message (default: timestamp), auto-initializes git if needed, stages all files, commits
-11. **Command Palette** — Ctrl+Shift+P to search and execute commands (split view, focus panels, switch themes)
-12. **Changes Monitor** — Bottom "Changes" tab shows real-time file modifications with diff preview and revert
-13. **Git Graph** — Bottom "Git" tab shows commit history as a visual graph. Use Fetch/Pull/Push buttons, manage remotes via "Remotes" button
-14. **Settings** — Hamburger menu (☰) → Settings. Tabbed dialog for fonts, themes, and behavior
-15. **Zed Themes** — Install themes in Zed editor and they automatically appear in Settings and command palette
-16. **Markdown Preview** — Open a `.md` file and press Ctrl+M (or click the 👁 icon on the tab). Multiple previews can be open at once. Press Ctrl+M again to close the current preview
-17. **Export to PDF** — With preview open, use Command Palette (Ctrl+Shift+P) → "Export Preview to PDF". Configure margins, orientation, page numbering, and border in Settings > PDF
-18. **Git User** — Click "User" in Git tab to view/edit git global name and email
-19. **Zoom** — Ctrl+= / Ctrl+- zooms only the focused component (editor, prompt, file browser, or markdown preview)
+11. **Quick Open** — Ctrl+P to fuzzy-search and open any file in the project by name
+12. **Workspace Search** — Ctrl+Shift+F to search text across all project files. Double-click a result to jump to the file and line
+13. **Git Blame** — Open a file, then click the "Blame" tab at the bottom (or Command Palette → "Git Blame Current File") to see per-line blame annotations
+14. **Command Palette** — Ctrl+Shift+P to search and execute commands (split view, focus panels, switch themes, blame, search)
+15. **Changes Monitor** — Bottom "Changes" tab shows real-time file modifications with diff preview and revert
+16. **Git Graph** — Bottom "Git" tab shows commit history as a visual graph. Use Fetch/Pull/Push buttons, manage remotes via "Remotes" button
+17. **Settings** — Hamburger menu (☰) → Settings. Tabbed dialog for fonts, themes, and behavior
+18. **Zed Themes** — Install themes in Zed editor and they automatically appear in Settings and command palette
+19. **Markdown Preview** — Open a `.md` file and press Ctrl+M (or click the 👁 icon on the tab). Multiple previews can be open at once. Press Ctrl+M again to close the current preview
+20. **Export to PDF** — With preview open, use Command Palette (Ctrl+Shift+P) → "Export Preview to PDF". Configure margins, orientation, page numbering, and border in Settings > PDF
+21. **Git User** — Click "User" in Git tab to view/edit git global name and email
+22. **Zoom** — Ctrl+= / Ctrl+- zooms only the focused component (editor, prompt, file browser, or markdown preview)
 
 ## Documentation
 
