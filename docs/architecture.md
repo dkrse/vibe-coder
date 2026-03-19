@@ -252,23 +252,22 @@ src/
 - **Multiple instances** — each `.md` file can have its own independent preview tab. Source editor tracked via `QObject::property("sourceEditor")`. Closing source editor auto-closes preview via `QObject::destroyed` signal
 - **Markdown conversion:** libcmark loaded via `dlopen()` at runtime (tries libcmark.so, .so.0, etc.). Falls back to built-in regex converter supporting: headings, bold/italic/strikethrough, code blocks with language class, tables, lists, blockquotes, horizontal rules, links, images. If `dlsym` fails, handle is properly `dlclose`d (no leak)
 - **GFM table support:** plain libcmark lacks table support, so tables are pre-extracted via `extractAndConvertTables()` before cmark processing. Supports header/body separation, alignment markers (`:---:`, `---:`), and HTML escaping. Placeholders survive cmark's `<p>` wrapping and are restored after conversion
-- **Syntax highlighting:** highlight.js 11.9.0 bundled with 46+ language modules (core + x86asm, armasm, avrasm, mipsasm, glsl, vhdl, verilog, cmake, dockerfile, makefile, kotlin, swift, dart, julia, matlab, fortran, haskell, erlang, elixir, clojure, scala, lua, latex, protobuf, graphql, wasm, arduino, powershell, and more). VS2015 (dark) and VS (light) themes. `hljs.highlightElement()` called on every content update for `<code>` blocks with language class
-- **KaTeX math** — bundled KaTeX JS + CSS + woff2 fonts. Supports `$$...$$` (display), `$...$` (inline), `\(...\)`, `\[...\]` delimiters. Math expressions protected from markdown processing before conversion, restored as HTML-escaped text for KaTeX to render
-- **Mermaid diagrams:** mermaid.js (~3MB) bundled as Qt resource, extracted to temp dir at startup. Loaded via `<script src="file://...">` to avoid QWebEngineView's 2MB `setHtml()` limit
-- **Rendering architecture:** base HTML page (CSS + mermaid.js + highlight.js + KaTeX) loaded once from temp file. Content updates via `runJavaScript("updateBody('...')")` — no page reload, preserves scroll position. Update pipeline: innerHTML → highlight.js → mermaid.run() → KaTeX renderMathInElement()
+- **Syntax highlighting:** highlight.js 11.9.0 bundled with 46+ language modules. VS2015 (dark) and VS (light) themes. `hljs.highlightAll()` called on every page load
+- **KaTeX math** — bundled KaTeX JS + CSS + woff2 fonts. Supports `$$...$$` (display) and `$...$` (inline) delimiters. Math wrapped in `<span class="katex-display">` / `<span class="katex-inline">` for both cmark and regex paths. `katex.render()` called per element. Code spans and fenced code blocks are masked before math detection to prevent `$` inside code from being misinterpreted as math delimiters
+- **Mermaid diagrams:** mermaid.js (~3MB) bundled as Qt resource, extracted to temp dir at startup. Mermaid blocks rendered as `<div class="mermaid">` with `suppressErrors` and error styling fallback
+- **Rendering architecture (file-based):** each render generates a complete HTML page (CSS + JS + converted body), writes to temp file, loads via `setUrl()`. This approach (matching text-ed) avoids JS string escaping issues that broke complex markdown with special characters. Update pipeline: page load → hljs.highlightAll() → mermaid.run() → katex.render() per span
+- **Inline formatting pipeline** (`processInline`): (1) extract math into `katex-display`/`katex-inline` spans with placeholder protection, (2) extract inline code into placeholders, (3) `toHtmlEscaped()` on remaining text, (4) apply bold/italic/strikethrough/image/link regex, (5) restore code placeholders, (6) restore math spans. This prevents `*`, `[`, `]`, `(`, `)` inside backtick code from being misinterpreted
 - **Dark/light theme:** full CSS theming with theme-appropriate mermaid theme (`dark`/`default`) and matching highlight.js theme
-- **Chromium pre-initialization** — hidden 0x0 QWebEngineView loads `about:blank` at startup, forcing Chromium engine init without visible flicker
 - **Zoom** — `zoomIn()`/`zoomOut()` methods adjust `QWebEngineView::setZoomFactor()` (0.25x–5.0x). Context-dependent: Ctrl+=/- only affects the focused component
 - **500ms debounce timer** prevents excessive re-renders during fast typing
 - **Offline operation:** all resources local, `LocalContentCanAccessRemoteUrls` disabled
 - **Security hardening** — `PluginsEnabled`, `PdfViewerEnabled`, `NavigateOnDropEnabled` all disabled
 - **PDF Export** — two-pass rendering pipeline:
-  1. `injectPrintCss()` adds `@media print` CSS for text wrapping (`pre-wrap`, `word-break`, `table-layout: fixed`)
+  1. `@media print` CSS embedded directly in page (pre-wrap, word-break, overflow-visible for code blocks)
   2. `printToPdf()` with callback generates base PDF as QByteArray
   3. `postProcessPdf()` opens PDF via `QPdfDocument`, renders each page to QImage at 300 DPI
   4. `QPdfWriter` + `QPainter` creates final PDF: draws page image, white margin overlays (3px overlap to cover edge artifacts), optional page border, and centered page numbers
   - Configurable: left/right margins, portrait/landscape, page numbering (none/page/page+total), page border
-  - Print CSS cleanup via `removePrintCss()` after export completes
 
 ### GitGraph
 - Visual commit history graph as bottom tab ("Git")
@@ -351,7 +350,7 @@ src/
 15. **Theme Switch:** Settings/CommandPalette -> applyGlobalTheme() (global QSS) -> applySettings() (per-widget overrides) -> force repaint all children
 16. **Git Graph:** Tab activation -> loadBranches + loadLog + loadTrackingInfo + loadRemotes + loadUserInfo -> GitGraphView.setCommits() -> QPainter render
 17. **Remote Operations:** Fetch/Pull/Push buttons -> async QProcess -> outputMessage signal -> NotificationPanel; Remotes dialog -> git remote add/set-url/rename/remove
-18. **Markdown Preview:** Ctrl+M on .md file (or 👁 tab button) -> create new MarkdownPreview instance -> add as tab -> connect editor.textChanged -> 500ms debounce -> markdownToHtml (cmark or regex) -> runJavaScript("updateBody(html)") -> hljs.highlightElement() -> mermaid.run() if needed -> renderMathInElement() for KaTeX
+18. **Markdown Preview:** Ctrl+M on .md file (or 👁 tab button) -> create new MarkdownPreview instance -> add as tab -> connect editor.textChanged -> 500ms debounce -> markdownToHtml (mask code spans -> protect math -> cmark or regex) -> render() builds full HTML page -> write to temp file -> setUrl() loads page -> hljs.highlightAll() -> mermaid.run() -> katex.render() per span
 19. **PDF Export:** Command Palette "Export Preview to PDF" -> QFileDialog for path -> injectPrintCss -> printToPdf (QByteArray callback) -> QPdfDocument count pages -> QPdfWriter+QPainter render each page (image + white margin overlays + optional border + optional page number) -> removePrintCss
 20. **Fuzzy File Opener:** Ctrl+P -> FileOpener.show() -> scan project files (cached) -> fuzzy filter on keystroke -> Enter opens file via onFileOpened()
 21. **Workspace Search:** Ctrl+Shift+F -> WorkspaceSearch.focusSearch() -> Enter triggers grep process -> results parsed (file:line:text) -> click shows context preview -> double-click emits fileRequested(path, line) -> MainWindow opens file and jumps to line

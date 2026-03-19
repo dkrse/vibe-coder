@@ -463,9 +463,26 @@ QString MarkdownPreview::markdownToHtml(const QString &md)
     QString html;
     if (m_hasCmark) {
         html = cmarkConvert(protected_);
-        // Restore math expressions
+        // Restore math expressions wrapped in KaTeX spans
         for (int i = 0; i < mathFragments.size(); ++i) {
-            html.replace(QString("\x02MATH%1\x02").arg(i), mathFragments[i].toHtmlEscaped());
+            QString raw = mathFragments[i];
+            QString placeholder = QString("\x02MATH%1\x02").arg(i);
+            // Remove <p> wrapper if cmark wrapped the placeholder
+            html.replace("<p>" + placeholder + "</p>", placeholder);
+
+            if (raw.startsWith("$$") && raw.endsWith("$$")) {
+                // Display math: strip $$ delimiters, wrap in katex-display span
+                QString inner = raw.mid(2, raw.length() - 4);
+                html.replace(placeholder,
+                    QStringLiteral("<span class=\"katex-display\">") + inner + QStringLiteral("</span>"));
+            } else if (raw.startsWith("$") && raw.endsWith("$")) {
+                // Inline math: strip $ delimiters, wrap in katex-inline span
+                QString inner = raw.mid(1, raw.length() - 2);
+                html.replace(placeholder,
+                    QStringLiteral("<span class=\"katex-inline\">") + inner + QStringLiteral("</span>"));
+            } else {
+                html.replace(placeholder, raw.toHtmlEscaped());
+            }
         }
     } else {
         // Regex converter handles math internally via processInline (katex-display/katex-inline spans)

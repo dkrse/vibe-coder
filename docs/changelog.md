@@ -14,6 +14,15 @@ All notable changes to Vibe Coder are documented in this file.
 ### Enhanced
 - **Session restore** — now saves and restores per-file cursor positions and scroll positions, plus active bottom tab index. Previously only saved file paths and active editor tab
 
+### Fixed
+- **Markdown preview rewritten** — rendering switched from JS injection (`runJavaScript("updateBody(...)")`) to file-based loading (`setUrl()`) like text-ed. Eliminates JS string escaping issues that broke rendering of complex markdown with special characters
+- **Math inside code blocks** — `$` characters inside backtick code spans (e.g. `` `^[a-zA-Z0-9._@-]+$` ``) were incorrectly matched as LaTeX math delimiters, causing large sections of text to disappear. Fixed by masking code spans and fenced code blocks before math detection
+- **KaTeX rendering with cmark** — when libcmark was used, math expressions were restored as raw text without `<span>` wrappers, so KaTeX JS selectors (`.katex-display`, `.katex-inline`) never found them. Now both cmark and regex paths wrap math in proper KaTeX spans with `$$` delimiters stripped
+- **Inline code vs bold/italic conflict** — content inside backtick code (e.g. `*`, `[`, `]`) was processed by bold/italic/link regex before code regex ran. Fixed with placeholder-based code protection: code spans are extracted first, other inline patterns applied, then code restored
+- **PDF code block wrapping** — `@media print` CSS for `pre-wrap` is now embedded directly in the HTML page instead of injected via JS at export time, ensuring it's always applied. Long code lines wrap instead of being cut off
+- **Mermaid blocks** — changed from `<pre class="mermaid">` to `<div class="mermaid">` (matching text-ed approach), with `suppressErrors` and error styling fallback
+- **Regex converter rewritten** — two-pass approach (block elements + inline formatting) with `processInline()` modeled after text-ed: placeholder-based math and code protection, `toHtmlEscaped()` on non-protected text, then inline regex (bold, italic, strikethrough, images, links)
+
 ### New Files
 - `src/fileopener.h/cpp` — FileOpener popup widget
 - `src/workspacesearch.h/cpp` — WorkspaceSearch bottom tab widget

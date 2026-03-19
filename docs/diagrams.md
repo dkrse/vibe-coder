@@ -675,9 +675,7 @@ sequenceDiagram
     participant MainWindow
     participant Editor as CodeEditor
     participant Preview as MarkdownPreview (new instance)
-    participant WebView as QWebEngineView
-
-    Note over MainWindow: Chromium pre-initialized via hidden 0x0 QWebEngineView at startup
+    participant TmpFile as temp HTML file
 
     User->>MainWindow: Ctrl+M on .md file (or 👁 tab button)
     MainWindow->>Preview: new MarkdownPreview()
@@ -686,19 +684,23 @@ sequenceDiagram
     MainWindow->>Preview: updateContent(editor.text)
     Preview->>Preview: 500ms debounce
 
-    Preview->>Preview: markdownToHtml() [cmark or regex]
-    Preview->>Preview: Convert mermaid blocks to pre.mermaid
-    Preview->>Preview: Escape for JS string
-    Preview->>WebView: runJavaScript("updateBody(html)")
+    Preview->>Preview: markdownToHtml()
+    Note over Preview: Mask code spans + fenced blocks
+    Note over Preview: Protect math ($$..$$, $...$)
+    Note over Preview: Restore code, then cmark or regex convert
+    Preview->>Preview: Convert mermaid to div.mermaid
+    Preview->>Preview: Build full HTML page (CSS + JS + body)
+    Preview->>TmpFile: Write HTML to file
+    Preview->>Preview: setUrl(file://tmpPath)
 
-    Note over WebView: innerHTML update (no reload)
-    WebView->>WebView: hljs.highlightElement() on code blocks
-    WebView->>WebView: mermaid.run() if blocks present
-    WebView->>WebView: renderMathInElement() for KaTeX
+    Note over Preview: Page loads with embedded scripts
+    Note over Preview: hljs.highlightAll()
+    Note over Preview: mermaid.run()
+    Note over Preview: katex.render() per span
 
     loop Live updates
         Editor-->>Preview: textChanged signal
-        Preview->>Preview: debounce → render
+        Preview->>Preview: debounce → render (full page reload)
     end
 
     alt Source editor closed
@@ -711,25 +713,27 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    MD[Markdown Source] --> PROT[Protect math expressions]
-    PROT --> CMARK{libcmark available?}
+    MD[Markdown Source] --> MASK[Mask code spans + fenced blocks]
+    MASK --> PROT[Protect math with placeholders]
+    PROT --> UNMASK[Restore code blocks]
+    UNMASK --> CMARK{libcmark available?}
     CMARK -->|Yes| CM[cmark_markdown_to_html]
-    CMARK -->|No| RX[Regex Converter]
+    CMARK -->|No| RX[Regex Converter with processInline]
     CM --> HTML[HTML body]
     RX --> HTML
-    HTML --> RESTORE[Restore math expressions]
+    HTML --> MATHRESTORE[Restore math as katex-display/inline spans]
+    MATHRESTORE --> MERM[Convert to div.mermaid]
+    MERM --> PAGE[Build full HTML page]
 
-    RESTORE --> MERM[Convert to pre class='mermaid']
-    MERM --> ESC[Escape for JS string]
-    ESC --> JS[runJavaScript: updateBody]
-
-    subgraph Base_Page[Base HTML Page - loaded once from temp file]
-        CSS[Theme CSS] & MJS[mermaid.min.js] & HLJS[highlight.min.js] & HCSS[hljs theme CSS] & KJS[katex.min.js + auto-render.min.js] & KCSS[katex.min.css + fonts]
+    subgraph Full_Page[Complete HTML Page - written to temp file]
+        CSS[Theme CSS + print CSS] & MJS[mermaid.min.js] & HLJS[highlight.min.js] & HCSS[hljs theme CSS] & KJS[katex.min.js] & KCSS[katex.min.css + fonts] & BODY[Converted body HTML]
     end
 
-    JS --> HIGHLIGHT[hljs.highlightElement on code blocks]
-    HIGHLIGHT --> MRUN[mermaid.run if blocks present]
-    MRUN --> KATEX[renderMathInElement for KaTeX]
+    PAGE --> FILE[Write to temp file]
+    FILE --> LOAD["setUrl(file://...)"]
+    LOAD --> HIGHLIGHT[hljs.highlightAll]
+    HIGHLIGHT --> MRUN[mermaid.run]
+    MRUN --> KATEX["katex.render() per .katex-display/.katex-inline span"]
     KATEX --> RENDER[Rendered Preview]
 ```
 
@@ -748,11 +752,10 @@ sequenceDiagram
     MainWindow->>MainWindow: QFileDialog (save path)
     MainWindow->>Preview: exportToPdf(path, margins, numbering, landscape, border)
 
-    Preview->>WebEngine: injectPrintCss() [pre-wrap, word-break]
+    Note over Preview: @media print CSS already embedded in page
 
     alt No post-processing needed
         Preview->>WebEngine: printToPdf(filePath, layout)
-        Preview->>WebEngine: removePrintCss()
     else Page numbers or border requested
         Preview->>WebEngine: printToPdf(callback, layout)
         WebEngine-->>Preview: QByteArray pdfData
@@ -772,6 +775,5 @@ sequenceDiagram
             end
         end
 
-        Preview->>WebEngine: removePrintCss()
     end
 ```
