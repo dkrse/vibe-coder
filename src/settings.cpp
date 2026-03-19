@@ -5,6 +5,7 @@
 #include <QFormLayout>
 #include <QDialogButtonBox>
 #include <QGroupBox>
+#include <QStyleFactory>
 
 // Font weight helpers
 static const struct { const char *label; int value; } kWeights[] = {
@@ -38,6 +39,7 @@ void AppSettings::load()
 {
     QSettings s("vibe-coder", "vibe-coder");
     globalTheme = s.value("global/theme", globalTheme).toString();
+    widgetStyle = s.value("global/widgetStyle", widgetStyle).toString();
     termFontFamily = s.value("terminal/fontFamily", termFontFamily).toString();
     termFontSize = s.value("terminal/fontSize", termFontSize).toInt();
     termFontWeight = s.value("terminal/fontWeight", termFontWeight).toInt();
@@ -145,6 +147,7 @@ void AppSettings::save()
 {
     QSettings s("vibe-coder", "vibe-coder");
     s.setValue("global/theme", globalTheme);
+    s.setValue("global/widgetStyle", widgetStyle);
     s.setValue("terminal/fontFamily", termFontFamily);
     s.setValue("terminal/fontSize", termFontSize);
     s.setValue("terminal/fontWeight", termFontWeight);
@@ -214,6 +217,13 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     // ── GUI tab ─────────────────────────────────────────────────────
     auto *guiPage = new QWidget;
     auto *guiLayout = new QFormLayout(guiPage);
+
+    m_widgetStyleCombo = new QComboBox;
+    m_widgetStyleCombo->addItem("Auto");
+    for (const auto &key : QStyleFactory::keys())
+        m_widgetStyleCombo->addItem(key);
+    m_widgetStyleCombo->setCurrentText(current.widgetStyle);
+    guiLayout->addRow("Widget style:", m_widgetStyleCombo);
 
     m_guiFontCombo = new QFontComboBox;
     m_guiFontCombo->setCurrentFont(QFont(current.guiFontFamily));
@@ -480,6 +490,7 @@ AppSettings SettingsDialog::result() const
     s.pdfPageNumbering = m_pdfPageNumberingCombo->currentText();
     s.pdfOrientation = m_pdfOrientationCombo->currentText();
     s.pdfPageBorder = m_pdfPageBorderCheck->isChecked();
+    s.widgetStyle = m_widgetStyleCombo->currentText();
     s.guiFontFamily = m_guiFontCombo->currentFont().family();
     s.guiFontSize = m_guiFontSizeSpin->value();
     s.guiFontWeight = weightFromCombo(m_guiFontWeightCombo);

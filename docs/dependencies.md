@@ -56,10 +56,21 @@ sudo apt install sshfs git
 | libcmark    | 0.30.2   | `libcmark0.30.2`     | Fast markdown-to-HTML (loaded via dlopen, regex fallback) |
 | rsync       | 3.4.1    | `rsync`              | Efficient SSH file transfer (falls back to cp)       |
 
+### Widget styles (optional)
+
+| Style      | Debian package             | Description                        |
+|------------|----------------------------|------------------------------------|
+| Adwaita    | `adwaita-qt6`              | GNOME Adwaita look                 |
+| Breeze     | `kde-style-breeze-data`    | KDE Plasma Breeze                  |
+| Oxygen     | `kde-style-oxygen-qt6`     | Classic KDE Oxygen                 |
+| Kvantum    | `qt6-style-kvantum`        | SVG-based engine with many themes  |
+
+> Fusion and Windows styles are always available (built into Qt6).
+
 ### Install (optional)
 
 ```bash
-sudo apt install libcmark0.30.2 rsync
+sudo apt install libcmark0.30.2 rsync adwaita-qt6 kde-style-breeze-data qt6-style-kvantum kde-style-oxygen-qt6
 ```
 
 ## Bundled Assets (compiled into binary via Qt resources)

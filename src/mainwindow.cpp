@@ -3,6 +3,7 @@
 #include "sshtunneldialog.h"
 #include <memory>
 
+#include <QStyleFactory>
 #include <QSplitter>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -798,6 +799,12 @@ void MainWindow::updateStatusBar()
 
 void MainWindow::applySettings()
 {
+    // Widget style (Fusion, Windows, etc.)
+    if (m_settings.widgetStyle != "Auto") {
+        QStyle *style = QStyleFactory::create(m_settings.widgetStyle);
+        if (style) qApp->setStyle(style);
+    }
+
     // GUI font for tabs, buttons, status bar, menus
     QFont guiFont(m_settings.guiFontFamily, m_settings.guiFontSize);
     guiFont.setWeight(static_cast<QFont::Weight>(m_settings.guiFontWeight));

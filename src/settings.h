@@ -73,6 +73,9 @@ struct AppSettings {
     int guiFontSize = 11;
     int guiFontWeight = 50;
 
+    // Widget style (Fusion, Windows, etc.)
+    QString widgetStyle = "Auto"; // "Auto" = system default
+
     // Prompt behavior
     bool promptStayOnTab = false; // don't switch to AI-terminal after sending
 
@@ -104,6 +107,7 @@ private:
     QComboBox *m_globalThemeCombo;
 
     // GUI
+    QComboBox *m_widgetStyleCombo;
     QFontComboBox *m_guiFontCombo;
     QSpinBox *m_guiFontSizeSpin;
     QComboBox *m_guiFontWeightCombo;

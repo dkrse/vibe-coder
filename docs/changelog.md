@@ -4,12 +4,21 @@ All notable changes to Vibe Coder are documented in this file.
 
 ## [0.13.0] - 2026-03-19
 
+### Added
+- **Widget style setting** — Settings > GUI > "Widget style" combo allows switching Qt widget style (Fusion, Windows, Breeze, Adwaita, Oxygen, Kvantum, etc.). Auto-detects all installed Qt6 style plugins via `QStyleFactory::keys()`. Style applied at startup in `main.cpp` before widget creation, and live-switchable from Settings. Default: "Auto" (system default)
+- **Markdown table rendering with cmark** — `libcmark` (plain) does not support GFM tables, so tables are now pre-extracted from markdown, converted to HTML with alignment support (`:---:`, `---:`), replaced with placeholders before cmark processing, and restored after conversion. Works with both cmark and regex fallback
+- **Improved code highlighting in preview** — highlight.js now runs on all `<pre><code>` blocks (not just those with `language-` class), enabling auto-detection for unlabeled code blocks
+
 ### Performance
 - **Async git config** — `QProcess::execute()` (synchronous, blocking UI) replaced with async `QProcess::start()` + `finished` signal in git user/email editing. Uses `std::shared_ptr<int>` counter to coordinate parallel name+email updates, calls `loadUserInfo()` only after both complete
 
 ### Security
 - **memfd_create for SSH passwords** — on Linux, SSH passwords are now written to an in-memory file descriptor via `memfd_create(MFD_CLOEXEC)` instead of `QTemporaryFile`. Password never touches disk. Accessed via `/proc/self/fd/N`. File descriptor auto-closed when parent QObject is destroyed. Falls back to `QTemporaryFile` on non-Linux systems or if `memfd_create` fails
 - **JS asset integrity check** — bundled assets (mermaid.js, highlight.js, KaTeX) are now verified on every startup by comparing on-disk content against Qt resource originals. If tampered or corrupted, the file is overwritten with the known-good bundled copy. Previously, existing files were never re-checked after first extraction
+
+### Fixed
+- **Markdown tables not rendering** — tables were silently dropped by libcmark (no GFM extension support). Now pre-processed before cmark conversion
+- **Code block colors overridden** — CSS `pre code { color: ... }` had higher specificity than highlight.js `.hljs` class. Changed to `pre code:not(.hljs)` so hljs themes apply correctly
 
 ### Changed
 - **File size warning raised to 10 MB** — large file warning threshold increased from 5 MB to 10 MB. Files above 10 MB show a confirmation dialog before opening. Files above 1 MB still disable syntax highlighting for performance

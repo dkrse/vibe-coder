@@ -246,6 +246,7 @@ src/
 - QWebEngineView-based live markdown preview, opened as editor tab via Ctrl+M or 👁 tab button
 - **Multiple instances** — each `.md` file can have its own independent preview tab. Source editor tracked via `QObject::property("sourceEditor")`. Closing source editor auto-closes preview via `QObject::destroyed` signal
 - **Markdown conversion:** libcmark loaded via `dlopen()` at runtime (tries libcmark.so, .so.0, etc.). Falls back to built-in regex converter supporting: headings, bold/italic/strikethrough, code blocks with language class, tables, lists, blockquotes, horizontal rules, links, images. If `dlsym` fails, handle is properly `dlclose`d (no leak)
+- **GFM table support:** plain libcmark lacks table support, so tables are pre-extracted via `extractAndConvertTables()` before cmark processing. Supports header/body separation, alignment markers (`:---:`, `---:`), and HTML escaping. Placeholders survive cmark's `<p>` wrapping and are restored after conversion
 - **Syntax highlighting:** highlight.js 11.9.0 bundled with 46+ language modules (core + x86asm, armasm, avrasm, mipsasm, glsl, vhdl, verilog, cmake, dockerfile, makefile, kotlin, swift, dart, julia, matlab, fortran, haskell, erlang, elixir, clojure, scala, lua, latex, protobuf, graphql, wasm, arduino, powershell, and more). VS2015 (dark) and VS (light) themes. `hljs.highlightElement()` called on every content update for `<code>` blocks with language class
 - **KaTeX math** — bundled KaTeX JS + CSS + woff2 fonts. Supports `$$...$$` (display), `$...$` (inline), `\(...\)`, `\[...\]` delimiters. Math expressions protected from markdown processing before conversion, restored as HTML-escaped text for KaTeX to render
 - **Mermaid diagrams:** mermaid.js (~3MB) bundled as Qt resource, extracted to temp dir at startup. Loaded via `<script src="file://...">` to avoid QWebEngineView's 2MB `setHtml()` limit
@@ -294,9 +295,10 @@ src/
   - Built-in: Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord
   - External: auto-discovered Zed editor themes (prefixed "Zed: ")
   - `applyThemeDefaults()` derives all component colors from globalTheme (editor/browser/terminal color schemes, bgColor, textColor)
+- **Widget style:** configurable Qt widget style via `QStyleFactory::create()`. Available styles auto-detected from installed Qt6 plugins (Fusion, Windows always built-in; Breeze, Adwaita, Oxygen, Kvantum available via system packages). Applied at startup in `main.cpp` before widget creation, and live-switchable via `qApp->setStyle()` in `applySettings()`
 - **Theme cascade:** `applyGlobalTheme()` sets comprehensive QSS stylesheet covering QWidget, QLabel, QPlainTextEdit, QTextEdit, QLineEdit, QSpinBox, QComboBox, QCheckBox, QPushButton, QToolButton, QListWidget, QMenu, QDialog, QGroupBox, QScrollBar, QProgressBar, QTabWidget, QTabBar, QFontComboBox, QDialogButtonBox
 - **Live theme switching:** theme changes apply immediately without restart
-- Tabbed SettingsDialog: Global Theme (top, includes separator + Zed themes), Terminal (theme override + font), Editor, File Browser, Prompt, Diff Viewer, Changes Monitor, Visibility, PDF tabs
+- Tabbed SettingsDialog: Global Theme (top, includes separator + Zed themes), GUI (widget style + font), Terminal (theme override + font), Editor, File Browser, Prompt, Diff Viewer, Changes Monitor, Visibility, PDF tabs
 - **Terminal theme override:** "Auto" (follows global theme) or explicit: Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight
 - SettingsDialog preserves zedThemes list through `result()` method
 - **Font size clamping:** all font sizes clamped to 6–72 range after loading to prevent invalid values from corrupted settings

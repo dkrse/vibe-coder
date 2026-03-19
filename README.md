@@ -29,7 +29,8 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 - **Notifications** — Centralized log with Info/Warning/Error/Success levels and unread badge
 - **Custom Title Bar** — VS Code/Zed-style frameless window (CSD) with themed minimize/maximize/close buttons. All dialogs use themed title bars
 - **Global Themes** — Unified theme system: Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord. Auto-imports installed Zed editor themes. Live switching without restart
-- **Settings** — Tabbed dialog with configurable fonts, sizes, and global theme for all components (terminal, editor, file browser, prompt, diff viewer, changes monitor, visibility, PDF export)
+- **Widget Styles** — Configurable Qt widget style (Fusion, Windows, Breeze, Adwaita, Oxygen, Kvantum). Auto-detects installed Qt6 style plugins. Affects button shapes, scrollbars, checkboxes, and other GUI component rendering
+- **Settings** — Tabbed dialog with configurable fonts, sizes, global theme, and widget style for all components (terminal, editor, file browser, prompt, diff viewer, changes monitor, visibility, PDF export)
 - **Session Persistence** — Remembers window size, splitter positions, open files, active tab. Multi-monitor aware
 - **Fully Offline** — All resources (mermaid.js, KaTeX, highlight.js, fonts) are bundled with integrity verification on startup. No network requests. WebEngine remote URL access explicitly disabled
 

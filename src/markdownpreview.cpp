@@ -198,7 +198,8 @@ pre {
     border-radius: 6px; overflow-x: auto;
     border: 1px solid %5;
 }
-pre code { background: none; padding: 0; color: %2; font-size: 0.85em; }
+pre code { background: none; padding: 0; font-size: 0.85em; }
+pre code:not(.hljs) { color: %2; }
 pre.mermaid { background: transparent; border: none; padding: 8px 0; text-align: center; }
 blockquote { border-left: 4px solid %8; color: %9; margin: 8px 0; padding: 4px 16px; }
 ul, ol { padding-left: 24px; margin: 8px 0; }
@@ -248,7 +249,7 @@ function updateBody(html) {
     }
     // Syntax highlighting
     if (typeof hljs !== 'undefined') {
-        document.querySelectorAll('pre code[class^="language-"]').forEach(function(el) {
+        document.querySelectorAll('pre code').forEach(function(el) {
             hljs.highlightElement(el);
         });
     }
@@ -490,13 +491,106 @@ QString MarkdownPreview::markdownToHtml(const QString &md)
     return html;
 }
 
+// Extract markdown tables and convert to HTML (cmark doesn't support GFM tables)
+static QString extractAndConvertTables(const QString &md, QVector<QString> &tableHtmls)
+{
+    QStringList lines = md.split('\n');
+    QString result;
+    int i = 0;
+
+    auto escapeHtml = [](const QString &s) {
+        QString r = s;
+        r.replace('&', "&amp;");
+        r.replace('<', "&lt;");
+        r.replace('>', "&gt;");
+        return r;
+    };
+
+    while (i < lines.size()) {
+        const QString &line = lines[i];
+        QString trimmed = line.trimmed();
+
+        // Detect table: line starts with | and next line is separator (|---|...)
+        if (trimmed.startsWith('|') && trimmed.endsWith('|') && i + 1 < lines.size()) {
+            QString nextTrimmed = lines[i + 1].trimmed();
+            // Check if next line is separator: | --- | --- |
+            bool isSep = nextTrimmed.startsWith('|') && nextTrimmed.contains('-');
+            if (isSep) {
+                QString sepClean = nextTrimmed;
+                sepClean.remove('|'); sepClean.remove('-'); sepClean.remove(':'); sepClean.remove(' ');
+                isSep = sepClean.isEmpty();
+            }
+
+            if (isSep) {
+                // Parse table
+                QString tableHtml = "<table><thead><tr>";
+                // Header row
+                QStringList headers = trimmed.split('|', Qt::SkipEmptyParts);
+                for (const auto &h : headers)
+                    tableHtml += "<th>" + escapeHtml(h.trimmed()) + "</th>";
+                tableHtml += "</tr></thead><tbody>\n";
+
+                // Parse alignment from separator
+                QStringList sepCells = lines[i + 1].trimmed().split('|', Qt::SkipEmptyParts);
+                QVector<QString> aligns;
+                for (const auto &s : sepCells) {
+                    QString t = s.trimmed();
+                    if (t.startsWith(':') && t.endsWith(':')) aligns << "center";
+                    else if (t.endsWith(':')) aligns << "right";
+                    else aligns << "left";
+                }
+
+                i += 2; // skip header + separator
+
+                // Body rows
+                while (i < lines.size()) {
+                    QString rowTrimmed = lines[i].trimmed();
+                    if (!rowTrimmed.startsWith('|')) break;
+                    QStringList cells = rowTrimmed.split('|', Qt::SkipEmptyParts);
+                    tableHtml += "<tr>";
+                    for (int c = 0; c < cells.size(); ++c) {
+                        QString align = (c < aligns.size()) ? aligns[c] : "left";
+                        tableHtml += "<td style=\"text-align:" + align + "\">" + escapeHtml(cells[c].trimmed()) + "</td>";
+                    }
+                    tableHtml += "</tr>\n";
+                    ++i;
+                }
+                tableHtml += "</tbody></table>\n";
+
+                // Store and insert placeholder
+                QString placeholder = QString("\x03TABLE%1\x03").arg(tableHtmls.size());
+                tableHtmls.append(tableHtml);
+                result += placeholder + "\n";
+                continue;
+            }
+        }
+
+        result += line + "\n";
+        ++i;
+    }
+    return result;
+}
+
 QString MarkdownPreview::cmarkConvert(const QString &md)
 {
-    QByteArray utf8 = md.toUtf8();
+    // Pre-extract tables (cmark doesn't support GFM tables)
+    QVector<QString> tableHtmls;
+    QString preprocessed = extractAndConvertTables(md, tableHtmls);
+
+    QByteArray utf8 = preprocessed.toUtf8();
     char *result = m_cmarkToHtml(utf8.constData(), utf8.size(), (1 << 17));
     if (!result) return regexConvert(md);
     QString html = QString::fromUtf8(result);
     free(result);
+
+    // Restore table HTML (cmark may have wrapped placeholders in <p> tags)
+    for (int i = 0; i < tableHtmls.size(); ++i) {
+        QString placeholder = QString("\x03TABLE%1\x03").arg(i);
+        // Remove <p> wrapper if cmark added one
+        html.replace("<p>" + placeholder + "</p>", tableHtmls[i]);
+        html.replace(placeholder, tableHtmls[i]);
+    }
+
     return html;
 }
 

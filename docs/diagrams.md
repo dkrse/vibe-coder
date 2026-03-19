@@ -583,6 +583,7 @@ flowchart LR
     B -->|save| C[QSettings file]
     B -->|applyGlobalTheme| SS[Global QSS Stylesheet]
     SS --> ALL[All Widgets + TitleBar]
+    B -->|applySettings| WS["Widget Style (QStyleFactory)"]
     B -->|applySettings| D[Terminal font/scheme]
     B -->|applySettings| E[Editor font/scheme/lineNumbers/highlightLine]
     B -->|applySettings| VIS[FileBrowser visibility filtering]
