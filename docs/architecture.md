@@ -192,7 +192,7 @@ src/
 - **Auto-reconnect:** up to 3 attempts on connection loss, async fusermount + remount
 - **File transfer:** upload/download via sshfs mount point (rsync --progress or cp)
 - **Port forwarding:** SSH tunnels (-L/-R) with SSH_ASKPASS for password auth
-- **Security:** allowlist-based input validation (`^[a-zA-Z0-9._@-]+$`, max 253 chars), identity file existence check, password never in process args
+- **Security:** allowlist-based input validation (`^[a-zA-Z0-9._@-]+$`, max 253 chars), identity file existence check, password never in process args, memfd_create for password storage (Linux)
 - **Cached rsync detection:** async `which rsync` at construction, result cached (non-blocking)
 - **Async unmount:** `doUnmount()` uses chained async QProcess (no `waitForFinished`), optional completion callback
 
@@ -277,7 +277,7 @@ src/
 - **Upstream tracking info:** label showing `branch -> upstream [ahead N, behind M]` with color coding (green=ahead, yellow=behind, red=both)
 - **Remotes dialog:** view/add/edit/remove multiple git remotes (name + URL). Supports `git remote add/set-url/rename/remove`
 - **Commit button** in toolbar: shows themed dialog with editable commit message (default: timestamp), runs `git add .` + `git commit -m "message"`, auto-refreshes graph after commit
-- **User info button** in toolbar: displays `git config --global user.name <email>`. Click opens edit dialog to change name/email
+- **User info button** in toolbar: displays `git config --global user.name <email>`. Click opens edit dialog to change name/email (async QProcess, non-blocking)
 - Auto-refreshes on directory change and tab activation
 - Configurable font and colors from Settings (uses diff font settings)
 - `outputMessage` signal for notification integration
@@ -338,6 +338,7 @@ Stored in QSettings on application close:
 - SSH passwords: sent via PTY (echo off) for terminals, password_stdin for sshfs, SSH_ASKPASS for tunnels
 - Passwords never persisted to disk (QSettings stores connections without password)
 - Passwords never appear in process argument lists (no sshpass -p)
+- On Linux, passwords written to in-memory file descriptor via `memfd_create(MFD_CLOEXEC)` — never touches filesystem. Accessed via `/proc/self/fd/N`. Falls back to `QTemporaryFile` on non-Linux
 - SSH user/host validated via allowlist regex (`^[a-zA-Z0-9._@-]+$`, max 253 chars)
 - SSH identity file validated for existence before use
 - File names sanitized against newline/null injection in git operations
@@ -352,3 +353,4 @@ Stored in QSettings on application close:
 - WebEngine `LocalContentCanAccessRemoteUrls` disabled in markdown preview
 - WebEngine `PluginsEnabled`, `PdfViewerEnabled`, `NavigateOnDropEnabled` disabled
 - QFileSystemWatcher `addPaths()` return value checked for platform limit failures
+- Bundled JS assets (mermaid.js, highlight.js, KaTeX) integrity-checked on startup — on-disk copies compared against Qt resource originals, overwritten if tampered

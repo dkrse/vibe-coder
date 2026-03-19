@@ -34,13 +34,23 @@ MarkdownPreview::MarkdownPreview(QWidget *parent)
     QDir().mkpath(tmpDir + "/fonts");
 
     auto extractResource = [](const QString &resPath, const QString &outPath) {
-        if (QFile::exists(outPath)) return;
         QFile res(resPath);
-        if (res.open(QIODevice::ReadOnly)) {
-            QFile out(outPath);
-            if (out.open(QIODevice::WriteOnly)) {
-                out.write(res.readAll());
+        if (!res.open(QIODevice::ReadOnly)) return;
+        QByteArray data = res.readAll();
+
+        if (QFile::exists(outPath)) {
+            // Verify integrity: re-extract if on-disk copy differs from bundled resource
+            QFile existing(outPath);
+            if (existing.open(QIODevice::ReadOnly)) {
+                if (existing.readAll() == data)
+                    return; // matches, no need to re-extract
             }
+            // Mismatch or read failure — overwrite with known-good copy
+        }
+
+        QFile out(outPath);
+        if (out.open(QIODevice::WriteOnly)) {
+            out.write(data);
         }
     };
 
@@ -217,6 +227,7 @@ function renderKatex() {
                 {left: '\\\\(', right: '\\\\)', display: false},
                 {left: '\\\\[', right: '\\\\]', display: true}
             ],
+            ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'tt'],
             throwOnError: false
         });
     }

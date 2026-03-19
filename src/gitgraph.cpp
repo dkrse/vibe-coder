@@ -10,6 +10,7 @@
 #include <QDialog>
 #include <QListWidget>
 #include <QRegularExpression>
+#include <memory>
 #include <QLineEdit>
 #include "themeddialog.h"
 
@@ -845,15 +846,40 @@ void GitGraph::showUserDialog()
         QString newName = nameEdit->text().trimmed();
         QString newEmail = emailEdit->text().trimmed();
 
-        if (newName != curName && !newName.isEmpty()) {
-            QProcess::execute("git", {"config", "--global", "user.name", newName});
-        }
-        if (newEmail != curEmail && !newEmail.isEmpty()) {
-            QProcess::execute("git", {"config", "--global", "user.email", newEmail});
-        }
+        // Run git config asynchronously to avoid blocking the UI
+        int pending = 0;
+        auto checkDone = [this, &pending]() {
+            // Note: captured by value via shared counter
+        };
 
-        loadUserInfo();
-        emit outputMessage("Git user updated", 3);
+        auto runAsync = [this](const QStringList &args, std::function<void()> onDone) {
+            auto *proc = new QProcess(this);
+            connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                    this, [proc, onDone]() {
+                proc->deleteLater();
+                if (onDone) onDone();
+            });
+            proc->start("git", args);
+        };
+
+        bool nameChanged = (newName != curName && !newName.isEmpty());
+        bool emailChanged = (newEmail != curEmail && !newEmail.isEmpty());
+        int total = (nameChanged ? 1 : 0) + (emailChanged ? 1 : 0);
+
+        if (total == 0) return;
+
+        auto remaining = std::make_shared<int>(total);
+        auto finish = [this, remaining]() {
+            if (--(*remaining) == 0) {
+                loadUserInfo();
+                emit outputMessage("Git user updated", 3);
+            }
+        };
+
+        if (nameChanged)
+            runAsync({"config", "--global", "user.name", newName}, finish);
+        if (emailChanged)
+            runAsync({"config", "--global", "user.email", newEmail}, finish);
     }
 
     dlg->deleteLater();

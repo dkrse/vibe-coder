@@ -316,16 +316,94 @@ void SyntaxHighlighter::buildRules()
         m_commentStartExpr = QRegularExpression("/\\*");
         m_commentEndExpr = QRegularExpression("\\*/");
     }
+    else if (m_language == "md") {
+        QColor headingColor = m_dark ? QColor("#e5c07b") : QColor("#005cc5");
+        QColor boldColor    = m_dark ? QColor("#e06c75") : QColor("#d73a49");
+        QColor italicColor  = m_dark ? QColor("#c678dd") : QColor("#6f42c1");
+        QColor linkColor    = m_dark ? QColor("#61afef") : QColor("#0366d6");
+        QColor codeColor    = m_dark ? QColor("#98c379") : QColor("#22863a");
+        QColor listColor    = m_dark ? QColor("#d19a66") : QColor("#e36209");
+        QColor hrColor      = m_dark ? QColor("#5c6370") : QColor("#959da5");
+        QColor blockqColor  = m_dark ? QColor("#5c6370") : QColor("#6a737d");
+        QColor mathColor    = m_dark ? QColor("#56b6c2") : QColor("#005cc5");
 
-    // Common rules
-    m_rules.append({QRegularExpression("\\b([a-zA-Z_]\\w*)\\s*(?=\\()"), funcFmt});
-    m_rules.append({QRegularExpression("\\b[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?\\b"), numFmt});
-    m_rules.append({QRegularExpression("\\b0[xX][0-9a-fA-F]+\\b"), numFmt});
-    m_rules.append({QRegularExpression("\"([^\"\\\\]|\\\\.)*\""), strFmt});
-    m_rules.append({QRegularExpression("'([^'\\\\]|\\\\.)*'"), strFmt});
-    m_rules.append({QRegularExpression("//[^\n]*"), commentFmt});
-    if (m_language == "py")
-        m_rules.append({QRegularExpression("#[^\n]*"), commentFmt});
+        QTextCharFormat headFmt;
+        headFmt.setForeground(headingColor);
+        headFmt.setFontWeight(QFont::Bold);
+        // Headings: # ## ### etc.
+        m_rules.append({QRegularExpression("^#{1,6}\\s+.*"), headFmt});
+
+        QTextCharFormat boldFmt;
+        boldFmt.setForeground(boldColor);
+        boldFmt.setFontWeight(QFont::Bold);
+        m_rules.append({QRegularExpression("\\*\\*[^*]+\\*\\*"), boldFmt});
+        m_rules.append({QRegularExpression("__[^_]+__"), boldFmt});
+
+        QTextCharFormat italFmt;
+        italFmt.setForeground(italicColor);
+        italFmt.setFontItalic(true);
+        m_rules.append({QRegularExpression("(?<!\\*)\\*[^*]+\\*(?!\\*)"), italFmt});
+        m_rules.append({QRegularExpression("(?<!_)_[^_]+_(?!_)"), italFmt});
+
+        QTextCharFormat codeFmt;
+        codeFmt.setForeground(codeColor);
+        // Inline code `...`
+        m_rules.append({QRegularExpression("`[^`]+`"), codeFmt});
+        // Code fence markers ```
+        m_rules.append({QRegularExpression("^```.*"), codeFmt});
+
+        QTextCharFormat linkFmt;
+        linkFmt.setForeground(linkColor);
+        linkFmt.setFontUnderline(true);
+        // Links [text](url) and images ![alt](url)
+        m_rules.append({QRegularExpression("!?\\[[^\\]]*\\]\\([^)]*\\)"), linkFmt});
+        // Reference links [text][ref]
+        m_rules.append({QRegularExpression("\\[[^\\]]*\\]\\[[^\\]]*\\]"), linkFmt});
+        // Bare URLs
+        m_rules.append({QRegularExpression("https?://[^\\s)>]+"), linkFmt});
+
+        QTextCharFormat listFmt;
+        listFmt.setForeground(listColor);
+        // Unordered list markers
+        m_rules.append({QRegularExpression("^\\s*[*+-]\\s"), listFmt});
+        // Ordered list markers
+        m_rules.append({QRegularExpression("^\\s*\\d+\\.\\s"), listFmt});
+
+        QTextCharFormat hrFmt;
+        hrFmt.setForeground(hrColor);
+        m_rules.append({QRegularExpression("^[-*_]{3,}\\s*$"), hrFmt});
+
+        QTextCharFormat bqFmt;
+        bqFmt.setForeground(blockqColor);
+        bqFmt.setFontItalic(true);
+        m_rules.append({QRegularExpression("^>+\\s.*"), bqFmt});
+
+        QTextCharFormat mathFmt;
+        mathFmt.setForeground(mathColor);
+        // Display math $$...$$
+        m_rules.append({QRegularExpression("\\$\\$[^$]+\\$\\$"), mathFmt});
+        // Inline math $...$
+        m_rules.append({QRegularExpression("(?<!\\$)\\$(?!\\s)[^$]+(?<!\\s)\\$(?!\\$)"), mathFmt});
+
+        QTextCharFormat strikeFmt;
+        strikeFmt.setForeground(hrColor);
+        m_rules.append({QRegularExpression("~~[^~]+~~"), strikeFmt});
+
+        m_commentStartExpr = QRegularExpression();
+        m_commentEndExpr = QRegularExpression();
+    }
+
+    // Common rules (skip for markdown — has its own complete ruleset)
+    if (m_language != "md") {
+        m_rules.append({QRegularExpression("\\b([a-zA-Z_]\\w*)\\s*(?=\\()"), funcFmt});
+        m_rules.append({QRegularExpression("\\b[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?\\b"), numFmt});
+        m_rules.append({QRegularExpression("\\b0[xX][0-9a-fA-F]+\\b"), numFmt});
+        m_rules.append({QRegularExpression("\"([^\"\\\\]|\\\\.)*\""), strFmt});
+        m_rules.append({QRegularExpression("'([^'\\\\]|\\\\.)*'"), strFmt});
+        m_rules.append({QRegularExpression("//[^\n]*"), commentFmt});
+        if (m_language == "py")
+            m_rules.append({QRegularExpression("#[^\n]*"), commentFmt});
+    }
 }
 
 void SyntaxHighlighter::highlightBlock(const QString &text)

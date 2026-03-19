@@ -2,6 +2,21 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.13.0] - 2026-03-19
+
+### Performance
+- **Async git config** — `QProcess::execute()` (synchronous, blocking UI) replaced with async `QProcess::start()` + `finished` signal in git user/email editing. Uses `std::shared_ptr<int>` counter to coordinate parallel name+email updates, calls `loadUserInfo()` only after both complete
+
+### Security
+- **memfd_create for SSH passwords** — on Linux, SSH passwords are now written to an in-memory file descriptor via `memfd_create(MFD_CLOEXEC)` instead of `QTemporaryFile`. Password never touches disk. Accessed via `/proc/self/fd/N`. File descriptor auto-closed when parent QObject is destroyed. Falls back to `QTemporaryFile` on non-Linux systems or if `memfd_create` fails
+- **JS asset integrity check** — bundled assets (mermaid.js, highlight.js, KaTeX) are now verified on every startup by comparing on-disk content against Qt resource originals. If tampered or corrupted, the file is overwritten with the known-good bundled copy. Previously, existing files were never re-checked after first extraction
+
+### Changed
+- **File size warning raised to 10 MB** — large file warning threshold increased from 5 MB to 10 MB. Files above 10 MB show a confirmation dialog before opening. Files above 1 MB still disable syntax highlighting for performance
+
+### Documentation
+- **dependencies.md** — new document listing all build and runtime dependencies with exact Debian 13 (trixie) package versions
+
 ## [0.12.0] - 2026-03-18
 
 ### Added

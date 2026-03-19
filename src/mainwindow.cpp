@@ -46,6 +46,7 @@ static QString langFromSuffix(const QString &suffix)
     if (s == "jsx") return "jsx";
     if (s == "tsx") return "tsx";
     if (s == "rs") return "rs";
+    if (s == "md" || s == "markdown" || s == "mkd" || s == "mdx") return "md";
     return "";
 }
 
@@ -921,7 +922,7 @@ void MainWindow::onFileOpened(const QString &filePath)
 
     QFileInfo info(filePath);
 
-    static const qint64 MAX_FILE_SIZE = 5 * 1024 * 1024;
+    static const qint64 MAX_FILE_SIZE = 10 * 1024 * 1024;
     if (info.size() > MAX_FILE_SIZE) {
         auto reply = ThemedMessageBox::question(this, "Large File",
             QString("'%1' is %2 MB. Opening large files may be slow.\n\nOpen anyway?")

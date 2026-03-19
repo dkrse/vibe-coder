@@ -102,8 +102,10 @@ private:
     QStringList buildSshArgs(const SshConfig &cfg) const;
     QStringList buildSshfsArgs(const SshConfig &cfg, const QString &mountPoint) const;
 
-    // Password helper — writes to temp file, returns path (caller must delete)
-    QTemporaryFile *writeSshpassFile(const QString &password);
+    // Password helpers — prefer memfd (in-memory), fallback to temp file
+    int writePasswordToMemfd(const QString &password);
+    QTemporaryFile *writeSshpassFileFallback(const QString &password);
+    QString writePasswordFile(const QString &password, QObject *parent = nullptr);
     void setupSshpassEnv(QProcess *proc, const QString &password);
 
     int m_healthCheckIndex = -1; // current profile being checked

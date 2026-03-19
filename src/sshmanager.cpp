@@ -6,6 +6,11 @@
 #include <QRegularExpression>
 #include <QRandomGenerator>
 
+#ifdef Q_OS_LINUX
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
+
 SshManager::SshManager(QObject *parent)
     : QObject(parent)
 {
@@ -46,17 +51,55 @@ bool SshManager::isValidSshIdentifier(const QString &s)
 
 // ── Password helpers (avoid exposing password in ps aux) ────────────
 
-QTemporaryFile *SshManager::writeSshpassFile(const QString &password)
+int SshManager::writePasswordToMemfd(const QString &password)
+{
+#ifdef Q_OS_LINUX
+    // memfd_create: password never touches disk — in-memory file descriptor only
+    int fd = memfd_create("sshpass", MFD_CLOEXEC);
+    if (fd >= 0) {
+        QByteArray data = password.toUtf8();
+        if (write(fd, data.constData(), data.size()) == data.size()) {
+            lseek(fd, 0, SEEK_SET);
+            return fd;
+        }
+        close(fd);
+    }
+#endif
+    return -1;
+}
+
+QTemporaryFile *SshManager::writeSshpassFileFallback(const QString &password)
 {
     auto *tmpFile = new QTemporaryFile(this);
     tmpFile->setAutoRemove(true);
     if (tmpFile->open()) {
         tmpFile->write(password.toUtf8());
         tmpFile->flush();
-        // sshpass -f needs to seek back to beginning
         tmpFile->seek(0);
     }
     return tmpFile;
+}
+
+QString SshManager::writePasswordFile(const QString &password, QObject *parent)
+{
+    // Prefer memfd (in-memory, never touches disk)
+    int fd = writePasswordToMemfd(password);
+    if (fd >= 0) {
+        // /proc/self/fd/N is readable by sshpass -f and askpass scripts
+        QString path = QString("/proc/self/fd/%1").arg(fd);
+        // Store fd so we can close it when parent is destroyed
+        if (parent) {
+            connect(parent, &QObject::destroyed, this, [fd]() {
+                close(fd);
+            });
+        }
+        return path;
+    }
+
+    // Fallback: temp file (non-Linux or memfd failure)
+    auto *tmpFile = writeSshpassFileFallback(password);
+    tmpFile->setParent(parent ? parent : this);
+    return tmpFile->fileName();
 }
 
 void SshManager::setupSshpassEnv(QProcess *proc, const QString &password)
@@ -585,15 +628,15 @@ int SshManager::addTunnel(int profileIndex, const SshTunnel &tunnel)
     });
 
     if (!cfg.password.isEmpty()) {
-        // Create a temporary askpass script that echoes the password
-        // This avoids needing sshpass and keeps password out of ps aux
-        auto *askpass = writeSshpassFile(cfg.password);
-        // Write an executable script that cats the temp file
+        // Use memfd (in-memory) or temp file for password — never expose in ps aux
+        QString pwPath = writePasswordFile(cfg.password, t.process);
+
+        // Write an executable askpass script that cats the password file
         QTemporaryFile *script = new QTemporaryFile(t.process);
         script->setAutoRemove(true);
         if (script->open()) {
             script->write("#!/bin/sh\ncat ");
-            script->write(askpass->fileName().toUtf8());
+            script->write(pwPath.toUtf8());
             script->write("\n");
             script->flush();
             script->setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
@@ -604,8 +647,6 @@ int SshManager::addTunnel(int profileIndex, const SshTunnel &tunnel)
             env.remove("DISPLAY"); // ensure SSH_ASKPASS is used
             t.process->setProcessEnvironment(env);
         }
-        // askpass file lifetime tied to process
-        askpass->setParent(t.process);
         t.process->start("ssh", args);
     } else {
         t.process->start("ssh", args);

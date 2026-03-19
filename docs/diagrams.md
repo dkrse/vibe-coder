@@ -564,7 +564,7 @@ sequenceDiagram
     User->>FileBrowser: Click on file
     FileBrowser->>MainWindow: fileOpened(path)
     MainWindow->>MainWindow: Check duplicate tabs
-    MainWindow->>MainWindow: Check file size (>5MB warning)
+    MainWindow->>MainWindow: Check file size (>10MB warning)
     MainWindow->>CodeEditor: new CodeEditor()
     MainWindow->>CodeEditor: setPlainText(content)
     MainWindow->>CodeEditor: setLanguage() then setEditorColorScheme()
@@ -621,10 +621,13 @@ graph TD
 flowchart TD
     PWD[SSH Password] --> T1[Terminal: sent via PTY - echo off]
     PWD --> T2[sshfs: password_stdin option]
-    PWD --> T3[Tunnels: SSH_ASKPASS temp script]
+    PWD --> T3[Tunnels: SSH_ASKPASS + memfd_create]
     PWD --> T4[Transfers: not needed - uses sshfs mount]
     PWD -.->|NEVER| PS[Process args / ps aux]
     PWD -.->|NEVER| DISK[QSettings / disk]
+    PWD --> MEMFD["memfd_create(MFD_CLOEXEC) - Linux"]
+    MEMFD --> PROCFD["/proc/self/fd/N"]
+    MEMFD -.->|fallback| TMPFILE[QTemporaryFile - non-Linux]
 
     INPUT[User/Host input] --> VAL[isValidSshIdentifier]
     VAL -->|reject| META["Shell metacharacters: ; & pipe etc."]
@@ -633,6 +636,11 @@ flowchart TD
     GITIGNORE --> ENV[.env / .env.*]
     GITIGNORE --> PEM[*.pem / *.key]
     GITIGNORE --> CRED[credentials.json]
+
+    ASSETS[Bundled JS Assets] --> INTEG[Integrity check on startup]
+    INTEG --> CMP["Compare on-disk vs Qt resource"]
+    CMP -->|mismatch| OVERWRITE["Overwrite with known-good copy"]
+    CMP -->|match| SKIP[Skip extraction]
 
     TUNNEL[SSH Tunnel] --> TVAL[Validate remoteHost]
     TVAL -->|regex| SAFE["^[a-zA-Z0-9._-]+$"]

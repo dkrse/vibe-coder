@@ -23,7 +23,7 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
   - Auto-reconnect on connection loss (health check every 15s, up to 3 retries)
   - File upload/download via sshfs mount with rsync progress bar
   - SSH port forwarding management (local -L / remote -R tunnels)
-  - Saved connections (passwords never persisted)
+  - Saved connections (passwords never persisted, memfd_create on Linux)
   - Terminals auto-cd when opening remote files
 - **Command Palette** — Ctrl+Shift+P for fuzzy-searchable commands (split view, focus, themes, diff refresh)
 - **Notifications** — Centralized log with Info/Warning/Error/Success levels and unread badge
@@ -31,7 +31,7 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 - **Global Themes** — Unified theme system: Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord. Auto-imports installed Zed editor themes. Live switching without restart
 - **Settings** — Tabbed dialog with configurable fonts, sizes, and global theme for all components (terminal, editor, file browser, prompt, diff viewer, changes monitor, visibility, PDF export)
 - **Session Persistence** — Remembers window size, splitter positions, open files, active tab. Multi-monitor aware
-- **Fully Offline** — All resources (mermaid.js, KaTeX, highlight.js, fonts) are bundled. No network requests. WebEngine remote URL access explicitly disabled
+- **Fully Offline** — All resources (mermaid.js, KaTeX, highlight.js, fonts) are bundled with integrity verification on startup. No network requests. WebEngine remote URL access explicitly disabled
 
 ## Installation
 
@@ -124,6 +124,7 @@ make -j$(nproc)
 
 - [Architecture](docs/architecture.md) — Component design and data flow
 - [Diagrams](docs/diagrams.md) — Mermaid diagrams of class hierarchy, signal flow, and async pipelines
+- [Dependencies](docs/dependencies.md) — Build and runtime dependencies with Debian 13 package versions
 - [Changelog](docs/changelog.md) — Version history
 
 ## Author
