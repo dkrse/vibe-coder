@@ -106,18 +106,6 @@ MarkdownPreview::MarkdownPreview(QWidget *parent)
     m_debounce->setSingleShot(true);
     m_debounce->setInterval(500);
     connect(m_debounce, &QTimer::timeout, this, &MarkdownPreview::render);
-
-    // When base page finishes loading, render pending content
-    connect(m_webView, &QWebEngineView::loadFinished, this, [this](bool ok) {
-        if (ok) {
-            m_pageLoaded = true;
-            if (!m_pendingMd.isEmpty())
-                render();
-        }
-    });
-
-    // Load the base page immediately (with mermaid.js)
-    loadBasePage();
 }
 
 MarkdownPreview::~MarkdownPreview()
@@ -128,9 +116,9 @@ MarkdownPreview::~MarkdownPreview()
 void MarkdownPreview::setDarkMode(bool dark)
 {
     m_dark = dark;
-    // Reload base page with new theme, then re-render
-    m_pageLoaded = false;
-    loadBasePage();
+    // Re-render with new theme
+    if (!m_pendingMd.isEmpty())
+        render();
 }
 
 void MarkdownPreview::setFont(const QFont &font)
@@ -155,8 +143,18 @@ void MarkdownPreview::updateContent(const QString &markdown)
     m_debounce->start();
 }
 
-void MarkdownPreview::loadBasePage()
+// loadBasePage removed — render() now generates full HTML page each time (like text-ed)
+
+void MarkdownPreview::render()
 {
+    QString body = markdownToHtml(m_pendingMd);
+
+    // Convert mermaid code blocks to <div class="mermaid">
+    body.replace(QRegularExpression(
+        R"(<pre><code class="language-mermaid">([\s\S]*?)</code></pre>)"),
+        R"(<div class="mermaid">\1</div>)");
+
+    // Build full HTML page (like text-ed: write to file + load via setUrl — avoids JS string escaping issues)
     QString bg     = m_dark ? "#1e1e1e" : "#ffffff";
     QString fg     = m_dark ? "#d4d4d4" : "#24292f";
     QString codeBg = m_dark ? "#2d2d2d" : "#f0f0f0";
@@ -169,104 +167,83 @@ void MarkdownPreview::loadBasePage()
     QString hrC    = m_dark ? "#3e3e3e" : "#e1e4e8";
     QString thBg   = m_dark ? "#2d2d2d" : "#f6f8fa";
     QString mermaidTheme = m_dark ? "dark" : "default";
+    QString hljsCss = m_katexDir + (m_dark ? "/hljs-dark.min.css" : "/hljs-light.min.css");
 
-    QString page = QString(R"(<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<style>
-body {
-    background: %1; color: %2;
-    font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
-    font-size: 15px; line-height: 1.6;
-    padding: 16px 24px; margin: 0;
-    word-wrap: break-word;
-}
-h1, h2, h3, h4, h5, h6 { color: %7; margin-top: 24px; margin-bottom: 8px; font-weight: 600; }
-h1 { font-size: 2em; border-bottom: 1px solid %5; padding-bottom: 0.3em; }
-h2 { font-size: 1.5em; border-bottom: 1px solid %5; padding-bottom: 0.3em; }
-h3 { font-size: 1.25em; }
-p { margin: 8px 0; }
-a { color: %6; text-decoration: none; }
-a:hover { text-decoration: underline; }
-code {
-    background: %3; color: %4;
-    padding: 2px 6px; border-radius: 3px;
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
-    font-size: 0.9em;
-}
-pre {
-    background: %3; padding: 12px 16px;
-    border-radius: 6px; overflow-x: auto;
-    border: 1px solid %5;
-}
-pre code { background: none; padding: 0; font-size: 0.85em; }
-pre code:not(.hljs) { color: %2; }
-pre.mermaid { background: transparent; border: none; padding: 8px 0; text-align: center; }
-blockquote { border-left: 4px solid %8; color: %9; margin: 8px 0; padding: 4px 16px; }
-ul, ol { padding-left: 24px; margin: 8px 0; }
-li { margin: 4px 0; }
-hr { border: none; border-top: 1px solid %10; margin: 24px 0; }
-table { border-collapse: collapse; width: 100%%; margin: 8px 0; }
-th, td { border: 1px solid %5; padding: 6px 12px; text-align: left; }
-th { background: %11; font-weight: 600; }
-img { max-width: 100%%; border-radius: 4px; }
-del { text-decoration: line-through; opacity: 0.6; }
-</style>
-<link rel="stylesheet" href="file://%14/katex.min.css">
-<link rel="stylesheet" href="file://%15">
-<script src="file://%14/katex.min.js"></script>
-<script src="file://%14/auto-render.min.js"></script>
-<script src="file://%12"></script>
-<script src="file://%16"></script>
-<script>
-var mermaidTheme = '%13';
-function renderKatex() {
-    if (typeof renderMathInElement === 'function') {
-        renderMathInElement(document.getElementById('content'), {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false},
-                {left: '\\\\(', right: '\\\\)', display: false},
-                {left: '\\\\[', right: '\\\\]', display: true}
-            ],
-            ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'tt'],
-            throwOnError: false
-        });
-    }
-}
-function updateBody(html) {
-    document.getElementById('content').innerHTML = html;
-    // Decode HTML entities in mermaid blocks
-    document.querySelectorAll('pre.mermaid').forEach(function(el) {
-        var tmp = document.createElement('textarea');
-        tmp.innerHTML = el.innerHTML;
-        el.textContent = tmp.value;
-    });
-    // Re-run mermaid on new content
-    if (document.querySelectorAll('pre.mermaid').length > 0) {
-        mermaid.initialize({ startOnLoad: false, theme: mermaidTheme, securityLevel: 'loose',
-            flowchart: { useMaxWidth: true, htmlLabels: true } });
-        mermaid.run({ querySelector: 'pre.mermaid' });
-    }
-    // Syntax highlighting
-    if (typeof hljs !== 'undefined') {
-        document.querySelectorAll('pre code').forEach(function(el) {
-            hljs.highlightElement(el);
-        });
-    }
-    // Render KaTeX math
-    renderKatex();
-}
-</script>
-</head><body>
-<div id="content"></div>
-</body></html>)")
-        .arg(bg, fg, codeBg, codeFg, borderC, linkC, headC,
-             bqBorder, bqFg, hrC, thBg,
-             m_mermaidJsPath, mermaidTheme, m_katexDir,
-             m_katexDir + (m_dark ? "/hljs-dark.min.css" : "/hljs-light.min.css"),
-             m_hljsPath);
+    QString page = QStringLiteral("<!DOCTYPE html>\n<html><head>\n<meta charset=\"utf-8\">\n"
+        "<link rel=\"stylesheet\" href=\"file://") + m_katexDir + QStringLiteral("/katex.min.css\">\n"
+        "<link rel=\"stylesheet\" href=\"file://") + hljsCss + QStringLiteral("\">\n"
+        "<script src=\"file://") + m_katexDir + QStringLiteral("/katex.min.js\"></script>\n"
+        "<script src=\"file://") + m_mermaidJsPath + QStringLiteral("\"></script>\n"
+        "<script src=\"file://") + m_hljsPath + QStringLiteral("\"></script>\n"
+        "<style>\n"
+        "body { background: ") + bg + QStringLiteral("; color: ") + fg + QStringLiteral(";\n"
+        "  font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;\n"
+        "  font-size: 15px; line-height: 1.6; padding: 16px 24px; margin: 0; word-wrap: break-word; }\n"
+        "h1,h2,h3,h4,h5,h6 { color: ") + headC + QStringLiteral("; margin-top: 24px; margin-bottom: 8px; font-weight: 600; }\n"
+        "h1 { font-size: 2em; border-bottom: 1px solid ") + borderC + QStringLiteral("; padding-bottom: 0.3em; }\n"
+        "h2 { font-size: 1.5em; border-bottom: 1px solid ") + borderC + QStringLiteral("; padding-bottom: 0.3em; }\n"
+        "h3 { font-size: 1.25em; }\n"
+        "p { margin: 8px 0; }\n"
+        "a { color: ") + linkC + QStringLiteral("; text-decoration: none; }\n"
+        "a:hover { text-decoration: underline; }\n"
+        "code { background: ") + codeBg + QStringLiteral("; color: ") + codeFg + QStringLiteral(";\n"
+        "  padding: 2px 6px; border-radius: 3px;\n"
+        "  font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; }\n"
+        "pre { background: ") + codeBg + QStringLiteral("; padding: 12px 16px;\n"
+        "  border-radius: 6px; overflow-x: auto; border: 1px solid ") + borderC + QStringLiteral("; }\n"
+        "pre code { background: none; padding: 0; font-size: 0.85em; }\n"
+        "pre code:not(.hljs) { color: ") + fg + QStringLiteral("; }\n"
+        ".mermaid { text-align: center; }\n"
+        "blockquote { border-left: 4px solid ") + bqBorder + QStringLiteral("; color: ") + bqFg + QStringLiteral("; margin: 8px 0; padding: 4px 16px; }\n"
+        "ul, ol { padding-left: 24px; margin: 8px 0; }\n"
+        "li { margin: 4px 0; }\n"
+        "hr { border: none; border-top: 1px solid ") + hrC + QStringLiteral("; margin: 24px 0; }\n"
+        "table { border-collapse: collapse; width: 100%; margin: 8px 0; }\n"
+        "th, td { border: 1px solid ") + borderC + QStringLiteral("; padding: 6px 12px; text-align: left; }\n"
+        "th { background: ") + thBg + QStringLiteral("; font-weight: 600; }\n"
+        "img { max-width: 100%; border-radius: 4px; }\n"
+        "del { text-decoration: line-through; opacity: 0.6; }\n"
+        "@media print {\n"
+        "  pre { white-space: pre-wrap !important; word-wrap: break-word !important;\n"
+        "        overflow-x: visible !important; overflow-wrap: break-word !important; }\n"
+        "  pre code { white-space: pre-wrap !important; word-wrap: break-word !important;\n"
+        "             overflow-wrap: break-word !important; }\n"
+        "  code { word-break: break-all !important; }\n"
+        "  body { overflow-wrap: break-word; word-break: break-word; }\n"
+        "  table { table-layout: fixed; }\n"
+        "  td, th { word-wrap: break-word; overflow-wrap: break-word; }\n"
+        "  img { max-width: 100% !important; }\n"
+        "}\n"
+        "</style>\n</head><body>\n")
+        + body +
+        QStringLiteral("\n<script>\n"
+        "// KaTeX rendering\n"
+        "if (typeof katex !== 'undefined') {\n"
+        "    document.querySelectorAll('.katex-display').forEach(function(el) {\n"
+        "        try { katex.render(el.textContent, el, { displayMode: true, throwOnError: false }); }\n"
+        "        catch(e) { el.textContent = el.textContent; }\n"
+        "    });\n"
+        "    document.querySelectorAll('.katex-inline').forEach(function(el) {\n"
+        "        try { katex.render(el.textContent, el, { displayMode: false, throwOnError: false }); }\n"
+        "        catch(e) { el.textContent = el.textContent; }\n"
+        "    });\n"
+        "}\n"
+        "// Code highlighting\n"
+        "if (typeof hljs !== 'undefined') { hljs.highlightAll(); }\n"
+        "// Mermaid\n"
+        "if (typeof mermaid !== 'undefined') {\n"
+        "    mermaid.initialize({ startOnLoad: false, theme: '") + mermaidTheme + QStringLiteral("',\n"
+        "        suppressErrors: true, securityLevel: 'loose',\n"
+        "        flowchart: { useMaxWidth: true, htmlLabels: true } });\n"
+        "    mermaid.run().catch(function(e) {\n"
+        "        document.querySelectorAll('.mermaid').forEach(function(el) {\n"
+        "            if (el.getAttribute('data-processed')) return;\n"
+        "            el.style.color = '#b91c1c'; el.style.fontStyle = 'italic'; el.style.whiteSpace = 'pre-wrap';\n"
+        "        });\n"
+        "    });\n"
+        "}\n"
+        "</script>\n</body></html>");
 
-    // Write base page to file (avoids setHtml 2MB limit)
     QString tmpPath = QDir::tempPath() + "/vibe-coder-preview.html";
     QFile f(tmpPath);
     if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -274,28 +251,6 @@ function updateBody(html) {
         f.close();
     }
     m_webView->load(QUrl::fromLocalFile(tmpPath));
-}
-
-void MarkdownPreview::render()
-{
-    if (!m_pageLoaded) return; // base page not ready yet
-
-    QString html = markdownToHtml(m_pendingMd);
-
-    // Convert mermaid code blocks to <pre class="mermaid">
-    html.replace(QRegularExpression(
-        R"(<pre><code class="language-mermaid">([\s\S]*?)</code></pre>)"),
-        R"(<pre class="mermaid">\1</pre>)");
-
-    // Escape for JS string (backslashes, quotes, newlines)
-    html.replace('\\', "\\\\");
-    html.replace('\'', "\\'");
-    html.replace('\n', "\\n");
-    html.replace('\r', "");
-
-    // Call JS to update body — no page reload
-    QString js = QString("updateBody('%1');").arg(html);
-    m_webView->page()->runJavaScript(js);
 }
 
 void MarkdownPreview::injectPrintCss(std::function<void()> then)
@@ -456,13 +411,35 @@ void MarkdownPreview::exportToPdf(const QString &filePath, int marginLeft, int m
 QString MarkdownPreview::markdownToHtml(const QString &md)
 {
     // Protect $$...$$ and $...$ from markdown processing (both cmark and regex)
+    // BUT: first strip out backtick code spans so $ inside code is not treated as math
+    static QRegularExpression reCodeSpan(R"(`[^`]+`)");
+    static QRegularExpression reCodeFence(R"(^```[\s\S]*?^```)", QRegularExpression::MultilineOption);
     static QRegularExpression reDisplayMath(R"(\$\$[\s\S]+?\$\$)");
     static QRegularExpression reInlineMath(R"(\$(?!\s)(?:[^$\\]|\\.)+?\$)");
 
-    QVector<QString> mathFragments;
-    QString protected_ = md;
+    // Step 1: protect code spans and fenced code blocks from math detection
+    QVector<QString> codeProtected;
+    QString withCodeMasked = md;
 
-    // Protect display math first ($$...$$), then inline ($...$)
+    // Protect fenced code blocks first (multi-line), then inline code spans
+    auto maskCode = [&](const QRegularExpression &re) {
+        QRegularExpressionMatchIterator it = re.globalMatch(withCodeMasked);
+        QVector<QRegularExpressionMatch> matches;
+        while (it.hasNext()) matches.append(it.next());
+        for (int i = matches.size() - 1; i >= 0; --i) {
+            const auto &m = matches[i];
+            QString placeholder = QString("\x05CODEBLK%1\x05").arg(codeProtected.size());
+            codeProtected.append(m.captured());
+            withCodeMasked.replace(m.capturedStart(), m.capturedLength(), placeholder);
+        }
+    };
+    maskCode(reCodeFence);
+    maskCode(reCodeSpan);
+
+    // Step 2: protect math in code-masked text
+    QVector<QString> mathFragments;
+    QString protected_ = withCodeMasked;
+
     auto protectMath = [&](const QRegularExpression &re) {
         QRegularExpressionMatchIterator it = re.globalMatch(protected_);
         QVector<QRegularExpressionMatch> matches;
@@ -477,15 +454,22 @@ QString MarkdownPreview::markdownToHtml(const QString &md)
     protectMath(reDisplayMath);
     protectMath(reInlineMath);
 
-    QString html;
-    if (m_hasCmark)
-        html = cmarkConvert(protected_);
-    else
-        html = regexConvert(protected_);
+    // Step 3: restore code blocks (they now have math removed from non-code areas)
+    for (int i = 0; i < codeProtected.size(); ++i) {
+        protected_.replace(QString("\x05CODEBLK%1\x05").arg(i), codeProtected[i]);
+    }
 
-    // Restore math expressions (HTML-escaped so KaTeX can read them from innerHTML)
-    for (int i = 0; i < mathFragments.size(); ++i) {
-        html.replace(QString("\x02MATH%1\x02").arg(i), mathFragments[i].toHtmlEscaped());
+    // Step 4: convert
+    QString html;
+    if (m_hasCmark) {
+        html = cmarkConvert(protected_);
+        // Restore math expressions
+        for (int i = 0; i < mathFragments.size(); ++i) {
+            html.replace(QString("\x02MATH%1\x02").arg(i), mathFragments[i].toHtmlEscaped());
+        }
+    } else {
+        // Regex converter handles math internally via processInline (katex-display/katex-inline spans)
+        html = regexConvert(md);
     }
 
     return html;
@@ -594,141 +578,264 @@ QString MarkdownPreview::cmarkConvert(const QString &md)
     return html;
 }
 
+// Inline formatting — extract math placeholders, escape HTML, then apply inline patterns
+// (Same approach as text-ed: placeholder-based math protection + toHtmlEscaped + inline regex)
+static QString processInline(const QString &text)
+{
+    static const QRegularExpression reDispMath(QStringLiteral("\\$\\$(.+?)\\$\\$"));
+    static const QRegularExpression reInlineMath(QStringLiteral("(?<!\\$)\\$(?!\\$)(.+?)(?<!\\$)\\$(?!\\$)"));
+    static const QRegularExpression reBold(QStringLiteral("\\*\\*(.+?)\\*\\*"));
+    static const QRegularExpression reItalic(QStringLiteral("(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)"));
+    static const QRegularExpression reCode(QStringLiteral("`([^`]+)`"));
+    static const QRegularExpression reStrike(QStringLiteral("~~(.+?)~~"));
+    static const QRegularExpression reImg(QStringLiteral("!\\[([^\\]]*)\\]\\(([^)]+)\\)"));
+    static const QRegularExpression reLink(QStringLiteral("\\[([^\\]]+)\\]\\(([^)]+)\\)"));
+
+    // Extract LaTeX placeholders before HTML-escaping (math content must not be escaped)
+    struct Placeholder { qsizetype pos; qsizetype len; QString replacement; };
+    QVector<Placeholder> placeholders;
+
+    auto itD = reDispMath.globalMatch(text);
+    while (itD.hasNext()) {
+        auto m = itD.next();
+        placeholders.append({m.capturedStart(), m.capturedLength(),
+            QStringLiteral("<span class=\"katex-display\">") + m.captured(1) + QStringLiteral("</span>")});
+    }
+
+    auto itI = reInlineMath.globalMatch(text);
+    while (itI.hasNext()) {
+        auto m = itI.next();
+        bool overlaps = false;
+        for (const auto &p : placeholders) {
+            if (m.capturedStart() >= p.pos && m.capturedStart() < p.pos + p.len) { overlaps = true; break; }
+        }
+        if (!overlaps) {
+            placeholders.append({m.capturedStart(), m.capturedLength(),
+                QStringLiteral("<span class=\"katex-inline\">") + m.captured(1) + QStringLiteral("</span>")});
+        }
+    }
+
+    // Build result: escape non-math text, keep math raw
+    QString result;
+    if (placeholders.isEmpty()) {
+        result = text.toHtmlEscaped();
+    } else {
+        std::sort(placeholders.begin(), placeholders.end(),
+                  [](const Placeholder &a, const Placeholder &b) { return a.pos < b.pos; });
+        qsizetype lastEnd = 0;
+        for (const auto &p : placeholders) {
+            result += text.mid(lastEnd, p.pos - lastEnd).toHtmlEscaped();
+            result += p.replacement;
+            lastEnd = p.pos + p.len;
+        }
+        result += text.mid(lastEnd).toHtmlEscaped();
+    }
+
+    // Extract inline code FIRST — protect content from bold/italic/link processing
+    QVector<QString> codeFragments;
+    {
+        QRegularExpressionMatchIterator it = reCode.globalMatch(result);
+        QVector<QRegularExpressionMatch> codeMatches;
+        while (it.hasNext()) codeMatches.append(it.next());
+        for (int ci = codeMatches.size() - 1; ci >= 0; --ci) {
+            const auto &m = codeMatches[ci];
+            QString placeholder = QStringLiteral("\x04CODE") + QString::number(codeFragments.size()) + QStringLiteral("\x04");
+            codeFragments.append(QStringLiteral("<code>") + m.captured(1) + QStringLiteral("</code>"));
+            result.replace(m.capturedStart(), m.capturedLength(), placeholder);
+        }
+    }
+
+    // Apply inline formatting (code content is safely placeholder-protected)
+    result.replace(reBold, QStringLiteral("<strong>\\1</strong>"));
+    result.replace(reItalic, QStringLiteral("<em>\\1</em>"));
+    result.replace(reStrike, QStringLiteral("<del>\\1</del>"));
+    // Images MUST be before links (![alt](url) vs [text](url))
+    result.replace(reImg, QStringLiteral("<img src=\"\\2\" alt=\"\\1\" style=\"max-width:100%\">"));
+    result.replace(reLink, QStringLiteral("<a href=\"\\2\">\\1</a>"));
+
+    // Restore inline code
+    for (int ci = 0; ci < codeFragments.size(); ++ci) {
+        result.replace(QStringLiteral("\x04CODE") + QString::number(ci) + QStringLiteral("\x04"), codeFragments[ci]);
+    }
+
+    return result;
+}
+
 QString MarkdownPreview::regexConvert(const QString &md)
 {
     QString html;
-    QStringList lines = md.split('\n');
+    html.reserve(md.size());
 
+    const QStringList lines = md.split('\n');
     bool inCodeBlock = false;
-    QString codeBlockLang;
+    bool inMermaid = false;
     QString codeContent;
-    bool inList = false;
-    bool inOrderedList = false;
+    QString codeLang;
+    bool inUl = false;
+    bool inOl = false;
     bool inBlockquote = false;
     bool inTable = false;
+    bool hadTableSep = false;
+    QVector<QString> tableAligns;
 
-    auto escapeHtml = [](const QString &s) {
-        QString r = s;
-        r.replace('&', "&amp;");
-        r.replace('<', "&lt;");
-        r.replace('>', "&gt;");
-        return r;
+    static const QRegularExpression reHead(QStringLiteral("^(#{1,6})\\s+(.*)"));
+    static const QRegularExpression reHr(QStringLiteral("^(---|\\*\\*\\*|___)\\s*$"));
+    static const QRegularExpression reUl(QStringLiteral("^\\s*[-*+]\\s+(.*)"));
+    static const QRegularExpression reOl(QStringLiteral("^\\s*\\d+\\.\\s+(.*)"));
+
+    auto closePending = [&]() {
+        if (inUl) { html += QStringLiteral("</ul>\n"); inUl = false; }
+        if (inOl) { html += QStringLiteral("</ol>\n"); inOl = false; }
+        if (inBlockquote) { html += QStringLiteral("</blockquote>\n"); inBlockquote = false; }
+        if (inTable) {
+            html += (hadTableSep ? QStringLiteral("</tbody>") : QString()) + QStringLiteral("</table>\n");
+            inTable = false; hadTableSep = false;
+        }
     };
 
-    // Pre-compiled regex patterns for inline processing
-    static QRegularExpression reImg(R"(!\[([^\]]*)\]\(([^)]+)\))");
-    static QRegularExpression reLink(R"(\[([^\]]+)\]\(([^)]+)\))");
-    static QRegularExpression reBoldItalic(R"(\*{3}(.+?)\*{3})");
-    static QRegularExpression reBold(R"(\*{2}(.+?)\*{2})");
-    static QRegularExpression reItalic(R"(\*(.+?)\*)");
-    static QRegularExpression reStrike(R"(~~(.+?)~~)");
-    static QRegularExpression reCode(R"(`([^`]+)`)");
+    for (const QString &line : lines) {
+        QString trimmed = line.trimmed();
 
-    auto processInline = [&escapeHtml](const QString &line) -> QString {
-        QString s = escapeHtml(line);
-        s.replace(reImg, R"(<img src="\2" alt="\1" style="max-width:100%;">)");
-        s.replace(reLink, R"(<a href="\2">\1</a>)");
-        s.replace(reBoldItalic, R"(<strong><em>\1</em></strong>)");
-        s.replace(reBold, R"(<strong>\1</strong>)");
-        s.replace(reItalic, R"(<em>\1</em>)");
-        s.replace(reStrike, R"(<del>\1</del>)");
-        s.replace(reCode, R"(<code>\1</code>)");
-        return s;
-    };
-
-    for (int i = 0; i < lines.size(); ++i) {
-        const QString &line = lines[i];
-
-        if (line.trimmed().startsWith("```")) {
+        // ── Fenced code blocks ──
+        if (trimmed.startsWith(QStringLiteral("```"))) {
             if (!inCodeBlock) {
+                closePending();
                 inCodeBlock = true;
-                codeBlockLang = line.trimmed().mid(3).trimmed();
+                codeLang = trimmed.mid(3).trimmed();
+                inMermaid = (codeLang.compare(QStringLiteral("mermaid"), Qt::CaseInsensitive) == 0);
                 codeContent.clear();
             } else {
+                if (inMermaid) {
+                    html += QStringLiteral("<div class=\"mermaid\">\n") + codeContent + QStringLiteral("</div>\n");
+                } else if (!codeLang.isEmpty()) {
+                    html += QStringLiteral("<pre><code class=\"language-") + codeLang.toHtmlEscaped() +
+                            QStringLiteral("\">") + codeContent.toHtmlEscaped() + QStringLiteral("</code></pre>\n");
+                } else {
+                    html += QStringLiteral("<pre><code>") + codeContent.toHtmlEscaped() + QStringLiteral("</code></pre>\n");
+                }
                 inCodeBlock = false;
-                if (!codeBlockLang.isEmpty())
-                    html += "<pre><code class=\"language-" + codeBlockLang + "\">" + escapeHtml(codeContent) + "</code></pre>\n";
-                else
-                    html += "<pre><code>" + escapeHtml(codeContent) + "</code></pre>\n";
+                inMermaid = false;
             }
             continue;
         }
         if (inCodeBlock) {
-            if (!codeContent.isEmpty()) codeContent += '\n';
-            codeContent += line;
+            codeContent += line + '\n';
             continue;
         }
 
-        QString trimmed = line.trimmed();
+        // ── Blank line ──
+        if (trimmed.isEmpty()) {
+            closePending();
+            html += QStringLiteral("<br>\n");
+            continue;
+        }
 
-        // Table
-        if (trimmed.contains('|') && trimmed.startsWith('|')) {
+        // ── Headings ──
+        auto mHead = reHead.match(trimmed);
+        if (mHead.hasMatch()) {
+            closePending();
+            int level = mHead.captured(1).length();
+            html += QStringLiteral("<h%1>%2</h%1>\n").arg(level).arg(processInline(mHead.captured(2)));
+            continue;
+        }
+
+        // ── Horizontal rule ──
+        if (reHr.match(trimmed).hasMatch()) {
+            closePending();
+            html += QStringLiteral("<hr>\n");
+            continue;
+        }
+
+        // ── Table ──
+        if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
             QStringList cells;
             for (const auto &cell : trimmed.split('|', Qt::SkipEmptyParts))
                 cells << cell.trimmed();
-            bool isSep = true;
-            for (const auto &c : cells) { QString t = c; t.remove('-'); t.remove(':'); if (!t.trimmed().isEmpty()) { isSep = false; break; } }
+
+            bool isSep = !cells.isEmpty();
+            for (const auto &c : cells) {
+                QString t = c; t.remove('-'); t.remove(':'); t.remove(' ');
+                if (!t.isEmpty()) { isSep = false; break; }
+            }
+
             if (!inTable) {
-                inTable = true;
-                html += "<table><thead><tr>";
-                for (const auto &h : cells) html += "<th>" + processInline(h) + "</th>";
-                html += "</tr></thead><tbody>\n";
-            } else if (isSep) {
-            } else {
-                html += "<tr>";
-                for (const auto &c : cells) html += "<td>" + processInline(c) + "</td>";
-                html += "</tr>\n";
+                closePending();
+                inTable = true; hadTableSep = false; tableAligns.clear();
+                html += QStringLiteral("<table><thead><tr>");
+                for (const auto &h : cells)
+                    html += QStringLiteral("<th>") + processInline(h) + QStringLiteral("</th>");
+                html += QStringLiteral("</tr></thead>\n");
+            } else if (isSep && !hadTableSep) {
+                hadTableSep = true; tableAligns.clear();
+                for (const auto &s : cells) {
+                    QString t = s.trimmed();
+                    if (t.startsWith(':') && t.endsWith(':')) tableAligns << "center";
+                    else if (t.endsWith(':')) tableAligns << "right";
+                    else tableAligns << "left";
+                }
+                html += QStringLiteral("<tbody>\n");
+            } else if (hadTableSep) {
+                html += QStringLiteral("<tr>");
+                for (int c = 0; c < cells.size(); ++c) {
+                    QString align = (c < tableAligns.size()) ? tableAligns[c] : "left";
+                    html += QStringLiteral("<td style=\"text-align:") + align + QStringLiteral("\">") +
+                            processInline(cells[c]) + QStringLiteral("</td>");
+                }
+                html += QStringLiteral("</tr>\n");
             }
             continue;
-        } else if (inTable) { inTable = false; html += "</tbody></table>\n"; }
+        }
+        if (inTable) {
+            html += (hadTableSep ? QStringLiteral("</tbody>") : QString()) + QStringLiteral("</table>\n");
+            inTable = false; hadTableSep = false;
+        }
 
-        if (trimmed.startsWith("> ")) {
-            if (!inBlockquote) { inBlockquote = true; html += "<blockquote>\n"; }
-            html += "<p>" + processInline(trimmed.mid(2)) + "</p>\n";
+        // ── Blockquote ──
+        if (trimmed.startsWith('>')) {
+            QString content = trimmed.mid(1);
+            if (content.startsWith(' ')) content = content.mid(1);
+            if (!inBlockquote) {
+                if (inUl) { html += QStringLiteral("</ul>\n"); inUl = false; }
+                if (inOl) { html += QStringLiteral("</ol>\n"); inOl = false; }
+                inBlockquote = true;
+                html += QStringLiteral("<blockquote>\n");
+            }
+            html += QStringLiteral("<p>") + processInline(content) + QStringLiteral("</p>\n");
             continue;
-        } else if (inBlockquote) { inBlockquote = false; html += "</blockquote>\n"; }
+        }
+        if (inBlockquote) { html += QStringLiteral("</blockquote>\n"); inBlockquote = false; }
 
-        static QRegularExpression ulRe(R"(^(\s*)[*\-+]\s+(.+))");
-        auto ulMatch = ulRe.match(line);
-        if (ulMatch.hasMatch()) {
-            if (!inList) { inList = true; html += "<ul>\n"; }
-            html += "<li>" + processInline(ulMatch.captured(2)) + "</li>\n";
-            continue;
-        } else if (inList && !inOrderedList) { inList = false; html += "</ul>\n"; }
-
-        static QRegularExpression olRe(R"(^(\s*)\d+\.\s+(.+))");
-        auto olMatch = olRe.match(line);
-        if (olMatch.hasMatch()) {
-            if (!inOrderedList) { inOrderedList = true; html += "<ol>\n"; }
-            html += "<li>" + processInline(olMatch.captured(2)) + "</li>\n";
-            continue;
-        } else if (inOrderedList) { inOrderedList = false; html += "</ol>\n"; }
-
-        if (trimmed.isEmpty()) { html += "\n"; continue; }
-        static QRegularExpression reHr(R"(^[-*_]{3,}\s*$)");
-        if (reHr.match(trimmed).hasMatch()) { html += "<hr>\n"; continue; }
-
-        static QRegularExpression headingRe(R"(^(#{1,6})\s+(.+))");
-        auto hMatch = headingRe.match(trimmed);
-        if (hMatch.hasMatch()) {
-            int level = hMatch.captured(1).length();
-            html += QString("<h%1>%2</h%1>\n").arg(level).arg(processInline(hMatch.captured(2)));
+        // ── Unordered list ──
+        auto mUl = reUl.match(line);
+        if (mUl.hasMatch()) {
+            if (inOl) { html += QStringLiteral("</ol>\n"); inOl = false; }
+            if (!inUl) { inUl = true; html += QStringLiteral("<ul>\n"); }
+            html += QStringLiteral("<li>") + processInline(mUl.captured(1)) + QStringLiteral("</li>\n");
             continue;
         }
 
-        html += "<p>" + processInline(trimmed) + "</p>\n";
+        // ── Ordered list ──
+        auto mOl = reOl.match(line);
+        if (mOl.hasMatch()) {
+            if (inUl) { html += QStringLiteral("</ul>\n"); inUl = false; }
+            if (!inOl) { inOl = true; html += QStringLiteral("<ol>\n"); }
+            html += QStringLiteral("<li>") + processInline(mOl.captured(1)) + QStringLiteral("</li>\n");
+            continue;
+        }
+
+        // ── Regular paragraph ──
+        closePending();
+        html += QStringLiteral("<p>") + processInline(trimmed) + QStringLiteral("</p>\n");
     }
 
+    // Close remaining open blocks
     if (inCodeBlock) {
-        if (!codeBlockLang.isEmpty())
-            html += "<pre><code class=\"language-" + codeBlockLang + "\">" + escapeHtml(codeContent) + "</code></pre>\n";
+        if (inMermaid)
+            html += QStringLiteral("<div class=\"mermaid\">\n") + codeContent + QStringLiteral("</div>\n");
         else
-            html += "<pre><code>" + escapeHtml(codeContent) + "</code></pre>\n";
+            html += QStringLiteral("<pre><code>") + codeContent.toHtmlEscaped() + QStringLiteral("</code></pre>\n");
     }
-    if (inList) html += "</ul>\n";
-    if (inOrderedList) html += "</ol>\n";
-    if (inBlockquote) html += "</blockquote>\n";
-    if (inTable) html += "</tbody></table>\n";
+    closePending();
 
     return html;
 }

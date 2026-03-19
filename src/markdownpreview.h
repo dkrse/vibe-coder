@@ -28,7 +28,6 @@ private:
     QTimer *m_debounce;
     QString m_pendingMd;
     bool m_dark = true;
-    bool m_pageLoaded = false;
     QString m_mermaidJsPath;
     QString m_hljsPath;
     QString m_katexDir;
@@ -42,7 +41,6 @@ private:
     QString markdownToHtml(const QString &md);
     QString cmarkConvert(const QString &md);
     QString regexConvert(const QString &md);
-    void loadBasePage();
     void render();
     void injectPrintCss(std::function<void()> then);
     void removePrintCss();
