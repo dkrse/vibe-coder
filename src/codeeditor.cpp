@@ -8,6 +8,16 @@
 #include <QKeyEvent>
 #include <QStyleOptionSlider>
 
+// ── SpacedDocumentLayout ────────────────────────────────────────────
+
+QRectF SpacedDocumentLayout::blockBoundingRect(const QTextBlock &block) const
+{
+    QRectF r = QPlainTextDocumentLayout::blockBoundingRect(block);
+    if (m_factor > 1.01)
+        r.setHeight(r.height() * m_factor);
+    return r;
+}
+
 // ── LineNumberArea ──────────────────────────────────────────────────
 
 LineNumberArea::LineNumberArea(CodeEditor *editor)
@@ -454,6 +464,8 @@ void SyntaxHighlighter::highlightBlock(const QString &text)
 CodeEditor::CodeEditor(QWidget *parent)
     : QPlainTextEdit(parent)
 {
+    m_spacedLayout = new SpacedDocumentLayout(document());
+    document()->setDocumentLayout(m_spacedLayout);
     m_lineNumberArea = new LineNumberArea(this);
     m_highlighter = new SyntaxHighlighter(document());
 
@@ -675,7 +687,8 @@ void CodeEditor::updateCurrentLineHighlight()
     QList<QTextEdit::ExtraSelection> selections;
     if (m_highlightLine) {
         QTextEdit::ExtraSelection sel;
-        QColor lineColor = m_darkScheme ? QColor("#2a2d2e") : QColor("#e8f2fe");
+        QColor lineColor = m_lineHighlightColor.isValid() ? m_lineHighlightColor
+            : (m_darkScheme ? QColor("#2a2d2e") : QColor("#e8f2fe"));
         sel.format.setBackground(lineColor);
         sel.format.setProperty(QTextFormat::FullWidthSelection, true);
         sel.cursor = textCursor();
@@ -683,6 +696,12 @@ void CodeEditor::updateCurrentLineHighlight()
         selections.append(sel);
     }
     setExtraSelections(selections);
+}
+
+void CodeEditor::setLineSpacing(double factor)
+{
+    m_lineSpacing = factor;
+    m_spacedLayout->setSpacingFactor(factor);
 }
 
 void CodeEditor::setLargeFile(bool large)

@@ -19,13 +19,13 @@ struct AppSettings {
     // Terminal
     QString termFontFamily = "Adwaita Mono";
     int termFontSize = 14;
-    int termFontWeight = 50; // QFont::Normal
+    int termFontWeight = 400; // QFont::Normal
     QString termTheme = "Auto"; // "Auto" or specific: Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight
 
     // Editor
     QString editorFontFamily = "Monaco";
     int editorFontSize = 14;
-    int editorFontWeight = 50;
+    int editorFontWeight = 400;
     double editorLineSpacing = 1.0; // 1.0, 1.2, 1.5, etc.
     bool showLineNumbers = true;
     bool syntaxHighlighting = true;
@@ -34,12 +34,12 @@ struct AppSettings {
     // File browser
     QString browserFontFamily = "Noto Sans";
     int browserFontSize = 12;
-    int browserFontWeight = 50;
+    int browserFontWeight = 400;
 
     // Prompt
     QString promptFontFamily = "Monospace";
     int promptFontSize = 14;
-    int promptFontWeight = 50;
+    int promptFontWeight = 400;
     QString promptSendKey = "Ctrl+Enter"; // "Ctrl+Enter" or "Enter"
     QString modelStopSequence = "\\x03"; // sent to terminal to stop model (default: Ctrl+C)
     bool promptHighlightLine = false;
@@ -47,12 +47,12 @@ struct AppSettings {
     // Diff viewer
     QString diffFontFamily = "Monospace";
     int diffFontSize = 13;
-    int diffFontWeight = 50;
+    int diffFontWeight = 400;
 
     // Changes monitor
     QString changesFontFamily = "Monospace";
     int changesFontSize = 13;
-    int changesFontWeight = 50;
+    int changesFontWeight = 400;
 
     // Visibility
     // "visible" = normal, "grayed" = shown but gray, "hidden" = not shown
@@ -71,7 +71,7 @@ struct AppSettings {
     // GUI (tabs, buttons, status bar, menus)
     QString guiFontFamily = "Noto Sans";
     int guiFontSize = 11;
-    int guiFontWeight = 50;
+    int guiFontWeight = 400;
 
     // Widget style (Fusion, Windows, etc.)
     QString widgetStyle = "Auto"; // "Auto" = system default
@@ -86,12 +86,13 @@ struct AppSettings {
     QColor bgColor;
     QColor textColor;
 
-    QVector<ZedTheme> zedThemes;
+    QVector<ExternalTheme> externalThemes;
 
     void load();
     void save();
-    void loadZedThemes();
+    void loadExternalThemes();
     void applyThemeDefaults();
+    const ExternalTheme *findExternalTheme(const QString &name) const;
 };
 
 class SettingsDialog : public QDialog {
@@ -101,7 +102,7 @@ public:
     AppSettings result() const;
 
 private:
-    QVector<ZedTheme> m_zedThemes;
+    QVector<ExternalTheme> m_externalThemes;
 
     // Global theme
     QComboBox *m_globalThemeCombo;

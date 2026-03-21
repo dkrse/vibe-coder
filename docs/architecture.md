@@ -18,7 +18,7 @@ Vibe Coder is a Qt6 C++ IDE-like application designed for AI-assisted developmen
 - **SSH Filesystem:** sshfs / FUSE
 - **Build System:** CMake 3.16+
 - **Settings:** QSettings (INI-based, per-user)
-- **External Themes:** Zed editor theme JSON format
+- **External Themes:** `~/.config/vibe-coder/themes/` — native JSON, Zed, and VS Code formats
 
 ## Application Structure
 
@@ -43,7 +43,7 @@ src/
 ├── notificationpanel.h/cpp  Log panel with Info/Warning/Error/Success levels
 ├── titlebar.h/cpp        Custom title bar (CSD) with minimize/maximize/close
 ├── themeddialog.h/cpp    Frameless dialog wrapper with themed title bar
-├── zedthemeloader.h/cpp  Zed editor theme JSON parser and color mapper
+├── zedthemeloader.h/cpp  External theme loader (native/Zed/VS Code JSON formats)
 ├── markdownpreview.h/cpp Markdown preview with QWebEngineView + mermaid.js + highlight.js + KaTeX
 ├── fileopener.h/cpp      Fuzzy file opener popup (Ctrl+P)
 ├── workspacesearch.h/cpp Full-text workspace search (Ctrl+Shift+F)
@@ -71,7 +71,7 @@ src/
 - Bottom tab widget: Prompt tab + Terminal tab + Notifications tab + Diff Viewer tab + Changes tab + Git Graph tab + Search tab + Blame tab
 - Hamburger menu (top-right): Create/Edit Project, SSH Connect/Disconnect/Tunnels/Upload/Download, Split Horizontal/Vertical/Unsplit, Settings
 - Command palette (Ctrl+Shift+P): fuzzy-searchable list of all registered commands (split, focus, theme switching, diff refresh)
-- **Unified global theme system:** Built-in themes (Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord) + auto-discovered Zed editor themes. Single global stylesheet cascades to all widgets including title bar, menus, dialogs, tabs, splitters, status bar
+- **Unified global theme system:** All themes loaded from `~/.config/vibe-coder/themes/` (native JSON, Zed, VS Code formats). Ships with 8 themes. Single global stylesheet cascades to all widgets including title bar, menus, dialogs, tabs, splitters, status bar
 - **Theme application order:** `applyGlobalTheme()` first (global QSS), then `applySettings()` (per-widget overrides) — ensures widget-specific styles take precedence
 - Status bar: file info, SSH profile combo, transfer progress bar
 - **Session persistence:** window geometry via `normalGeometry()`, splitter states, open files. Multi-monitor aware: finds target screen by geometry match, uses `setGeometry()` + deferred `showMaximized()`
@@ -123,7 +123,7 @@ src/
 - **Drag & drop** — `FileBrowserTreeView` subclass handles drop events, moves files/directories via `QFile::rename()`. Prevents moving into self or overwriting existing files
 - **Simplified UI** — removed path text field, replaced with "Open Directory…" button showing current directory name
 - SSH path translation: toRemotePath() maps mount paths to remote paths
-- Theme-aware: accepts bg/fg color parameters from global theme, uses darker() for light themes / lighter() for dark themes
+- Theme-aware: accepts bg/fg/hover/selected/lineHighlight color parameters from active theme. Selected file uses lineHighlight color (same as editor current line). Auto-highlights file corresponding to active editor tab
 - Path traversal protection in file operations
 - **QFileSystemWatcher limits** — max 4000 entries to stay within OS limits (~8192 on Linux)
 - **Git output capping** — status/ls-files/check-ignore output truncated at 2MB
@@ -132,7 +132,7 @@ src/
 - Git polling timer only starts after git repo confirmed, stops when no repo
 
 ### CodeEditor
-- QPlainTextEdit subclass with LineNumberArea widget
+- QPlainTextEdit subclass with LineNumberArea widget and SpacedDocumentLayout for configurable line spacing
 - SyntaxHighlighter: C/C++, Python, JavaScript/TypeScript, Rust + search pattern overlay
 - Dark/Light color scheme with matching syntax colors via `setEditorColorScheme(scheme, bg, fg)`
 - QPalette-based coloring: Base, Text, AlternateBase, PlaceholderText derived from theme colors
@@ -147,7 +147,7 @@ src/
   - Replace one / Replace All with undo group support
   - Colors inherited from global stylesheet
 - **Undo/Redo** — built-in QPlainTextEdit support (Ctrl+Z / Ctrl+Shift+Z)
-- **Current line highlighting** — configurable via Settings > Editor
+- **Current line highlighting** — configurable via Settings > Editor, color derived from active theme (`lineHighlight` field or auto-computed)
 - **Unsaved changes tracking** — compares `toPlainText()` against saved content, shows `●` marker in tab title
 - **Search debouncing** — 200ms delay before scanning document on keystroke
 - **Large file mode** — files >1MB disable syntax highlighting and line wrapping for performance
@@ -173,21 +173,18 @@ src/
 - Stylesheet-based coloring with font-family/font-size in stylesheet (prevents QFont/stylesheet cascade conflict)
 - **Current line highlighting** — configurable via Settings > Prompt, auto-detects dark/light from palette
 
-### ZedThemeLoader
-- Scans for Zed editor theme JSON files in standard locations:
-  - `~/.var/app/dev.zed.Zed/data/zed/extensions/installed/*/themes/*.json` (Flatpak)
-  - `~/.local/share/zed/extensions/installed/*/themes/*.json` (native)
-- Parses Zed theme JSON format (v0.2.0 schema): `themes[].style` object
-- Color mapping from Zed to application:
-  - `bgColor` ← `editor.background` or `background`
-  - `textColor` ← `editor.foreground` or `text`
-  - `altBg` ← `surface.background` or `panel.background` (fallback: computed)
-  - `borderColor` ← `border` (fallback: computed)
-  - `hoverBg` ← `element.hover` (fallback: computed)
-  - `selectedBg` ← `element.selected` or first accent color (fallback: computed)
+### ExternalThemeLoader
+- Loads all themes from `~/.config/vibe-coder/themes/` (recursive JSON scan)
+- Auto-detects format by JSON structure:
+  - **Native format** — flat JSON with `background`, `foreground`, `altBackground`, `border`, `hover`, `selected`, `lineHighlight`, `terminalScheme`, `appearance`
+  - **Zed format** — `themes[]` array with `style` object (`editor.background`, `editor.foreground`, `surface.background`, `border`, `element.hover`, `element.selected`, `editor.active_line.background`)
+  - **VS Code format** — `colors` object (`editor.background`, `editor.foreground`, `sideBar.background`, `editor.lineHighlightBackground`, `list.hoverBackground`, `list.activeSelectionBackground`)
+- 7 color values per theme: bgColor, textColor, altBg, borderColor, hoverBg, selectedBg, lineHighlight
+- Missing colors auto-derived from background using `lighter()`/`darker()`
+- Optional `terminalScheme` field maps to terminal color scheme (Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight)
 - Strips alpha channel from 8-char hex colors (#rrggbbaa → #rrggbb)
-- Themes loaded once at startup, cached in `AppSettings::zedThemes`
-- Zed themes prefixed with "Zed: " in UI to avoid name collisions
+- Themes loaded once at startup, cached in `AppSettings::externalThemes`
+- Ships with 8 themes in `themes/` directory (Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord)
 
 ### SshManager
 - Central SSH management replacing scattered SSH state
@@ -221,7 +218,7 @@ src/
 - Commands registered with name, shortcut string, and action callback
 - Fuzzy filtering on keystroke, Enter to execute selected command
 - Event filter handles Escape to dismiss, arrow keys for navigation
-- Built-in commands: split/unsplit, focus panels, theme switching (built-in + Zed themes), diff refresh
+- Built-in commands: split/unsplit, focus panels, theme switching (all themes from `~/.config/vibe-coder/themes/`), diff refresh
 - Colors inherited from global stylesheet
 
 ### DiffViewer
@@ -320,15 +317,14 @@ src/
 ### Settings
 - AppSettings struct with load/save via QSettings("vibe-coder", "vibe-coder")
 - **Global theme:** unified system — one theme controls all UI components
-  - Built-in: Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord
-  - External: auto-discovered Zed editor themes (prefixed "Zed: ")
-  - `applyThemeDefaults()` derives all component colors from globalTheme (editor/browser/terminal color schemes, bgColor, textColor)
+  - All themes loaded from `~/.config/vibe-coder/themes/` (native JSON, Zed, VS Code formats)
+  - `applyThemeDefaults()` derives all component colors from selected theme (editor/browser/terminal color schemes, bgColor, textColor, lineHighlight)
 - **Widget style:** configurable Qt widget style via `QStyleFactory::create()`. Available styles auto-detected from installed Qt6 plugins (Fusion, Windows always built-in; Breeze, Adwaita, Oxygen, Kvantum available via system packages). Applied at startup in `main.cpp` before widget creation, and live-switchable via `qApp->setStyle()` in `applySettings()`
 - **Theme cascade:** `applyGlobalTheme()` sets comprehensive QSS stylesheet covering QWidget, QLabel, QPlainTextEdit, QTextEdit, QLineEdit, QSpinBox, QComboBox, QCheckBox, QPushButton, QToolButton, QListWidget, QMenu, QDialog, QGroupBox, QScrollBar, QProgressBar, QTabWidget, QTabBar, QFontComboBox, QDialogButtonBox
 - **Live theme switching:** theme changes apply immediately without restart
-- Tabbed SettingsDialog: Global Theme (top, includes separator + Zed themes), GUI (widget style + font), Terminal (theme override + font), Editor, File Browser, Prompt, Diff Viewer, Changes Monitor, Visibility, PDF tabs
+- Tabbed SettingsDialog: Global Theme (top, populated from `~/.config/vibe-coder/themes/`), GUI (widget style + font), Terminal (theme override + font), Editor, File Browser, Prompt, Diff Viewer, Changes Monitor, Visibility, PDF tabs
 - **Terminal theme override:** "Auto" (follows global theme) or explicit: Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight
-- SettingsDialog preserves zedThemes list through `result()` method
+- SettingsDialog preserves externalThemes list through `result()` method
 - **Font size clamping:** all font sizes clamped to 6–72 range after loading to prevent invalid values from corrupted settings
 
 ## Data Flow

@@ -1,0 +1,11 @@
+{
+    "name": "Light",
+    "appearance": "light",
+    "background": "#ffffff",
+    "foreground": "#333333",
+    "altBackground": "#f3f3f3",
+    "border": "#e0e0e0",
+    "hover": "#e8e8e8",
+    "selected": "#0060c0",
+    "terminalScheme": "BlackOnWhite"
+}

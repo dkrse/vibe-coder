@@ -1,0 +1,11 @@
+{
+    "name": "Dark Soft",
+    "appearance": "dark",
+    "background": "#1a1a2e",
+    "foreground": "#a0a0b8",
+    "altBackground": "#20203a",
+    "border": "#33334d",
+    "hover": "#262640",
+    "selected": "#2a4a6b",
+    "terminalScheme": "DarkPastels"
+}

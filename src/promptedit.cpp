@@ -54,9 +54,14 @@ void PromptEdit::updateCurrentLineHighlight()
     if (m_highlightLine) {
         QTextEdit::ExtraSelection sel;
         // Detect dark/light from current background
-        QColor bg = palette().color(QPalette::Base);
-        bool dark = (bg.lightness() < 128);
-        QColor lineColor = dark ? QColor("#2a2d2e") : QColor("#e8f2fe");
+        QColor lineColor;
+        if (m_lineHighlightColor.isValid()) {
+            lineColor = m_lineHighlightColor;
+        } else {
+            QColor bg = palette().color(QPalette::Base);
+            bool dark = (bg.lightness() < 128);
+            lineColor = dark ? QColor("#2a2d2e") : QColor("#e8f2fe");
+        }
         sel.format.setBackground(lineColor);
         sel.format.setProperty(QTextFormat::FullWidthSelection, true);
         sel.cursor = textCursor();

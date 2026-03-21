@@ -2,6 +2,19 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.15.0] - 2026-03-21
+
+### Added
+- **External theme system** — all themes now loaded exclusively from `~/.config/vibe-coder/themes/`. No hardcoded built-in themes. Ships with 8 theme JSON files (Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord). Adding a new theme = dropping a `.json` file in the directory
+- **Multi-format theme support** — auto-detects native JSON, Zed, and VS Code theme formats. Native format uses flat keys (`background`, `foreground`, `lineHighlight`, `terminalScheme`). Zed uses `themes[].style`. VS Code uses `colors` object with standard keys (`editor.background`, `sideBar.background`, `editor.lineHighlightBackground`, etc.)
+- **Theme-driven line highlight** — current line highlight color in editor and prompt now comes from the active theme (`lineHighlight` field). Falls back to auto-computed color from background
+- **Theme-driven file browser colors** — hover and selection colors in file browser delegate now use theme colors. Selected file uses `lineHighlight` color (same as editor current line)
+- **File browser active file highlight** — switching editor tabs auto-selects and scrolls to the corresponding file in the file browser
+- **Editor line spacing** — `SpacedDocumentLayout` (QPlainTextDocumentLayout subclass) overrides `blockBoundingRect` to apply configurable line spacing factor. Previous approach via `QTextBlockFormat::lineHeight` did not work with QPlainTextEdit
+
+### Fixed
+- **Font weight not working** — Qt5 font weight values (25-75) were passed to Qt6 which uses 100-1000 scale. Migrated to `QFont::Thin/Light/Normal/Medium/DemiBold/Bold` enum values. Saved settings auto-migrated on load
+
 ## [0.14.0] - 2026-03-19
 
 ### Added

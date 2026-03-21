@@ -1,0 +1,11 @@
+{
+    "name": "Monokai",
+    "appearance": "dark",
+    "background": "#272822",
+    "foreground": "#f8f8f2",
+    "altBackground": "#2e2f2a",
+    "border": "#49483e",
+    "hover": "#3e3d32",
+    "selected": "#49483e",
+    "terminalScheme": "Linux"
+}

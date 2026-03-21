@@ -9,6 +9,20 @@
 #include <QLabel>
 #include <QScrollBar>
 #include <QTimer>
+#include <QPlainTextDocumentLayout>
+
+// --- SpacedDocumentLayout ---
+
+class SpacedDocumentLayout : public QPlainTextDocumentLayout {
+    Q_OBJECT
+public:
+    explicit SpacedDocumentLayout(QTextDocument *doc) : QPlainTextDocumentLayout(doc) {}
+    void setSpacingFactor(double f) { m_factor = f; requestUpdate(); }
+    double spacingFactor() const { return m_factor; }
+    QRectF blockBoundingRect(const QTextBlock &block) const override;
+private:
+    double m_factor = 1.0;
+};
 
 // --- Line number area ---
 
@@ -128,6 +142,8 @@ public:
     bool isDarkScheme() const { return m_darkScheme; }
 
     void setHighlightCurrentLine(bool enable);
+    void setLineHighlightColor(const QColor &color) { m_lineHighlightColor = color; }
+    void setLineSpacing(double factor);
     bool highlightCurrentLine() const { return m_highlightLine; }
 
     void setLargeFile(bool large);
@@ -155,6 +171,9 @@ private:
     bool m_showLineNumbers = true;
     bool m_darkScheme = true;
     bool m_highlightLine = false;
+    QColor m_lineHighlightColor;
+    double m_lineSpacing = 1.0;
+    SpacedDocumentLayout *m_spacedLayout;
     bool m_largeFile = false;
     void updateCurrentLineHighlight();
 

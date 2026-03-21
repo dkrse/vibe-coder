@@ -1,0 +1,11 @@
+{
+    "name": "Nord",
+    "appearance": "dark",
+    "background": "#2e3440",
+    "foreground": "#d8dee9",
+    "altBackground": "#3b4252",
+    "border": "#4c566a",
+    "hover": "#434c5e",
+    "selected": "#5e81ac",
+    "terminalScheme": "Linux"
+}

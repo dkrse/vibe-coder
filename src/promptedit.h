@@ -12,6 +12,7 @@ public:
     bool sendOnEnter() const { return m_sendOnEnter; }
 
     void setHighlightCurrentLine(bool enable);
+    void setLineHighlightColor(const QColor &color) { m_lineHighlightColor = color; }
     bool highlightCurrentLine() const { return m_highlightLine; }
 
 signals:
@@ -24,5 +25,6 @@ protected:
 private:
     bool m_sendOnEnter = false; // false = Ctrl+Enter, true = Enter
     bool m_highlightLine = false;
+    QColor m_lineHighlightColor;
     void updateCurrentLineHighlight();
 };

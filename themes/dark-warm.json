@@ -1,0 +1,11 @@
+{
+    "name": "Dark Warm",
+    "appearance": "dark",
+    "background": "#1e1a15",
+    "foreground": "#6e6458",
+    "altBackground": "#252018",
+    "border": "#3d3428",
+    "hover": "#2a2319",
+    "selected": "#4a3a28",
+    "terminalScheme": "DarkPastels"
+}

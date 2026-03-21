@@ -9,12 +9,12 @@
 
 // Font weight helpers
 static const struct { const char *label; int value; } kWeights[] = {
-    {"Thin",     25},
-    {"Light",    37},
-    {"Normal",   50},
-    {"Medium",   57},
-    {"DemiBold", 63},
-    {"Bold",     75},
+    {"Thin",     QFont::Thin},      // 100
+    {"Light",    QFont::Light},     // 300
+    {"Normal",   QFont::Normal},    // 400
+    {"Medium",   QFont::Medium},    // 500
+    {"DemiBold", QFont::DemiBold},  // 600
+    {"Bold",     QFont::Bold},      // 700
 };
 static const int kWeightCount = sizeof(kWeights) / sizeof(kWeights[0]);
 
@@ -88,57 +88,65 @@ void AppSettings::load()
     clampSize(changesFontSize);
     clampSize(guiFontSize);
 
-    loadZedThemes();
+    // Migrate old Qt5 font weights (0-99) to Qt6 (100-1000)
+    auto migrateWeight = [](int &w) {
+        if (w < 100) {
+            if (w <= 25) w = QFont::Thin;
+            else if (w <= 37) w = QFont::Light;
+            else if (w <= 50) w = QFont::Normal;
+            else if (w <= 57) w = QFont::Medium;
+            else if (w <= 63) w = QFont::DemiBold;
+            else w = QFont::Bold;
+        }
+    };
+    migrateWeight(termFontWeight);
+    migrateWeight(editorFontWeight);
+    migrateWeight(browserFontWeight);
+    migrateWeight(promptFontWeight);
+    migrateWeight(diffFontWeight);
+    migrateWeight(changesFontWeight);
+    migrateWeight(guiFontWeight);
+
+    loadExternalThemes();
     applyThemeDefaults();
 }
 
-void AppSettings::loadZedThemes()
+void AppSettings::loadExternalThemes()
 {
-    zedThemes = ZedThemeLoader::loadAll();
+    externalThemes = ExternalThemeLoader::loadAll();
+}
+
+const ExternalTheme *AppSettings::findExternalTheme(const QString &name) const
+{
+    for (const auto &t : externalThemes) {
+        if (t.name == name)
+            return &t;
+    }
+    return nullptr;
 }
 
 void AppSettings::applyThemeDefaults()
 {
-    if (globalTheme == "Dark Soft") {
-        editorColorScheme = "Dark"; browserTheme = "Dark"; terminalColorScheme = "DarkPastels";
-        bgColor = QColor("#1a1a2e"); textColor = QColor("#a0a0b8");
-    } else if (globalTheme == "Dark") {
+    const ExternalTheme *et = findExternalTheme(globalTheme);
+    if (!et && !externalThemes.isEmpty()) {
+        globalTheme = externalThemes.first().name;
+        et = &externalThemes.first();
+    }
+    if (et) {
+        bool dark = (et->appearance != "light");
+        editorColorScheme = dark ? "Dark" : "Light";
+        browserTheme = dark ? "Dark" : "Light";
+        terminalColorScheme = et->terminalScheme.isEmpty()
+            ? (dark ? "Linux" : "BlackOnWhite")
+            : et->terminalScheme;
+        bgColor = QColor(et->bgColor);
+        textColor = QColor(et->textColor);
+    } else {
+        // Fallback when no themes exist at all
         editorColorScheme = "Dark"; browserTheme = "Dark"; terminalColorScheme = "Linux";
         bgColor = QColor("#1e1e1e"); textColor = QColor("#d4d4d4");
-    } else if (globalTheme == "Light") {
-        editorColorScheme = "Light"; browserTheme = "Light"; terminalColorScheme = "BlackOnWhite";
-        bgColor = QColor("#ffffff"); textColor = QColor("#333333");
-    } else if (globalTheme == "Monokai") {
-        editorColorScheme = "Dark"; browserTheme = "Dark"; terminalColorScheme = "Linux";
-        bgColor = QColor("#272822"); textColor = QColor("#f8f8f2");
-    } else if (globalTheme == "Solarized Dark") {
-        editorColorScheme = "Dark"; browserTheme = "Dark"; terminalColorScheme = "Solarized";
-        bgColor = QColor("#002b36"); textColor = QColor("#839496");
-    } else if (globalTheme == "Solarized Light") {
-        editorColorScheme = "Light"; browserTheme = "Light"; terminalColorScheme = "SolarizedLight";
-        bgColor = QColor("#fdf6e3"); textColor = QColor("#657b83");
-    } else if (globalTheme == "Dark Warm") {
-        editorColorScheme = "Dark"; browserTheme = "Dark"; terminalColorScheme = "DarkPastels";
-        bgColor = QColor("#1e1a15"); textColor = QColor("#6e6458");
-    } else if (globalTheme == "Nord") {
-        editorColorScheme = "Dark"; browserTheme = "Dark"; terminalColorScheme = "Linux";
-        bgColor = QColor("#2e3440"); textColor = QColor("#d8dee9");
-    } else if (globalTheme.startsWith("Zed: ")) {
-        QString zedName = globalTheme.mid(5);
-        for (const auto &zt : zedThemes) {
-            if (zt.name == zedName) {
-                bool dark = (zt.appearance != "light");
-                editorColorScheme = dark ? "Dark" : "Light";
-                browserTheme = dark ? "Dark" : "Light";
-                terminalColorScheme = dark ? "Linux" : "BlackOnWhite";
-                bgColor = QColor(zt.bgColor);
-                textColor = QColor(zt.textColor);
-                break;
-            }
-        }
     }
 
-    // Override terminal color scheme if user selected a specific one
     if (termTheme != "Auto")
         terminalColorScheme = termTheme;
 }
@@ -192,7 +200,7 @@ void AppSettings::save()
 SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     : QDialog(parent)
 {
-    m_zedThemes = current.zedThemes;
+    m_externalThemes = current.externalThemes;
     setWindowTitle("Settings");
     setMinimumSize(460, 480);
 
@@ -201,12 +209,8 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     // Global Theme at the top (always visible)
     auto *themeLayout = new QFormLayout;
     m_globalThemeCombo = new QComboBox;
-    m_globalThemeCombo->addItems({"Dark", "Dark Soft", "Dark Warm", "Light", "Monokai", "Solarized Dark", "Solarized Light", "Nord"});
-    if (!current.zedThemes.isEmpty()) {
-        m_globalThemeCombo->insertSeparator(m_globalThemeCombo->count());
-        for (const auto &zt : current.zedThemes)
-            m_globalThemeCombo->addItem("Zed: " + zt.name);
-    }
+    for (const auto &t : current.externalThemes)
+        m_globalThemeCombo->addItem(t.name);
     m_globalThemeCombo->setCurrentText(current.globalTheme);
     themeLayout->addRow("Global theme:", m_globalThemeCombo);
     mainLayout->addLayout(themeLayout);
@@ -495,7 +499,7 @@ AppSettings SettingsDialog::result() const
     s.guiFontSize = m_guiFontSizeSpin->value();
     s.guiFontWeight = weightFromCombo(m_guiFontWeightCombo);
     s.promptStayOnTab = m_promptStayOnTabCheck->isChecked();
-    s.zedThemes = m_zedThemes;
+    s.externalThemes = m_externalThemes;
     s.applyThemeDefaults();
     return s;
 }

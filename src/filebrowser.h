@@ -50,9 +50,13 @@ public:
                    const QModelIndex &index) const override;
 
     void setFileBrowser(FileBrowser *fb) { m_fb = fb; }
+    void setThemeColors(const QColor &hover, const QColor &selected, const QColor &lineHL) { m_hoverBg = hover; m_selectedBg = selected; m_lineHighlight = lineHL; }
 
 private:
     FileBrowser *m_fb = nullptr;
+    QColor m_hoverBg;
+    QColor m_selectedBg;
+    QColor m_lineHighlight;
 };
 
 class FileBrowser : public QWidget {
@@ -64,6 +68,8 @@ public:
     QString rootPath() const;
     void setFont(const QFont &font);
     void setTheme(const QString &theme, const QColor &bg = QColor(), const QColor &fg = QColor());
+    void setThemeColors(const QColor &hoverBg, const QColor &selectedBg, const QColor &lineHighlight);
+    void highlightFile(const QString &filePath);
 
     // SSH mount mapping
     void setSshMount(const QString &mountPoint, const QString &remotePrefix);
@@ -126,6 +132,10 @@ private:
     bool m_dark = true;
     QColor m_bgColor;
     QColor m_textColor;
+    QColor m_hoverBg;
+    QColor m_selectedBg;
+    QColor m_lineHighlight;
+    QString m_highlightedFile;
 
     bool m_hasGit = false;
     bool m_gitBusy = false;

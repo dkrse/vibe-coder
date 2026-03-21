@@ -8,48 +8,77 @@
 #include <QJsonArray>
 #include <QStandardPaths>
 
-static QString extractColor(const QJsonObject &style, const QString &key)
+static QString stripAlpha(const QString &c)
 {
-    QJsonValue v = style.value(key);
-    if (v.isNull() || v.isUndefined())
-        return {};
-    QString c = v.toString();
-    if (c.isEmpty())
-        return {};
-    // Zed colors are "#rrggbbaa" – strip alpha if 8-char hex
     if (c.length() == 9 && c.startsWith('#'))
-        c = c.left(7);
+        return c.left(7);
     return c;
 }
 
-QVector<ZedTheme> ZedThemeLoader::loadAll()
+static QString extractColor(const QJsonObject &obj, const QString &key)
 {
-    QVector<ZedTheme> all;
+    QJsonValue v = obj.value(key);
+    if (v.isNull() || v.isUndefined())
+        return {};
+    QString c = v.toString();
+    return c.isEmpty() ? QString() : stripAlpha(c);
+}
 
-    QStringList searchRoots = {
-        QDir::homePath() + "/.var/app/dev.zed.Zed/data/zed/extensions/installed",
-        QDir::homePath() + "/.local/share/zed/extensions/installed",
-    };
+static void deriveColors(ExternalTheme &t)
+{
+    bool light = (t.appearance == "light");
+    QColor bg(t.bgColor);
+    if (t.altBg.isEmpty())
+        t.altBg = light ? bg.darker(105).name() : bg.lighter(110).name();
+    if (t.borderColor.isEmpty())
+        t.borderColor = light ? bg.darker(115).name() : bg.lighter(120).name();
+    if (t.hoverBg.isEmpty())
+        t.hoverBg = light ? bg.darker(108).name() : bg.lighter(115).name();
+    if (t.selectedBg.isEmpty())
+        t.selectedBg = light ? bg.darker(120).name() : bg.lighter(130).name();
+    if (t.lineHighlight.isEmpty())
+        t.lineHighlight = light ? bg.darker(104).name() : bg.lighter(108).name();
+}
 
-    for (const QString &root : searchRoots) {
-        QDir rootDir(root);
-        if (!rootDir.exists())
+// ── Main loader ─────────────────────────────────────────────────────
+
+QVector<ExternalTheme> ExternalThemeLoader::loadAll()
+{
+    QVector<ExternalTheme> all;
+
+    QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+                  + "/vibe-coder/themes";
+    QDir themesDir(dir);
+    if (!themesDir.exists())
+        return all;
+
+    QDirIterator it(dir, {"*.json"}, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        QString path = it.next();
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly))
             continue;
-        // Find all themes/*.json under each extension
-        QDirIterator it(root, {"*.json"}, QDir::Files, QDirIterator::Subdirectories);
-        while (it.hasNext()) {
-            QString path = it.next();
-            if (path.contains("/themes/"))
-                all.append(parseFile(path));
-        }
+        QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+        if (!doc.isObject())
+            continue;
+        QJsonObject root = doc.object();
+
+        if (root.contains("themes"))
+            all.append(parseZedFile(path));
+        else if (root.contains("colors"))
+            all.append(parseVSCodeFile(path));
+        else if (root.contains("bgColor") || root.contains("background"))
+            all.append(parseNativeFile(path));
     }
 
     return all;
 }
 
-QVector<ZedTheme> ZedThemeLoader::parseFile(const QString &path)
+// ── Zed format ──────────────────────────────────────────────────────
+
+QVector<ExternalTheme> ExternalThemeLoader::parseZedFile(const QString &path)
 {
-    QVector<ZedTheme> result;
+    QVector<ExternalTheme> result;
 
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly))
@@ -71,66 +100,147 @@ QVector<ZedTheme> ZedThemeLoader::parseFile(const QString &path)
         if (style.isEmpty())
             continue;
 
-        ZedTheme t;
+        ExternalTheme t;
         t.name = name;
         t.appearance = appearance;
 
-        // Map colors
         QString bg = extractColor(style, "editor.background");
-        if (bg.isEmpty())
-            bg = extractColor(style, "background");
-        if (bg.isEmpty())
-            continue; // unusable without a background
+        if (bg.isEmpty()) bg = extractColor(style, "background");
+        if (bg.isEmpty()) continue;
 
         QString text = extractColor(style, "editor.foreground");
-        if (text.isEmpty())
-            text = extractColor(style, "text");
-        if (text.isEmpty())
-            continue;
+        if (text.isEmpty()) text = extractColor(style, "text");
+        if (text.isEmpty()) continue;
 
         t.bgColor = bg;
         t.textColor = text;
-
-        // altBg: surface or panel background
         t.altBg = extractColor(style, "surface.background");
-        if (t.altBg.isEmpty())
-            t.altBg = extractColor(style, "panel.background");
-        if (t.altBg.isEmpty()) {
-            QColor c(bg);
-            t.altBg = (appearance == "light") ? c.darker(105).name() : c.lighter(110).name();
-        }
-
-        // border
+        if (t.altBg.isEmpty()) t.altBg = extractColor(style, "panel.background");
         t.borderColor = extractColor(style, "border");
-        if (t.borderColor.isEmpty()) {
-            QColor c(bg);
-            t.borderColor = (appearance == "light") ? c.darker(115).name() : c.lighter(120).name();
-        }
-
-        // hover
         t.hoverBg = extractColor(style, "element.hover");
-        if (t.hoverBg.isEmpty()) {
-            QColor c(bg);
-            t.hoverBg = (appearance == "light") ? c.darker(108).name() : c.lighter(115).name();
-        }
-
-        // selected
         t.selectedBg = extractColor(style, "element.selected");
         if (t.selectedBg.isEmpty()) {
-            // try accent
             QJsonArray accents = style.value("accents").toArray();
             if (!accents.isEmpty()) {
                 QString a = accents.first().toString();
-                if (a.length() == 9) a = a.left(7);
-                t.selectedBg = a;
-            } else {
-                QColor c(bg);
-                t.selectedBg = (appearance == "light") ? c.darker(120).name() : c.lighter(130).name();
+                t.selectedBg = stripAlpha(a);
             }
         }
+        t.lineHighlight = extractColor(style, "editor.active_line.background");
 
+        deriveColors(t);
         result.append(t);
     }
+
+    return result;
+}
+
+// ── VS Code format ──────────────────────────────────────────────────
+
+QVector<ExternalTheme> ExternalThemeLoader::parseVSCodeFile(const QString &path)
+{
+    QVector<ExternalTheme> result;
+
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return result;
+
+    QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+    if (!doc.isObject())
+        return result;
+
+    QJsonObject root = doc.object();
+    QJsonObject colors = root.value("colors").toObject();
+    if (colors.isEmpty())
+        return result;
+
+    ExternalTheme t;
+
+    t.name = root.value("name").toString();
+    if (t.name.isEmpty()) {
+        QFileInfo fi(path);
+        t.name = fi.baseName();
+    }
+
+    QString type = root.value("type").toString();
+    t.appearance = (type == "light") ? "light" : "dark";
+
+    t.bgColor = extractColor(colors, "editor.background");
+    if (t.bgColor.isEmpty()) return result;
+
+    t.textColor = extractColor(colors, "editor.foreground");
+    if (t.textColor.isEmpty()) t.textColor = extractColor(colors, "foreground");
+    if (t.textColor.isEmpty()) return result;
+
+    t.altBg = extractColor(colors, "sideBar.background");
+    if (t.altBg.isEmpty()) t.altBg = extractColor(colors, "editorGroupHeader.tabBackground");
+
+    t.borderColor = extractColor(colors, "sideBar.border");
+    if (t.borderColor.isEmpty()) t.borderColor = extractColor(colors, "editorGroup.border");
+    if (t.borderColor.isEmpty()) t.borderColor = extractColor(colors, "focusBorder");
+
+    t.hoverBg = extractColor(colors, "list.hoverBackground");
+    if (t.hoverBg.isEmpty()) t.hoverBg = extractColor(colors, "tab.hoverBackground");
+
+    t.selectedBg = extractColor(colors, "list.activeSelectionBackground");
+    if (t.selectedBg.isEmpty()) t.selectedBg = extractColor(colors, "editor.selectionBackground");
+
+    t.lineHighlight = extractColor(colors, "editor.lineHighlightBackground");
+
+    deriveColors(t);
+    result.append(t);
+
+    return result;
+}
+
+// ── Native format ───────────────────────────────────────────────────
+// Simple JSON: { "name", "appearance", "background", "foreground",
+//   "altBackground", "border", "hover", "selected", "terminalScheme" }
+
+QVector<ExternalTheme> ExternalThemeLoader::parseNativeFile(const QString &path)
+{
+    QVector<ExternalTheme> result;
+
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return result;
+
+    QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+    if (!doc.isObject())
+        return result;
+
+    QJsonObject root = doc.object();
+
+    ExternalTheme t;
+    t.name = root.value("name").toString();
+    if (t.name.isEmpty()) {
+        QFileInfo fi(path);
+        t.name = fi.baseName();
+    }
+
+    t.appearance = root.value("appearance").toString("dark");
+
+    t.bgColor = root.value("background").toString();
+    if (t.bgColor.isEmpty()) t.bgColor = root.value("bgColor").toString();
+    if (t.bgColor.isEmpty()) return result;
+
+    t.textColor = root.value("foreground").toString();
+    if (t.textColor.isEmpty()) t.textColor = root.value("textColor").toString();
+    if (t.textColor.isEmpty()) return result;
+
+    t.altBg = root.value("altBackground").toString();
+    if (t.altBg.isEmpty()) t.altBg = root.value("altBg").toString();
+    t.borderColor = root.value("border").toString();
+    if (t.borderColor.isEmpty()) t.borderColor = root.value("borderColor").toString();
+    t.hoverBg = root.value("hover").toString();
+    if (t.hoverBg.isEmpty()) t.hoverBg = root.value("hoverBg").toString();
+    t.selectedBg = root.value("selected").toString();
+    if (t.selectedBg.isEmpty()) t.selectedBg = root.value("selectedBg").toString();
+    t.lineHighlight = root.value("lineHighlight").toString();
+    t.terminalScheme = root.value("terminalScheme").toString();
+
+    deriveColors(t);
+    result.append(t);
 
     return result;
 }

@@ -119,9 +119,9 @@ void FileItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
 
     // Background
     if (option.state & QStyle::State_Selected)
-        painter->fillRect(option.rect, dark ? QColor("#37373d") : QColor("#d0d0d0"));
+        painter->fillRect(option.rect, m_lineHighlight.isValid() ? m_lineHighlight : (dark ? QColor("#2a2d2e") : QColor("#e8e8e8")));
     else if (option.state & QStyle::State_MouseOver)
-        painter->fillRect(option.rect, dark ? QColor("#2a2d2e") : QColor("#e8e8e8"));
+        painter->fillRect(option.rect, m_hoverBg.isValid() ? m_hoverBg : (dark ? QColor("#2a2d2e") : QColor("#e8e8e8")));
 
     QRect textRect = option.rect;
     textRect.setLeft(textRect.left() + 4);
@@ -454,13 +454,48 @@ void FileBrowser::onSshItemExpanded(const QModelIndex &index)
 
 // ── Style ───────────────────────────────────────────────────────────
 
+void FileBrowser::setThemeColors(const QColor &hoverBg, const QColor &selectedBg, const QColor &lineHighlight)
+{
+    m_hoverBg = hoverBg;
+    m_selectedBg = selectedBg;
+    m_lineHighlight = lineHighlight;
+    m_delegate->setThemeColors(hoverBg, selectedBg, lineHighlight);
+    applyStyle();
+    m_treeView->viewport()->update();
+}
+
+void FileBrowser::highlightFile(const QString &filePath)
+{
+    m_highlightedFile = filePath;
+    if (filePath.isEmpty()) {
+        m_treeView->selectionModel()->clearSelection();
+        return;
+    }
+    // For local filesystem model, select the file in the tree
+    if (!m_sshMountPoint.isEmpty())
+        return;
+    QModelIndex srcIdx = m_fsModel->index(filePath);
+    if (!srcIdx.isValid())
+        return;
+    QModelIndex proxyIdx = m_proxyModel->mapFromSource(srcIdx);
+    if (!proxyIdx.isValid())
+        return;
+    m_treeView->setCurrentIndex(proxyIdx);
+    m_treeView->scrollTo(proxyIdx);
+}
+
 void FileBrowser::applyStyle()
 {
     QString bg = m_bgColor.name();
-    QString hoverBg = m_dark ? QColor(m_bgColor.lighter(120)).name()
-                             : QColor(m_bgColor.darker(110)).name();
-    QString selBg = m_dark ? QColor(m_bgColor.lighter(140)).name()
-                           : QColor(m_bgColor.darker(120)).name();
+    QString hoverBg = m_hoverBg.isValid() ? m_hoverBg.name()
+        : (m_dark ? QColor(m_bgColor.lighter(120)).name()
+                  : QColor(m_bgColor.darker(110)).name());
+    QString lineHL = m_lineHighlight.isValid() ? m_lineHighlight.name()
+        : (m_dark ? QColor(m_bgColor.lighter(108)).name()
+                  : QColor(m_bgColor.darker(104)).name());
+    QString selBg = m_selectedBg.isValid() ? m_selectedBg.name()
+        : (m_dark ? QColor(m_bgColor.lighter(140)).name()
+                  : QColor(m_bgColor.darker(120)).name());
 
     setStyleSheet(QString(R"(
         FileBrowser { background-color: %1; }
@@ -469,7 +504,7 @@ void FileBrowser::applyStyle()
         }
         QTreeView::item { padding: 1px 0px; border: none; }
         QTreeView::item:hover { background-color: %3; }
-        QTreeView::item:selected { background-color: %4; }
+        QTreeView::item:selected { background-color: %5; }
         QTreeView::branch { background-color: %1; }
         QTreeView::branch:has-children:closed,
         QTreeView::branch:has-children:open { image: none; }
@@ -482,7 +517,7 @@ void FileBrowser::applyStyle()
             background: %4; border-radius: 4px; min-height: 20px;
         }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
-    )").arg(bg, m_textColor.name(), hoverBg, selBg));
+    )").arg(bg, m_textColor.name(), hoverBg, selBg, lineHL));
 }
 
 // ── Async git status pipeline ───────────────────────────────────────

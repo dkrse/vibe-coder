@@ -400,8 +400,11 @@ MainWindow::MainWindow(QWidget *parent)
         refreshSavedPrompts();
     });
 
-    connect(m_tabWidget, &QTabWidget::currentChanged, this, [this](int) {
+    connect(m_tabWidget, &QTabWidget::currentChanged, this, [this](int idx) {
         updateStatusBar();
+        // Highlight the current file in the file browser
+        QString filePath = (idx > 0) ? m_tabWidget->tabToolTip(idx) : QString();
+        m_fileBrowser->highlightFile(filePath);
     });
 
     // File browser directory changes — also update changes monitor
@@ -800,16 +803,8 @@ void MainWindow::applySettingsToEditor(CodeEditor *editor, const QString &lang)
     QFont font(m_settings.editorFontFamily, m_settings.editorFontSize);
     font.setWeight(static_cast<QFont::Weight>(m_settings.editorFontWeight));
     editor->setFont(font);
+    editor->document()->setDefaultFont(font);
     editor->setShowLineNumbers(m_settings.showLineNumbers);
-
-    // Line spacing
-    if (qAbs(m_settings.editorLineSpacing - 1.0) > 0.01) {
-        QTextCursor cursor(editor->document());
-        cursor.select(QTextCursor::Document);
-        QTextBlockFormat fmt;
-        fmt.setLineHeight(m_settings.editorLineSpacing * 100, QTextBlockFormat::ProportionalHeight);
-        cursor.mergeBlockFormat(fmt);
-    }
 
     // Set language first (no rehighlight), then color scheme triggers single rehighlight
     if (m_settings.syntaxHighlighting && !lang.isEmpty()) {
@@ -818,7 +813,13 @@ void MainWindow::applySettingsToEditor(CodeEditor *editor, const QString &lang)
         editor->highlighter()->setLanguage("");
     }
     editor->setEditorColorScheme(m_settings.editorColorScheme, m_settings.bgColor, m_settings.textColor);
+    {
+        const ExternalTheme *et = m_settings.findExternalTheme(m_settings.globalTheme);
+        if (et && !et->lineHighlight.isEmpty())
+            editor->setLineHighlightColor(QColor(et->lineHighlight));
+    }
     editor->setHighlightCurrentLine(m_settings.editorHighlightLine);
+    editor->setLineSpacing(m_settings.editorLineSpacing);
 }
 
 void MainWindow::updateStatusBar()
@@ -890,12 +891,25 @@ void MainWindow::applySettings()
             .arg(m_settings.promptFontFamily)
             .arg(m_settings.promptFontSize));
     m_editor->setSendOnEnter(m_settings.promptSendKey == "Enter");
+    {
+        const ExternalTheme *et = m_settings.findExternalTheme(m_settings.globalTheme);
+        if (et && !et->lineHighlight.isEmpty())
+            m_editor->setLineHighlightColor(QColor(et->lineHighlight));
+    }
     m_editor->setHighlightCurrentLine(m_settings.promptHighlightLine);
 
     QFont browserFont(m_settings.browserFontFamily, m_settings.browserFontSize);
     browserFont.setWeight(static_cast<QFont::Weight>(m_settings.browserFontWeight));
     m_fileBrowser->setFont(browserFont);
     m_fileBrowser->setTheme(m_settings.browserTheme, m_settings.bgColor, m_settings.textColor);
+    {
+        const ExternalTheme *et = m_settings.findExternalTheme(m_settings.globalTheme);
+        if (et) {
+            m_fileBrowser->setThemeColors(
+                QColor(et->hoverBg), QColor(et->selectedBg),
+                et->lineHighlight.isEmpty() ? QColor() : QColor(et->lineHighlight));
+        }
+    }
     m_fileBrowser->setGitignoreVisibility(m_settings.gitignoreVisibility);
     m_fileBrowser->setDotGitVisibility(m_settings.dotGitVisibility);
 
@@ -1895,17 +1909,8 @@ void MainWindow::setupCommandPalette()
     });
 
     // Theme switching commands
-    for (const QString &theme : {"Dark", "Dark Soft", "Dark Warm", "Light", "Monokai", "Solarized Dark", "Solarized Light", "Nord"}) {
-        m_commandPalette->addCommand("Theme: " + theme, "", [this, theme]() {
-            m_settings.globalTheme = theme;
-            m_settings.applyThemeDefaults();
-            m_settings.save();
-            applyGlobalTheme();
-            applySettings();
-        });
-    }
-    for (const auto &zt : m_settings.zedThemes) {
-        QString theme = "Zed: " + zt.name;
+    for (const auto &et : m_settings.externalThemes) {
+        QString theme = et.name;
         m_commandPalette->addCommand("Theme: " + theme, "", [this, theme]() {
             m_settings.globalTheme = theme;
             m_settings.applyThemeDefaults();
@@ -1921,47 +1926,12 @@ void MainWindow::setupCommandPalette()
 
 void MainWindow::applyGlobalTheme()
 {
-    bool dark = (m_settings.globalTheme != "Light" && m_settings.globalTheme != "Solarized Light");
+    const ExternalTheme *et = m_settings.findExternalTheme(m_settings.globalTheme);
+    if (!et) return;
 
-    QString bgColor, textColor, altBg, borderColor, hoverBg, selectedBg;
-
-    if (m_settings.globalTheme == "Dark Soft") {
-        bgColor = "#1a1a2e"; textColor = "#a0a0b8"; altBg = "#20203a";
-        borderColor = "#33334d"; hoverBg = "#262640"; selectedBg = "#2a4a6b";
-    } else if (m_settings.globalTheme == "Dark Warm") {
-        bgColor = "#1e1a15"; textColor = "#6e6458"; altBg = "#252018";
-        borderColor = "#3d3428"; hoverBg = "#2a2319"; selectedBg = "#4a3a28";
-    } else if (m_settings.globalTheme == "Dark") {
-        bgColor = "#1e1e1e"; textColor = "#d4d4d4"; altBg = "#252526";
-        borderColor = "#3c3c3c"; hoverBg = "#2a2d2e"; selectedBg = "#094771";
-    } else if (m_settings.globalTheme == "Light") {
-        bgColor = "#ffffff"; textColor = "#333333"; altBg = "#f3f3f3";
-        borderColor = "#e0e0e0"; hoverBg = "#e8e8e8"; selectedBg = "#0060c0";
-    } else if (m_settings.globalTheme == "Monokai") {
-        bgColor = "#272822"; textColor = "#f8f8f2"; altBg = "#2e2f2a";
-        borderColor = "#49483e"; hoverBg = "#3e3d32"; selectedBg = "#49483e";
-    } else if (m_settings.globalTheme == "Solarized Dark") {
-        bgColor = "#002b36"; textColor = "#839496"; altBg = "#073642";
-        borderColor = "#586e75"; hoverBg = "#073642"; selectedBg = "#2aa198";
-    } else if (m_settings.globalTheme == "Solarized Light") {
-        bgColor = "#fdf6e3"; textColor = "#657b83"; altBg = "#eee8d5";
-        borderColor = "#93a1a1"; hoverBg = "#eee8d5"; selectedBg = "#2aa198";
-    } else if (m_settings.globalTheme == "Nord") {
-        bgColor = "#2e3440"; textColor = "#d8dee9"; altBg = "#3b4252";
-        borderColor = "#4c566a"; hoverBg = "#434c5e"; selectedBg = "#5e81ac";
-    } else if (m_settings.globalTheme.startsWith("Zed: ")) {
-        QString zedName = m_settings.globalTheme.mid(5);
-        for (const auto &zt : m_settings.zedThemes) {
-            if (zt.name == zedName) {
-                bgColor = zt.bgColor; textColor = zt.textColor; altBg = zt.altBg;
-                borderColor = zt.borderColor; hoverBg = zt.hoverBg; selectedBg = zt.selectedBg;
-                break;
-            }
-        }
-        if (bgColor.isEmpty()) return;
-    } else {
-        return;
-    }
+    bool dark = (et->appearance != "light");
+    QString bgColor = et->bgColor, textColor = et->textColor, altBg = et->altBg;
+    QString borderColor = et->borderColor, hoverBg = et->hoverBg, selectedBg = et->selectedBg;
 
     QString ss = QString(
         // Base widget colors

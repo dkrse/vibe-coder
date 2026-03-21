@@ -1,0 +1,11 @@
+{
+    "name": "Solarized Dark",
+    "appearance": "dark",
+    "background": "#002b36",
+    "foreground": "#839496",
+    "altBackground": "#073642",
+    "border": "#586e75",
+    "hover": "#073642",
+    "selected": "#2aa198",
+    "terminalScheme": "Solarized"
+}

@@ -1,0 +1,11 @@
+{
+    "name": "Dark",
+    "appearance": "dark",
+    "background": "#1e1e1e",
+    "foreground": "#d4d4d4",
+    "altBackground": "#252526",
+    "border": "#3c3c3c",
+    "hover": "#2a2d2e",
+    "selected": "#094771",
+    "terminalScheme": "Linux"
+}

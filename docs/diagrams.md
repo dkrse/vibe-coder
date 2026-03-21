@@ -47,6 +47,7 @@ classDiagram
     QMainWindow <|-- MainWindow
     QWidget <|-- FileBrowser
     QWidget <|-- TerminalWidget
+    QPlainTextDocumentLayout <|-- SpacedDocumentLayout
     QPlainTextEdit <|-- CodeEditor
     QPlainTextEdit <|-- PromptEdit
     QStyledItemDelegate <|-- FileItemDelegate
@@ -107,13 +108,14 @@ classDiagram
     CodeEditor --> LineNumberArea
     CodeEditor --> FindReplaceBar
     CodeEditor --> MarkerScrollBar
+    CodeEditor --> SpacedDocumentLayout
     FileBrowser --> FileBrowserProxy
     TerminalWidget --> QTermWidget
     SshManager --> SshDialog : saveConnection
     SshTunnelDialog --> SshManager
     ChangesMonitor --> DiffBlockHighlighter
     ChangesMonitor --> QFileSystemWatcher
-    AppSettings --> ZedThemeLoader : loadZedThemes
+    AppSettings --> ExternalThemeLoader : loadExternalThemes
 
     class MainWindow {
         -TitleBar* m_titleBar
@@ -212,11 +214,12 @@ classDiagram
 
     class AppSettings {
         +QString globalTheme
-        +QVector~ZedTheme~ zedThemes
+        +QVector~ExternalTheme~ externalThemes
         +QColor bgColor
         +QColor textColor
-        +loadZedThemes()
+        +loadExternalThemes()
         +applyThemeDefaults()
+        +findExternalTheme()
         +load()
         +save()
     }
@@ -261,9 +264,11 @@ classDiagram
         -postProcessPdf(QByteArray, QString, QPageLayout, QString, bool)
     }
 
-    class ZedThemeLoader {
-        +loadAll()$ QVector~ZedTheme~
-        -parseFile(QString)$ QVector~ZedTheme~
+    class ExternalThemeLoader {
+        +loadAll()$ QVector~ExternalTheme~
+        +parseNativeFile(QString)$ QVector~ExternalTheme~
+        +parseZedFile(QString)$ QVector~ExternalTheme~
+        +parseVSCodeFile(QString)$ QVector~ExternalTheme~
     }
 ```
 
@@ -596,7 +601,7 @@ sequenceDiagram
 flowchart LR
     A[SettingsDialog - Tabbed] -->|OK| B[AppSettings struct]
     B -->|applyThemeDefaults| TH[Global Theme Cascade]
-    ZED[Zed Theme JSON] -->|ZedThemeLoader| B
+    ZED["~/.config/vibe-coder/themes/*.json"] -->|ExternalThemeLoader| B
     TH --> D & E & F & G & DV & CM2
     B -->|save| C[QSettings file]
     B -->|applyGlobalTheme| SS[Global QSS Stylesheet]

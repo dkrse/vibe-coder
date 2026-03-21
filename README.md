@@ -30,7 +30,7 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 - **Command Palette** — Ctrl+Shift+P for fuzzy-searchable commands (split view, focus, themes, diff refresh, blame, search)
 - **Notifications** — Centralized log with Info/Warning/Error/Success levels and unread badge
 - **Custom Title Bar** — VS Code/Zed-style frameless window (CSD) with themed minimize/maximize/close buttons. All dialogs use themed title bars
-- **Global Themes** — Unified theme system: Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord. Auto-imports installed Zed editor themes. Live switching without restart
+- **Global Themes** — External theme system loading from `~/.config/vibe-coder/themes/`. Ships with 8 themes (Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord). Supports native JSON, Zed, and VS Code theme formats. Live switching without restart. Theme colors control editor line highlight, file browser selection, and all UI elements
 - **Widget Styles** — Configurable Qt widget style (Fusion, Windows, Breeze, Adwaita, Oxygen, Kvantum). Auto-detects installed Qt6 style plugins. Affects button shapes, scrollbars, checkboxes, and other GUI component rendering
 - **Settings** — Tabbed dialog with configurable fonts, sizes, global theme, and widget style for all components (terminal, editor, file browser, prompt, diff viewer, changes monitor, visibility, PDF export)
 - **Session Persistence** — Remembers window size, splitter positions, open files, active tab, cursor positions, scroll positions, and active bottom tab. Multi-monitor aware
@@ -61,6 +61,10 @@ make -j$(nproc)
 
 # Run
 ./vibe-coder
+
+# Copy themes to user config
+mkdir -p ~/.config/vibe-coder/themes
+cp ../themes/*.json ~/.config/vibe-coder/themes/
 ```
 
 > **Note:** `sshfs` is required for SSH remote file browsing and transfers. `qt6-webengine-dev` requires `qt6-webchannel-dev` as a dependency on some Debian versions. `qt6-pdf-dev` is required for PDF export with page numbering. On older Debian/Ubuntu the qtermwidget package may be named `libqtermwidget6-1-dev` instead of `libqtermwidget-dev`. Optional: install `libcmark-dev` for better markdown conversion (loaded at runtime via dlopen).
@@ -81,6 +85,10 @@ cd vibe-coder
 mkdir build && cd build
 cmake ..
 make -j$(nproc)
+
+# Copy themes to user config
+mkdir -p ~/.config/vibe-coder/themes
+cp ../themes/*.json ~/.config/vibe-coder/themes/
 ```
 
 ### Arch Linux
@@ -99,6 +107,10 @@ cd vibe-coder
 mkdir build && cd build
 cmake ..
 make -j$(nproc)
+
+# Copy themes to user config
+mkdir -p ~/.config/vibe-coder/themes
+cp ../themes/*.json ~/.config/vibe-coder/themes/
 ```
 
 ## Usage
@@ -120,7 +132,7 @@ make -j$(nproc)
 15. **Changes Monitor** — Bottom "Changes" tab shows real-time file modifications with diff preview and revert
 16. **Git Graph** — Bottom "Git" tab shows commit history as a visual graph. Use Fetch/Pull/Push buttons, manage remotes via "Remotes" button
 17. **Settings** — Hamburger menu (☰) → Settings. Tabbed dialog for fonts, themes, and behavior
-18. **Zed Themes** — Install themes in Zed editor and they automatically appear in Settings and command palette
+18. **Custom Themes** — Place `.json` theme files in `~/.config/vibe-coder/themes/`. Supports native, Zed, and VS Code formats
 19. **Markdown Preview** — Open a `.md` file and press Ctrl+M (or click the 👁 icon on the tab). Multiple previews can be open at once. Press Ctrl+M again to close the current preview
 20. **Export to PDF** — With preview open, use Command Palette (Ctrl+Shift+P) → "Export Preview to PDF". Configure margins, orientation, page numbering, and border in Settings > PDF
 21. **Git User** — Click "User" in Git tab to view/edit git global name and email
