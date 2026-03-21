@@ -8,6 +8,19 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Core Gui WebEngineWidgets PdfWidgets)
 
+# cmark-gfm — download and build statically
+include(FetchContent)
+FetchContent_Declare(
+    cmark-gfm
+    GIT_REPOSITORY https://github.com/github/cmark-gfm.git
+    GIT_TAG 0.29.0.gfm.13
+    GIT_SHALLOW TRUE
+)
+set(CMARK_TESTS OFF CACHE BOOL "" FORCE)
+set(CMARK_SHARED OFF CACHE BOOL "" FORCE)
+set(CMARK_STATIC ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(cmark-gfm)
+
 add_executable(vibe-coder
     src/main.cpp
     src/mainwindow.cpp
@@ -69,9 +82,16 @@ if(NOT QTERMWIDGET_LIB)
 endif()
 message(STATUS "Found qtermwidget: ${QTERMWIDGET_LIB}")
 
-target_include_directories(vibe-coder PRIVATE /usr/include)
+target_include_directories(vibe-coder PRIVATE
+    /usr/include
+    ${cmark-gfm_SOURCE_DIR}/src
+    ${cmark-gfm_BINARY_DIR}/src
+    ${cmark-gfm_SOURCE_DIR}/extensions
+    ${cmark-gfm_BINARY_DIR}/extensions
+)
 target_link_libraries(vibe-coder PRIVATE
     Qt6::Widgets Qt6::Core Qt6::Gui Qt6::WebEngineWidgets Qt6::PdfWidgets
     ${QTERMWIDGET_LIB}
-    dl
+    libcmark-gfm-extensions_static
+    libcmark-gfm_static
 )

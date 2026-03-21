@@ -10,8 +10,9 @@
 #include <QPdfDocument>
 #include <QPdfWriter>
 #include <QPainter>
-#include <dlfcn.h>
 #include <cstdlib>
+#include <cmark-gfm.h>
+#include <cmark-gfm-core-extensions.h>
 
 MarkdownPreview::MarkdownPreview(QWidget *parent)
     : QWidget(parent)
@@ -22,14 +23,12 @@ MarkdownPreview::MarkdownPreview(QWidget *parent)
     m_webView = new QWebEngineView(this);
     m_webView->settings()->setAttribute(QWebEngineSettings::JavascriptEnabled, true);
     m_webView->settings()->setAttribute(QWebEngineSettings::LocalContentCanAccessRemoteUrls, false);
-    // file:// access needed for loading mermaid.js, katex and preview HTML from temp dir
     m_webView->settings()->setAttribute(QWebEngineSettings::LocalContentCanAccessFileUrls, true);
     m_webView->settings()->setAttribute(QWebEngineSettings::PluginsEnabled, false);
     m_webView->settings()->setAttribute(QWebEngineSettings::PdfViewerEnabled, false);
     m_webView->settings()->setAttribute(QWebEngineSettings::NavigateOnDropEnabled, false);
     layout->addWidget(m_webView);
 
-    // Extract bundled JS/CSS to temp dir
     QString tmpDir = QDir::tempPath() + "/vibe-coder-assets";
     QDir().mkpath(tmpDir + "/fonts");
 
@@ -37,21 +36,15 @@ MarkdownPreview::MarkdownPreview(QWidget *parent)
         QFile res(resPath);
         if (!res.open(QIODevice::ReadOnly)) return;
         QByteArray data = res.readAll();
-
         if (QFile::exists(outPath)) {
-            // Verify integrity: re-extract if on-disk copy differs from bundled resource
             QFile existing(outPath);
             if (existing.open(QIODevice::ReadOnly)) {
-                if (existing.readAll() == data)
-                    return; // matches, no need to re-extract
+                if (existing.readAll() == data) return;
             }
-            // Mismatch or read failure — overwrite with known-good copy
         }
-
         QFile out(outPath);
-        if (out.open(QIODevice::WriteOnly)) {
+        if (out.open(QIODevice::WriteOnly))
             out.write(data);
-        }
     };
 
     m_mermaidJsPath = tmpDir + "/mermaid.min.js";
@@ -66,7 +59,6 @@ MarkdownPreview::MarkdownPreview(QWidget *parent)
     extractResource(":/katex/katex.min.js", tmpDir + "/katex.min.js");
     extractResource(":/katex/auto-render.min.js", tmpDir + "/auto-render.min.js");
 
-    // Extract katex CSS with patched font paths (fonts/ -> file:// absolute)
     QString katexCssPath = tmpDir + "/katex.min.css";
     if (!QFile::exists(katexCssPath)) {
         QFile res(":/katex/katex.min.css");
@@ -79,29 +71,13 @@ MarkdownPreview::MarkdownPreview(QWidget *parent)
         }
     }
 
-    // Extract KaTeX woff2 fonts
     QDir fontsRes(":/katex/fonts");
     for (const auto &entry : fontsRes.entryList()) {
         extractResource(":/katex/fonts/" + entry, tmpDir + "/fonts/" + entry);
     }
 
-    // Try to load libcmark
-    const char *cmarkLibs[] = {
-        "libcmark.so", "libcmark.so.0", "libcmark.so.0.31.0",
-        "libcmark.so.0.30.3", "libcmark.so.0.30.2", nullptr
-    };
-    for (int i = 0; cmarkLibs[i] && !m_cmarkLib; ++i)
-        m_cmarkLib = dlopen(cmarkLibs[i], RTLD_LAZY);
-    if (m_cmarkLib) {
-        m_cmarkToHtml = reinterpret_cast<CmarkToHtmlFn>(dlsym(m_cmarkLib, "cmark_markdown_to_html"));
-        m_hasCmark = (m_cmarkToHtml != nullptr);
-        if (!m_hasCmark) {
-            dlclose(m_cmarkLib);
-            m_cmarkLib = nullptr;
-        }
-    }
+    cmark_gfm_core_extensions_ensure_registered();
 
-    // 500ms debounce
     m_debounce = new QTimer(this);
     m_debounce->setSingleShot(true);
     m_debounce->setInterval(500);
@@ -110,13 +86,11 @@ MarkdownPreview::MarkdownPreview(QWidget *parent)
 
 MarkdownPreview::~MarkdownPreview()
 {
-    if (m_cmarkLib) dlclose(m_cmarkLib);
 }
 
 void MarkdownPreview::setDarkMode(bool dark)
 {
     m_dark = dark;
-    // Re-render with new theme
     if (!m_pendingMd.isEmpty())
         render();
 }
@@ -143,8 +117,6 @@ void MarkdownPreview::updateContent(const QString &markdown)
     m_debounce->start();
 }
 
-// loadBasePage removed — render() now generates full HTML page each time (like text-ed)
-
 void MarkdownPreview::render()
 {
     QString body = markdownToHtml(m_pendingMd);
@@ -154,7 +126,6 @@ void MarkdownPreview::render()
         R"(<pre><code class="language-mermaid">([\s\S]*?)</code></pre>)"),
         R"(<div class="mermaid">\1</div>)");
 
-    // Build full HTML page (like text-ed: write to file + load via setUrl — avoids JS string escaping issues)
     QString bg     = m_dark ? "#1e1e1e" : "#ffffff";
     QString fg     = m_dark ? "#d4d4d4" : "#24292f";
     QString codeBg = m_dark ? "#2d2d2d" : "#f0f0f0";
@@ -217,7 +188,6 @@ void MarkdownPreview::render()
         "</style>\n</head><body>\n")
         + body +
         QStringLiteral("\n<script>\n"
-        "// KaTeX rendering\n"
         "if (typeof katex !== 'undefined') {\n"
         "    document.querySelectorAll('.katex-display').forEach(function(el) {\n"
         "        try { katex.render(el.textContent, el, { displayMode: true, throwOnError: false }); }\n"
@@ -228,9 +198,7 @@ void MarkdownPreview::render()
         "        catch(e) { el.textContent = el.textContent; }\n"
         "    });\n"
         "}\n"
-        "// Code highlighting\n"
         "if (typeof hljs !== 'undefined') { hljs.highlightAll(); }\n"
-        "// Mermaid\n"
         "if (typeof mermaid !== 'undefined') {\n"
         "    mermaid.initialize({ startOnLoad: false, theme: '") + mermaidTheme + QStringLiteral("',\n"
         "        suppressErrors: true, securityLevel: 'loose',\n"
@@ -277,7 +245,6 @@ void MarkdownPreview::removePrintCss()
 void MarkdownPreview::postProcessPdf(const QByteArray &pdfData, const QString &filePath,
                                       const QPageLayout &layout, const QString &pageNumbering, bool pageBorder)
 {
-    // Load the source PDF to count pages and get page sizes
     QPdfDocument doc;
     QBuffer buf;
     buf.setData(pdfData);
@@ -286,21 +253,16 @@ void MarkdownPreview::postProcessPdf(const QByteArray &pdfData, const QString &f
 
     int pageCount = doc.pageCount();
     if (pageCount <= 0) {
-        // Fallback: just save the raw PDF
         QFile f(filePath);
         if (f.open(QIODevice::WriteOnly))
             f.write(pdfData);
         return;
     }
 
-    // Render each page at 300 DPI and create a new PDF with page numbers
     const int dpi = 300;
-    QSizeF pageSizePt = layout.fullRect(QPageLayout::Point).size();
-
     QPdfWriter writer(filePath);
     writer.setPageLayout(layout);
     writer.setResolution(dpi);
-
     QPainter painter(&writer);
 
     for (int i = 0; i < pageCount; ++i) {
@@ -311,25 +273,15 @@ void MarkdownPreview::postProcessPdf(const QByteArray &pdfData, const QString &f
                          static_cast<int>(srcSize.height() * dpi / 72.0));
         QImage img = doc.render(i, renderSize);
 
-        // Draw the rendered page image into the full page area (including margins)
         QRectF fullRect = layout.fullRect(QPageLayout::Point);
         QRectF paintRect = layout.paintRect(QPageLayout::Point);
-        // QPdfWriter paints relative to the paint rect (margins already accounted for)
-        // So we need to offset the image to cover the full page including margins
-        double scaleX = paintRect.width() / static_cast<double>(renderSize.width()) * dpi / 72.0;
-        double scaleY = paintRect.height() / static_cast<double>(renderSize.height()) * dpi / 72.0;
-
-        // Map from points to device coords
         double pxPerPt = dpi / 72.0;
         QMarginsF margins = layout.margins(QPageLayout::Point);
 
-        // Draw the full-page image (offset by negative margin since painter starts at paint rect)
         QRectF target(-margins.left() * pxPerPt, -margins.top() * pxPerPt,
                       fullRect.width() * pxPerPt, fullRect.height() * pxPerPt);
         painter.drawImage(target, img);
 
-        // The source PDF may contain visible edges from body background/padding.
-        // Paint white rectangles over the margin areas to cover any artifacts.
         double pw = paintRect.width() * pxPerPt;
         double ph = paintRect.height() * pxPerPt;
         double ml = margins.left() * pxPerPt;
@@ -340,25 +292,18 @@ void MarkdownPreview::postProcessPdf(const QByteArray &pdfData, const QString &f
         double fh = fullRect.height() * pxPerPt;
         painter.setPen(Qt::NoPen);
         painter.setBrush(Qt::white);
-        // Overlap into content area by a few pixels to cover edge artifacts
         double overlap = 3.0;
-        // top margin strip
         painter.drawRect(QRectF(-ml, -mt, fw, mt + overlap));
-        // bottom margin strip
         painter.drawRect(QRectF(-ml, ph - overlap, fw, mb + overlap));
-        // left margin strip
         painter.drawRect(QRectF(-ml, -mt, ml + overlap, fh));
-        // right margin strip
         painter.drawRect(QRectF(pw - overlap, -mt, mr + overlap, fh));
 
-        // Draw border around the paint rect if requested
         if (pageBorder) {
             painter.setPen(QPen(QColor(180, 180, 180), 1.0));
             painter.setBrush(Qt::NoBrush);
             painter.drawRect(QRectF(0, 0, pw, ph));
         }
 
-        // Draw page number centered at the bottom of the paint rect
         QString numText;
         if (pageNumbering == "page/total")
             numText = QString("%1 / %2").arg(i + 1).arg(pageCount);
@@ -396,8 +341,6 @@ void MarkdownPreview::exportToPdf(const QString &filePath, int marginLeft, int m
             removePrintCss();
             return;
         }
-
-        // Two-pass: first generate PDF to memory, then post-process with page numbers / border
         m_webView->page()->printToPdf(
             [this, filePath, layout, pageNumbering, pageBorder](const QByteArray &pdfData) {
                 postProcessPdf(pdfData, filePath, layout, pageNumbering, pageBorder);
@@ -406,453 +349,137 @@ void MarkdownPreview::exportToPdf(const QString &filePath, int marginLeft, int m
     });
 }
 
-// ── Markdown → HTML ─────────────────────────────────────────────────
+// ── Markdown → HTML via cmark-gfm ──────────────────────────────────
+
+// Walk AST text nodes (skipping code) and inject math as raw HTML nodes
+static void injectMathSpans(cmark_node *root)
+{
+    static QRegularExpression reDispMath(QStringLiteral("\\$\\$([\\s\\S]+?)\\$\\$"));
+    static QRegularExpression reInlineMath(QStringLiteral("(?<!\\$)\\$(?!\\s)(?:[^$\\\\]|\\\\.)+?\\$(?!\\$)"));
+
+    // Collect text nodes first (modifying tree during iteration is tricky)
+    QVector<cmark_node *> textNodes;
+    cmark_iter *iter = cmark_iter_new(root);
+    cmark_event_type ev;
+    while ((ev = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+        if (ev != CMARK_EVENT_ENTER) continue;
+        cmark_node *node = cmark_iter_get_node(iter);
+        if (cmark_node_get_type(node) != CMARK_NODE_TEXT) continue;
+        // Skip text inside code spans or code blocks
+        cmark_node *p = cmark_node_parent(node);
+        if (p) {
+            cmark_node_type pt = cmark_node_get_type(p);
+            if (pt == CMARK_NODE_CODE || pt == CMARK_NODE_CODE_BLOCK) continue;
+        }
+        textNodes.append(node);
+    }
+    cmark_iter_free(iter);
+
+    for (cmark_node *node : textNodes) {
+        QString text = QString::fromUtf8(cmark_node_get_literal(node));
+
+        // Find all math matches
+        struct MathMatch { qsizetype pos; qsizetype len; QString html; };
+        QVector<MathMatch> matches;
+
+        auto itD = reDispMath.globalMatch(text);
+        while (itD.hasNext()) {
+            auto m = itD.next();
+            QString inner = m.captured(1);
+            matches.append({m.capturedStart(), m.capturedLength(),
+                QStringLiteral("<span class=\"katex-display\">") + inner.toHtmlEscaped() + QStringLiteral("</span>")});
+        }
+
+        auto itI = reInlineMath.globalMatch(text);
+        while (itI.hasNext()) {
+            auto m = itI.next();
+            bool overlaps = false;
+            for (const auto &dm : matches) {
+                if (m.capturedStart() >= dm.pos && m.capturedStart() < dm.pos + dm.len) {
+                    overlaps = true; break;
+                }
+            }
+            if (overlaps) continue;
+            QString full = m.captured();
+            QString inner = full.mid(1, full.length() - 2);
+            matches.append({m.capturedStart(), m.capturedLength(),
+                QStringLiteral("<span class=\"katex-inline\">") + inner.toHtmlEscaped() + QStringLiteral("</span>")});
+        }
+
+        if (matches.isEmpty()) continue;
+
+        std::sort(matches.begin(), matches.end(),
+                  [](const MathMatch &a, const MathMatch &b) { return a.pos < b.pos; });
+
+        // Replace text node with sequence of text + html_inline nodes
+        qsizetype lastEnd = 0;
+        cmark_node *insertAfter = nullptr;
+
+        for (const auto &mm : matches) {
+            // Text before match
+            if (mm.pos > lastEnd) {
+                QString before = text.mid(lastEnd, mm.pos - lastEnd);
+                cmark_node *tn = cmark_node_new(CMARK_NODE_TEXT);
+                cmark_node_set_literal(tn, before.toUtf8().constData());
+                if (!insertAfter)
+                    cmark_node_insert_before(node, tn);
+                else
+                    cmark_node_insert_after(insertAfter, tn);
+                insertAfter = tn;
+            }
+            // Math as raw HTML
+            cmark_node *hn = cmark_node_new(CMARK_NODE_HTML_INLINE);
+            cmark_node_set_literal(hn, mm.html.toUtf8().constData());
+            if (!insertAfter)
+                cmark_node_insert_before(node, hn);
+            else
+                cmark_node_insert_after(insertAfter, hn);
+            insertAfter = hn;
+            lastEnd = mm.pos + mm.len;
+        }
+
+        // Text after last match
+        if (lastEnd < text.length()) {
+            QString after = text.mid(lastEnd);
+            cmark_node *tn = cmark_node_new(CMARK_NODE_TEXT);
+            cmark_node_set_literal(tn, after.toUtf8().constData());
+            if (!insertAfter)
+                cmark_node_insert_before(node, tn);
+            else
+                cmark_node_insert_after(insertAfter, tn);
+        }
+
+        // Remove original text node
+        cmark_node_free(node);
+    }
+}
 
 QString MarkdownPreview::markdownToHtml(const QString &md)
 {
-    // Protect $$...$$ and $...$ from markdown processing (both cmark and regex)
-    // BUT: first strip out backtick code spans so $ inside code is not treated as math
-    static QRegularExpression reCodeSpan(R"(`[^`]+`)");
-    static QRegularExpression reCodeFence(R"(^```[\s\S]*?^```)", QRegularExpression::MultilineOption);
-    static QRegularExpression reDisplayMath(R"(\$\$[\s\S]+?\$\$)");
-    static QRegularExpression reInlineMath(R"(\$(?!\s)(?:[^$\\]|\\.)+?\$)");
+    QByteArray utf8 = md.toUtf8();
+    int options = CMARK_OPT_DEFAULT | CMARK_OPT_UNSAFE;
 
-    // Step 1: protect code spans and fenced code blocks from math detection
-    QVector<QString> codeProtected;
-    QString withCodeMasked = md;
+    cmark_parser *parser = cmark_parser_new(options);
 
-    // Protect fenced code blocks first (multi-line), then inline code spans
-    auto maskCode = [&](const QRegularExpression &re) {
-        QRegularExpressionMatchIterator it = re.globalMatch(withCodeMasked);
-        QVector<QRegularExpressionMatch> matches;
-        while (it.hasNext()) matches.append(it.next());
-        for (int i = matches.size() - 1; i >= 0; --i) {
-            const auto &m = matches[i];
-            QString placeholder = QString("\x05CODEBLK%1\x05").arg(codeProtected.size());
-            codeProtected.append(m.captured());
-            withCodeMasked.replace(m.capturedStart(), m.capturedLength(), placeholder);
-        }
-    };
-    maskCode(reCodeFence);
-    maskCode(reCodeSpan);
-
-    // Step 2: protect math in code-masked text
-    QVector<QString> mathFragments;
-    QString protected_ = withCodeMasked;
-
-    auto protectMath = [&](const QRegularExpression &re) {
-        QRegularExpressionMatchIterator it = re.globalMatch(protected_);
-        QVector<QRegularExpressionMatch> matches;
-        while (it.hasNext()) matches.append(it.next());
-        for (int i = matches.size() - 1; i >= 0; --i) {
-            const auto &m = matches[i];
-            QString placeholder = QString("\x02MATH%1\x02").arg(mathFragments.size());
-            mathFragments.append(m.captured());
-            protected_.replace(m.capturedStart(), m.capturedLength(), placeholder);
-        }
-    };
-    protectMath(reDisplayMath);
-    protectMath(reInlineMath);
-
-    // Step 3: restore code blocks (they now have math removed from non-code areas)
-    for (int i = 0; i < codeProtected.size(); ++i) {
-        protected_.replace(QString("\x05CODEBLK%1\x05").arg(i), codeProtected[i]);
+    // Attach GFM extensions
+    const char *extNames[] = {"table", "strikethrough", "autolink", "tagfilter", nullptr};
+    for (int i = 0; extNames[i]; ++i) {
+        cmark_syntax_extension *ext = cmark_find_syntax_extension(extNames[i]);
+        if (ext) cmark_parser_attach_syntax_extension(parser, ext);
     }
 
-    // Step 4: convert
-    QString html;
-    if (m_hasCmark) {
-        html = cmarkConvert(protected_);
-        // Restore math expressions wrapped in KaTeX spans
-        for (int i = 0; i < mathFragments.size(); ++i) {
-            QString raw = mathFragments[i];
-            QString placeholder = QString("\x02MATH%1\x02").arg(i);
-            // Remove <p> wrapper if cmark wrapped the placeholder
-            html.replace("<p>" + placeholder + "</p>", placeholder);
+    cmark_parser_feed(parser, utf8.constData(), utf8.size());
+    cmark_node *doc = cmark_parser_finish(parser);
 
-            if (raw.startsWith("$$") && raw.endsWith("$$")) {
-                // Display math: strip $$ delimiters, wrap in katex-display span
-                QString inner = raw.mid(2, raw.length() - 4);
-                html.replace(placeholder,
-                    QStringLiteral("<span class=\"katex-display\">") + inner + QStringLiteral("</span>"));
-            } else if (raw.startsWith("$") && raw.endsWith("$")) {
-                // Inline math: strip $ delimiters, wrap in katex-inline span
-                QString inner = raw.mid(1, raw.length() - 2);
-                html.replace(placeholder,
-                    QStringLiteral("<span class=\"katex-inline\">") + inner + QStringLiteral("</span>"));
-            } else {
-                html.replace(placeholder, raw.toHtmlEscaped());
-            }
-        }
-    } else {
-        // Regex converter handles math internally via processInline (katex-display/katex-inline spans)
-        html = regexConvert(md);
-    }
+    // Walk AST: inject math spans in text nodes (code nodes untouched by design)
+    injectMathSpans(doc);
 
-    return html;
-}
-
-// Extract markdown tables and convert to HTML (cmark doesn't support GFM tables)
-static QString extractAndConvertTables(const QString &md, QVector<QString> &tableHtmls)
-{
-    QStringList lines = md.split('\n');
-    QString result;
-    int i = 0;
-
-    auto escapeHtml = [](const QString &s) {
-        QString r = s;
-        r.replace('&', "&amp;");
-        r.replace('<', "&lt;");
-        r.replace('>', "&gt;");
-        return r;
-    };
-
-    while (i < lines.size()) {
-        const QString &line = lines[i];
-        QString trimmed = line.trimmed();
-
-        // Detect table: line starts with | and next line is separator (|---|...)
-        if (trimmed.startsWith('|') && trimmed.endsWith('|') && i + 1 < lines.size()) {
-            QString nextTrimmed = lines[i + 1].trimmed();
-            // Check if next line is separator: | --- | --- |
-            bool isSep = nextTrimmed.startsWith('|') && nextTrimmed.contains('-');
-            if (isSep) {
-                QString sepClean = nextTrimmed;
-                sepClean.remove('|'); sepClean.remove('-'); sepClean.remove(':'); sepClean.remove(' ');
-                isSep = sepClean.isEmpty();
-            }
-
-            if (isSep) {
-                // Parse table
-                QString tableHtml = "<table><thead><tr>";
-                // Header row
-                QStringList headers = trimmed.split('|', Qt::SkipEmptyParts);
-                for (const auto &h : headers)
-                    tableHtml += "<th>" + escapeHtml(h.trimmed()) + "</th>";
-                tableHtml += "</tr></thead><tbody>\n";
-
-                // Parse alignment from separator
-                QStringList sepCells = lines[i + 1].trimmed().split('|', Qt::SkipEmptyParts);
-                QVector<QString> aligns;
-                for (const auto &s : sepCells) {
-                    QString t = s.trimmed();
-                    if (t.startsWith(':') && t.endsWith(':')) aligns << "center";
-                    else if (t.endsWith(':')) aligns << "right";
-                    else aligns << "left";
-                }
-
-                i += 2; // skip header + separator
-
-                // Body rows
-                while (i < lines.size()) {
-                    QString rowTrimmed = lines[i].trimmed();
-                    if (!rowTrimmed.startsWith('|')) break;
-                    QStringList cells = rowTrimmed.split('|', Qt::SkipEmptyParts);
-                    tableHtml += "<tr>";
-                    for (int c = 0; c < cells.size(); ++c) {
-                        QString align = (c < aligns.size()) ? aligns[c] : "left";
-                        tableHtml += "<td style=\"text-align:" + align + "\">" + escapeHtml(cells[c].trimmed()) + "</td>";
-                    }
-                    tableHtml += "</tr>\n";
-                    ++i;
-                }
-                tableHtml += "</tbody></table>\n";
-
-                // Store and insert placeholder
-                QString placeholder = QString("\x03TABLE%1\x03").arg(tableHtmls.size());
-                tableHtmls.append(tableHtml);
-                result += placeholder + "\n";
-                continue;
-            }
-        }
-
-        result += line + "\n";
-        ++i;
-    }
-    return result;
-}
-
-QString MarkdownPreview::cmarkConvert(const QString &md)
-{
-    // Pre-extract tables (cmark doesn't support GFM tables)
-    QVector<QString> tableHtmls;
-    QString preprocessed = extractAndConvertTables(md, tableHtmls);
-
-    QByteArray utf8 = preprocessed.toUtf8();
-    char *result = m_cmarkToHtml(utf8.constData(), utf8.size(), (1 << 17));
-    if (!result) return regexConvert(md);
+    char *result = cmark_render_html(doc, options, cmark_parser_get_syntax_extensions(parser));
     QString html = QString::fromUtf8(result);
     free(result);
 
-    // Restore table HTML (cmark may have wrapped placeholders in <p> tags)
-    for (int i = 0; i < tableHtmls.size(); ++i) {
-        QString placeholder = QString("\x03TABLE%1\x03").arg(i);
-        // Remove <p> wrapper if cmark added one
-        html.replace("<p>" + placeholder + "</p>", tableHtmls[i]);
-        html.replace(placeholder, tableHtmls[i]);
-    }
-
-    return html;
-}
-
-// Inline formatting — extract math placeholders, escape HTML, then apply inline patterns
-// (Same approach as text-ed: placeholder-based math protection + toHtmlEscaped + inline regex)
-static QString processInline(const QString &text)
-{
-    static const QRegularExpression reDispMath(QStringLiteral("\\$\\$(.+?)\\$\\$"));
-    static const QRegularExpression reInlineMath(QStringLiteral("(?<!\\$)\\$(?!\\$)(.+?)(?<!\\$)\\$(?!\\$)"));
-    static const QRegularExpression reBold(QStringLiteral("\\*\\*(.+?)\\*\\*"));
-    static const QRegularExpression reItalic(QStringLiteral("(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)"));
-    static const QRegularExpression reCode(QStringLiteral("`([^`]+)`"));
-    static const QRegularExpression reStrike(QStringLiteral("~~(.+?)~~"));
-    static const QRegularExpression reImg(QStringLiteral("!\\[([^\\]]*)\\]\\(([^)]+)\\)"));
-    static const QRegularExpression reLink(QStringLiteral("\\[([^\\]]+)\\]\\(([^)]+)\\)"));
-
-    // Extract LaTeX placeholders before HTML-escaping (math content must not be escaped)
-    struct Placeholder { qsizetype pos; qsizetype len; QString replacement; };
-    QVector<Placeholder> placeholders;
-
-    auto itD = reDispMath.globalMatch(text);
-    while (itD.hasNext()) {
-        auto m = itD.next();
-        placeholders.append({m.capturedStart(), m.capturedLength(),
-            QStringLiteral("<span class=\"katex-display\">") + m.captured(1) + QStringLiteral("</span>")});
-    }
-
-    auto itI = reInlineMath.globalMatch(text);
-    while (itI.hasNext()) {
-        auto m = itI.next();
-        bool overlaps = false;
-        for (const auto &p : placeholders) {
-            if (m.capturedStart() >= p.pos && m.capturedStart() < p.pos + p.len) { overlaps = true; break; }
-        }
-        if (!overlaps) {
-            placeholders.append({m.capturedStart(), m.capturedLength(),
-                QStringLiteral("<span class=\"katex-inline\">") + m.captured(1) + QStringLiteral("</span>")});
-        }
-    }
-
-    // Build result: escape non-math text, keep math raw
-    QString result;
-    if (placeholders.isEmpty()) {
-        result = text.toHtmlEscaped();
-    } else {
-        std::sort(placeholders.begin(), placeholders.end(),
-                  [](const Placeholder &a, const Placeholder &b) { return a.pos < b.pos; });
-        qsizetype lastEnd = 0;
-        for (const auto &p : placeholders) {
-            result += text.mid(lastEnd, p.pos - lastEnd).toHtmlEscaped();
-            result += p.replacement;
-            lastEnd = p.pos + p.len;
-        }
-        result += text.mid(lastEnd).toHtmlEscaped();
-    }
-
-    // Extract inline code FIRST — protect content from bold/italic/link processing
-    QVector<QString> codeFragments;
-    {
-        QRegularExpressionMatchIterator it = reCode.globalMatch(result);
-        QVector<QRegularExpressionMatch> codeMatches;
-        while (it.hasNext()) codeMatches.append(it.next());
-        for (int ci = codeMatches.size() - 1; ci >= 0; --ci) {
-            const auto &m = codeMatches[ci];
-            QString placeholder = QStringLiteral("\x04CODE") + QString::number(codeFragments.size()) + QStringLiteral("\x04");
-            codeFragments.append(QStringLiteral("<code>") + m.captured(1) + QStringLiteral("</code>"));
-            result.replace(m.capturedStart(), m.capturedLength(), placeholder);
-        }
-    }
-
-    // Apply inline formatting (code content is safely placeholder-protected)
-    result.replace(reBold, QStringLiteral("<strong>\\1</strong>"));
-    result.replace(reItalic, QStringLiteral("<em>\\1</em>"));
-    result.replace(reStrike, QStringLiteral("<del>\\1</del>"));
-    // Images MUST be before links (![alt](url) vs [text](url))
-    result.replace(reImg, QStringLiteral("<img src=\"\\2\" alt=\"\\1\" style=\"max-width:100%\">"));
-    result.replace(reLink, QStringLiteral("<a href=\"\\2\">\\1</a>"));
-
-    // Restore inline code
-    for (int ci = 0; ci < codeFragments.size(); ++ci) {
-        result.replace(QStringLiteral("\x04CODE") + QString::number(ci) + QStringLiteral("\x04"), codeFragments[ci]);
-    }
-
-    return result;
-}
-
-QString MarkdownPreview::regexConvert(const QString &md)
-{
-    QString html;
-    html.reserve(md.size());
-
-    const QStringList lines = md.split('\n');
-    bool inCodeBlock = false;
-    bool inMermaid = false;
-    QString codeContent;
-    QString codeLang;
-    bool inUl = false;
-    bool inOl = false;
-    bool inBlockquote = false;
-    bool inTable = false;
-    bool hadTableSep = false;
-    QVector<QString> tableAligns;
-
-    static const QRegularExpression reHead(QStringLiteral("^(#{1,6})\\s+(.*)"));
-    static const QRegularExpression reHr(QStringLiteral("^(---|\\*\\*\\*|___)\\s*$"));
-    static const QRegularExpression reUl(QStringLiteral("^\\s*[-*+]\\s+(.*)"));
-    static const QRegularExpression reOl(QStringLiteral("^\\s*\\d+\\.\\s+(.*)"));
-
-    auto closePending = [&]() {
-        if (inUl) { html += QStringLiteral("</ul>\n"); inUl = false; }
-        if (inOl) { html += QStringLiteral("</ol>\n"); inOl = false; }
-        if (inBlockquote) { html += QStringLiteral("</blockquote>\n"); inBlockquote = false; }
-        if (inTable) {
-            html += (hadTableSep ? QStringLiteral("</tbody>") : QString()) + QStringLiteral("</table>\n");
-            inTable = false; hadTableSep = false;
-        }
-    };
-
-    for (const QString &line : lines) {
-        QString trimmed = line.trimmed();
-
-        // ── Fenced code blocks ──
-        if (trimmed.startsWith(QStringLiteral("```"))) {
-            if (!inCodeBlock) {
-                closePending();
-                inCodeBlock = true;
-                codeLang = trimmed.mid(3).trimmed();
-                inMermaid = (codeLang.compare(QStringLiteral("mermaid"), Qt::CaseInsensitive) == 0);
-                codeContent.clear();
-            } else {
-                if (inMermaid) {
-                    html += QStringLiteral("<div class=\"mermaid\">\n") + codeContent + QStringLiteral("</div>\n");
-                } else if (!codeLang.isEmpty()) {
-                    html += QStringLiteral("<pre><code class=\"language-") + codeLang.toHtmlEscaped() +
-                            QStringLiteral("\">") + codeContent.toHtmlEscaped() + QStringLiteral("</code></pre>\n");
-                } else {
-                    html += QStringLiteral("<pre><code>") + codeContent.toHtmlEscaped() + QStringLiteral("</code></pre>\n");
-                }
-                inCodeBlock = false;
-                inMermaid = false;
-            }
-            continue;
-        }
-        if (inCodeBlock) {
-            codeContent += line + '\n';
-            continue;
-        }
-
-        // ── Blank line ──
-        if (trimmed.isEmpty()) {
-            closePending();
-            html += QStringLiteral("<br>\n");
-            continue;
-        }
-
-        // ── Headings ──
-        auto mHead = reHead.match(trimmed);
-        if (mHead.hasMatch()) {
-            closePending();
-            int level = mHead.captured(1).length();
-            html += QStringLiteral("<h%1>%2</h%1>\n").arg(level).arg(processInline(mHead.captured(2)));
-            continue;
-        }
-
-        // ── Horizontal rule ──
-        if (reHr.match(trimmed).hasMatch()) {
-            closePending();
-            html += QStringLiteral("<hr>\n");
-            continue;
-        }
-
-        // ── Table ──
-        if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
-            QStringList cells;
-            for (const auto &cell : trimmed.split('|', Qt::SkipEmptyParts))
-                cells << cell.trimmed();
-
-            bool isSep = !cells.isEmpty();
-            for (const auto &c : cells) {
-                QString t = c; t.remove('-'); t.remove(':'); t.remove(' ');
-                if (!t.isEmpty()) { isSep = false; break; }
-            }
-
-            if (!inTable) {
-                closePending();
-                inTable = true; hadTableSep = false; tableAligns.clear();
-                html += QStringLiteral("<table><thead><tr>");
-                for (const auto &h : cells)
-                    html += QStringLiteral("<th>") + processInline(h) + QStringLiteral("</th>");
-                html += QStringLiteral("</tr></thead>\n");
-            } else if (isSep && !hadTableSep) {
-                hadTableSep = true; tableAligns.clear();
-                for (const auto &s : cells) {
-                    QString t = s.trimmed();
-                    if (t.startsWith(':') && t.endsWith(':')) tableAligns << "center";
-                    else if (t.endsWith(':')) tableAligns << "right";
-                    else tableAligns << "left";
-                }
-                html += QStringLiteral("<tbody>\n");
-            } else if (hadTableSep) {
-                html += QStringLiteral("<tr>");
-                for (int c = 0; c < cells.size(); ++c) {
-                    QString align = (c < tableAligns.size()) ? tableAligns[c] : "left";
-                    html += QStringLiteral("<td style=\"text-align:") + align + QStringLiteral("\">") +
-                            processInline(cells[c]) + QStringLiteral("</td>");
-                }
-                html += QStringLiteral("</tr>\n");
-            }
-            continue;
-        }
-        if (inTable) {
-            html += (hadTableSep ? QStringLiteral("</tbody>") : QString()) + QStringLiteral("</table>\n");
-            inTable = false; hadTableSep = false;
-        }
-
-        // ── Blockquote ──
-        if (trimmed.startsWith('>')) {
-            QString content = trimmed.mid(1);
-            if (content.startsWith(' ')) content = content.mid(1);
-            if (!inBlockquote) {
-                if (inUl) { html += QStringLiteral("</ul>\n"); inUl = false; }
-                if (inOl) { html += QStringLiteral("</ol>\n"); inOl = false; }
-                inBlockquote = true;
-                html += QStringLiteral("<blockquote>\n");
-            }
-            html += QStringLiteral("<p>") + processInline(content) + QStringLiteral("</p>\n");
-            continue;
-        }
-        if (inBlockquote) { html += QStringLiteral("</blockquote>\n"); inBlockquote = false; }
-
-        // ── Unordered list ──
-        auto mUl = reUl.match(line);
-        if (mUl.hasMatch()) {
-            if (inOl) { html += QStringLiteral("</ol>\n"); inOl = false; }
-            if (!inUl) { inUl = true; html += QStringLiteral("<ul>\n"); }
-            html += QStringLiteral("<li>") + processInline(mUl.captured(1)) + QStringLiteral("</li>\n");
-            continue;
-        }
-
-        // ── Ordered list ──
-        auto mOl = reOl.match(line);
-        if (mOl.hasMatch()) {
-            if (inUl) { html += QStringLiteral("</ul>\n"); inUl = false; }
-            if (!inOl) { inOl = true; html += QStringLiteral("<ol>\n"); }
-            html += QStringLiteral("<li>") + processInline(mOl.captured(1)) + QStringLiteral("</li>\n");
-            continue;
-        }
-
-        // ── Regular paragraph ──
-        closePending();
-        html += QStringLiteral("<p>") + processInline(trimmed) + QStringLiteral("</p>\n");
-    }
-
-    // Close remaining open blocks
-    if (inCodeBlock) {
-        if (inMermaid)
-            html += QStringLiteral("<div class=\"mermaid\">\n") + codeContent + QStringLiteral("</div>\n");
-        else
-            html += QStringLiteral("<pre><code>") + codeContent.toHtmlEscaped() + QStringLiteral("</code></pre>\n");
-    }
-    closePending();
+    cmark_node_free(doc);
+    cmark_parser_free(parser);
 
     return html;
 }

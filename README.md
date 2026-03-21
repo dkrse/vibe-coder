@@ -13,7 +13,7 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 - **Dual Terminals** — AI-terminal (top, sends prompts) + general Terminal (bottom tab). Both follow file browser directory and support SSH. Stop button sends configurable stop sequence (default: Ctrl+C)
 - **Prompt System** — Prompt input with configurable send key (Enter / Ctrl+Enter). Shift modifier = send + save. Saved/recurring prompts per project
 - **Project Management** — `.LLM/instructions.json` stores project metadata, numbered prompt history, and saved prompt IDs. Auto-creates `.gitignore`
-- **Markdown Preview** — Ctrl+M opens live preview for `.md` files. Multiple previews can be open simultaneously (one per .md file). Markdown tab icon (👁) for quick toggle. Syntax-highlighted code blocks via bundled highlight.js (46+ languages). KaTeX math rendering ($$...$$ and $...$) with proper code-span protection. Mermaid diagram rendering. Dark/light themes. Optional libcmark for conversion with regex fallback. File-based rendering (write HTML to temp file + setUrl) for reliable display of complex markdown. 500ms debounced live updates. Context-dependent zoom (Ctrl+=/Ctrl+-). **PDF Export** via Command Palette — renders preview to PDF with embedded print CSS for code wrapping, configurable margins, orientation, page numbering, and optional page border
+- **Markdown Preview** — Ctrl+M opens live preview for `.md` files. Multiple previews can be open simultaneously (one per .md file). Markdown tab icon (👁) for quick toggle. Powered by **cmark-gfm** (GitHub Flavored Markdown) with native support for tables, strikethrough, autolinks. Syntax-highlighted code blocks via bundled highlight.js (46+ languages). KaTeX math rendering ($$...$$ and $...$) via AST-level injection (code spans never interfere with math). Mermaid diagram rendering. Dark/light themes. File-based rendering (write HTML to temp file + setUrl). 500ms debounced live updates. Context-dependent zoom (Ctrl+=/Ctrl+-). **PDF Export** via Command Palette — renders preview to PDF with embedded print CSS for code wrapping, configurable margins, orientation, page numbering, and optional page border
 - **Git Integration** — Commit button in Git tab with editable commit message dialog (auto-init + add + commit). Auto-filters sensitive files (.env, *.pem, *.key). Async git status with instant updates for file browser colors. **Git Graph tab** with visual commit history, branch/merge visualization, Fetch/Pull/Push, upstream tracking, git user info editing, and multi-remote management. **Git Blame** — per-line blame annotations with commit hash, author, and date in a dedicated bottom tab; auto-blames current file on tab switch
 - **Changes Monitor** — Real-time file change tracking with diff preview (cached) and one-click revert to git version
 - **Diff Viewer** — Git diff viewer with syntax highlighting (working changes, staged, last commit)
@@ -34,7 +34,7 @@ A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a
 - **Widget Styles** — Configurable Qt widget style (Fusion, Windows, Breeze, Adwaita, Oxygen, Kvantum). Auto-detects installed Qt6 style plugins. Affects button shapes, scrollbars, checkboxes, and other GUI component rendering
 - **Settings** — Tabbed dialog with configurable fonts, sizes, global theme, and widget style for all components (terminal, editor, file browser, prompt, diff viewer, changes monitor, visibility, PDF export)
 - **Session Persistence** — Remembers window size, splitter positions, open files, active tab, cursor positions, scroll positions, and active bottom tab. Multi-monitor aware
-- **Fully Offline** — All resources (mermaid.js, KaTeX, highlight.js, fonts) are bundled with integrity verification on startup. No network requests. WebEngine remote URL access explicitly disabled
+- **Fully Offline** — cmark-gfm statically linked, all resources (mermaid.js, KaTeX, highlight.js, fonts) bundled with integrity verification on startup. No network requests or runtime library dependencies. WebEngine remote URL access explicitly disabled
 
 ## Installation
 
@@ -67,7 +67,7 @@ mkdir -p ~/.config/vibe-coder/themes
 cp ../themes/*.json ~/.config/vibe-coder/themes/
 ```
 
-> **Note:** `sshfs` is required for SSH remote file browsing and transfers. `qt6-webengine-dev` requires `qt6-webchannel-dev` as a dependency on some Debian versions. `qt6-pdf-dev` is required for PDF export with page numbering. On older Debian/Ubuntu the qtermwidget package may be named `libqtermwidget6-1-dev` instead of `libqtermwidget-dev`. Optional: install `libcmark-dev` for better markdown conversion (loaded at runtime via dlopen).
+> **Note:** `sshfs` is required for SSH remote file browsing and transfers. `qt6-webengine-dev` requires `qt6-webchannel-dev` as a dependency on some Debian versions. `qt6-pdf-dev` is required for PDF export with page numbering. On older Debian/Ubuntu the qtermwidget package may be named `libqtermwidget6-1-dev` instead of `libqtermwidget-dev`. cmark-gfm is automatically downloaded and statically linked during cmake configure (requires internet at build time).
 
 ### Fedora
 

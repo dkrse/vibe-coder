@@ -243,8 +243,6 @@ classDiagram
     class MarkdownPreview {
         -QWebEngineView* m_webView
         -QTimer* m_debounce
-        -bool m_pageLoaded
-        -void* m_cmarkLib
         -QString m_mermaidJsPath
         -QString m_hljsPath
         -QString m_katexDir
@@ -255,9 +253,6 @@ classDiagram
         +zoomOut()
         +exportToPdf(QString, int, int, QString, bool, bool)
         -markdownToHtml(QString) QString
-        -cmarkConvert(QString) QString
-        -regexConvert(QString) QString
-        -loadBasePage()
         -render()
         -injectPrintCss(function)
         -removePrintCss()
@@ -690,10 +685,9 @@ sequenceDiagram
     Preview->>Preview: 500ms debounce
 
     Preview->>Preview: markdownToHtml()
-    Note over Preview: Mask code spans + fenced blocks
-    Note over Preview: Protect math ($$..$$, $...$)
-    Note over Preview: Restore code, then cmark or regex convert
-    Preview->>Preview: Convert mermaid to div.mermaid
+    Note over Preview: cmark-gfm parse with GFM extensions
+    Note over Preview: AST walk: inject math spans in text nodes
+    Note over Preview: cmark_render_html()
     Preview->>Preview: Build full HTML page (CSS + JS + body)
     Preview->>TmpFile: Write HTML to file
     Preview->>Preview: setUrl(file://tmpPath)
@@ -718,16 +712,12 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    MD[Markdown Source] --> MASK[Mask code spans + fenced blocks]
-    MASK --> PROT[Protect math with placeholders]
-    PROT --> UNMASK[Restore code blocks]
-    UNMASK --> CMARK{libcmark available?}
-    CMARK -->|Yes| CM[cmark_markdown_to_html]
-    CMARK -->|No| RX[Regex Converter with processInline]
-    CM --> HTML[HTML body]
-    RX --> HTML
-    HTML --> MATHRESTORE[Restore math as katex-display/inline spans]
-    MATHRESTORE --> MERM[Convert to div.mermaid]
+    MD[Markdown Source] --> PARSE["cmark-gfm parser<br/>(table, strikethrough, autolink, tagfilter)"]
+    PARSE --> AST[AST]
+    AST --> MATH["injectMathSpans()<br/>Walk text nodes only<br/>Code nodes untouched"]
+    MATH --> RENDER_HTML["cmark_render_html()"]
+    RENDER_HTML --> HTML[HTML body]
+    HTML --> MERM["Convert mermaid code blocks<br/>to div.mermaid"]
     MERM --> PAGE[Build full HTML page]
 
     subgraph Full_Page[Complete HTML Page - written to temp file]
@@ -739,7 +729,7 @@ flowchart TD
     LOAD --> HIGHLIGHT[hljs.highlightAll]
     HIGHLIGHT --> MRUN[mermaid.run]
     MRUN --> KATEX["katex.render() per .katex-display/.katex-inline span"]
-    KATEX --> RENDER[Rendered Preview]
+    KATEX --> RENDERED[Rendered Preview]
 ```
 
 ## PDF Export Flow

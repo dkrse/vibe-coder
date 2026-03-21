@@ -11,7 +11,7 @@ Vibe Coder is a Qt6 C++ IDE-like application designed for AI-assisted developmen
 - **Web Engine:** Qt6 WebEngineWidgets (markdown preview, mermaid rendering, PDF export)
 - **PDF:** Qt6 PdfWidgets (QPdfDocument for page counting/rendering, QPdfWriter for output)
 - **Terminal:** QTermWidget (libqtermwidget6)
-- **Markdown:** libcmark (optional, loaded via dlopen) with regex fallback
+- **Markdown:** cmark-gfm (GitHub Flavored Markdown, statically linked via CMake FetchContent)
 - **Diagrams:** mermaid.js (bundled as Qt resource, ~3MB)
 - **Math:** KaTeX (bundled JS + CSS + woff2 fonts)
 - **Code Highlighting:** highlight.js 11.9.0 (bundled, 46+ languages)
@@ -44,6 +44,7 @@ src/
 ├── titlebar.h/cpp        Custom title bar (CSD) with minimize/maximize/close
 ├── themeddialog.h/cpp    Frameless dialog wrapper with themed title bar
 ├── zedthemeloader.h/cpp  External theme loader (native/Zed/VS Code JSON formats)
+Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no source files in tree)
 ├── markdownpreview.h/cpp Markdown preview with QWebEngineView + mermaid.js + highlight.js + KaTeX
 ├── fileopener.h/cpp      Fuzzy file opener popup (Ctrl+P)
 ├── workspacesearch.h/cpp Full-text workspace search (Ctrl+Shift+F)
@@ -247,13 +248,12 @@ src/
 ### MarkdownPreview
 - QWebEngineView-based live markdown preview, opened as editor tab via Ctrl+M or 👁 tab button
 - **Multiple instances** — each `.md` file can have its own independent preview tab. Source editor tracked via `QObject::property("sourceEditor")`. Closing source editor auto-closes preview via `QObject::destroyed` signal
-- **Markdown conversion:** libcmark loaded via `dlopen()` at runtime (tries libcmark.so, .so.0, etc.). Falls back to built-in regex converter supporting: headings, bold/italic/strikethrough, code blocks with language class, tables, lists, blockquotes, horizontal rules, links, images. If `dlsym` fails, handle is properly `dlclose`d (no leak)
-- **GFM table support:** plain libcmark lacks table support, so tables are pre-extracted via `extractAndConvertTables()` before cmark processing. Supports header/body separation, alignment markers (`:---:`, `---:`), and HTML escaping. Placeholders survive cmark's `<p>` wrapping and are restored after conversion
+- **Markdown conversion:** cmark-gfm (GitHub Flavored Markdown) statically linked. GFM extensions enabled: table, strikethrough, autolink, tagfilter. No runtime library dependency, no regex fallback needed
 - **Syntax highlighting:** highlight.js 11.9.0 bundled with 46+ language modules. VS2015 (dark) and VS (light) themes. `hljs.highlightAll()` called on every page load
-- **KaTeX math** — bundled KaTeX JS + CSS + woff2 fonts. Supports `$$...$$` (display) and `$...$` (inline) delimiters. Math wrapped in `<span class="katex-display">` / `<span class="katex-inline">` for both cmark and regex paths. `katex.render()` called per element. Code spans and fenced code blocks are masked before math detection to prevent `$` inside code from being misinterpreted as math delimiters
+- **KaTeX math** — bundled KaTeX JS + CSS + woff2 fonts. Supports `$$...$$` (display) and `$...$` (inline) delimiters. Math detection operates on AST text nodes only — code spans and code blocks are inherently excluded by the parser, so `$` inside code never triggers math rendering. Math expressions injected as `CMARK_NODE_HTML_INLINE` nodes with KaTeX span wrappers. `katex.render()` called per element in browser
 - **Mermaid diagrams:** mermaid.js (~3MB) bundled as Qt resource, extracted to temp dir at startup. Mermaid blocks rendered as `<div class="mermaid">` with `suppressErrors` and error styling fallback
-- **Rendering architecture (file-based):** each render generates a complete HTML page (CSS + JS + converted body), writes to temp file, loads via `setUrl()`. This approach (matching text-ed) avoids JS string escaping issues that broke complex markdown with special characters. Update pipeline: page load → hljs.highlightAll() → mermaid.run() → katex.render() per span
-- **Inline formatting pipeline** (`processInline`): (1) extract math into `katex-display`/`katex-inline` spans with placeholder protection, (2) extract inline code into placeholders, (3) `toHtmlEscaped()` on remaining text, (4) apply bold/italic/strikethrough/image/link regex, (5) restore code placeholders, (6) restore math spans. This prevents `*`, `[`, `]`, `(`, `)` inside backtick code from being misinterpreted
+- **Rendering architecture (file-based):** each render generates a complete HTML page (CSS + JS + converted body), writes to temp file, loads via `setUrl()`. Update pipeline: page load → hljs.highlightAll() → mermaid.run() → katex.render() per span
+- **AST-based conversion pipeline:** (1) cmark-gfm parses markdown into AST with GFM extensions, (2) `injectMathSpans()` walks AST text nodes, finds `$...$`/`$$...$$` patterns, replaces with `CMARK_NODE_HTML_INLINE` KaTeX spans, (3) `cmark_render_html()` produces final HTML. Code nodes are never visited, eliminating all code-vs-math conflicts
 - **Dark/light theme:** full CSS theming with theme-appropriate mermaid theme (`dark`/`default`) and matching highlight.js theme
 - **Zoom** — `zoomIn()`/`zoomOut()` methods adjust `QWebEngineView::setZoomFactor()` (0.25x–5.0x). Context-dependent: Ctrl+=/- only affects the focused component
 - **500ms debounce timer** prevents excessive re-renders during fast typing
@@ -346,7 +346,7 @@ src/
 15. **Theme Switch:** Settings/CommandPalette -> applyGlobalTheme() (global QSS) -> applySettings() (per-widget overrides) -> force repaint all children
 16. **Git Graph:** Tab activation -> loadBranches + loadLog + loadTrackingInfo + loadRemotes + loadUserInfo -> GitGraphView.setCommits() -> QPainter render
 17. **Remote Operations:** Fetch/Pull/Push buttons -> async QProcess -> outputMessage signal -> NotificationPanel; Remotes dialog -> git remote add/set-url/rename/remove
-18. **Markdown Preview:** Ctrl+M on .md file (or 👁 tab button) -> create new MarkdownPreview instance -> add as tab -> connect editor.textChanged -> 500ms debounce -> markdownToHtml (mask code spans -> protect math -> cmark or regex) -> render() builds full HTML page -> write to temp file -> setUrl() loads page -> hljs.highlightAll() -> mermaid.run() -> katex.render() per span
+18. **Markdown Preview:** Ctrl+M on .md file (or 👁 tab button) -> create new MarkdownPreview instance -> add as tab -> connect editor.textChanged -> 500ms debounce -> markdownToHtml (cmark-gfm parse -> AST math injection -> render HTML) -> render() builds full HTML page -> write to temp file -> setUrl() loads page -> hljs.highlightAll() -> mermaid.run() -> katex.render() per span
 19. **PDF Export:** Command Palette "Export Preview to PDF" -> QFileDialog for path -> injectPrintCss -> printToPdf (QByteArray callback) -> QPdfDocument count pages -> QPdfWriter+QPainter render each page (image + white margin overlays + optional border + optional page number) -> removePrintCss
 20. **Fuzzy File Opener:** Ctrl+P -> FileOpener.show() -> scan project files (cached) -> fuzzy filter on keystroke -> Enter opens file via onFileOpened()
 21. **Workspace Search:** Ctrl+Shift+F -> WorkspaceSearch.focusSearch() -> Enter triggers grep process -> results parsed (file:line:text) -> click shows context preview -> double-click emits fileRequested(path, line) -> MainWindow opens file and jumps to line

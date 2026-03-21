@@ -20,7 +20,7 @@ Tested on **Debian GNU/Linux 13 (trixie)** amd64 and **Fedora Linux 43 (Workstat
 | Qt6 WebEngineWidgets     | 6.8.2+dfsg-4           | 6.10.2    | `qt6-webengine-dev`         | `qt6-qtwebengine-devel`     |
 | Qt6 PdfWidgets           | 6.8.2+dfsg-4           | 6.10.2    | `qt6-pdf-dev`               | `qt6-qtpdf-devel`           |
 | qtermwidget6              | 2.1.0                  | 2.3.0     | `libqtermwidget-dev`        | `qtermwidget-devel`         |
-| libdl (dlopen)           | glibc                  | glibc     | `libc6-dev`                 | `glibc-devel`               |
+| cmark-gfm                | 0.29.0.gfm.13          | (same)    | (CMake FetchContent)        | (CMake FetchContent)        |
 
 ### Install (build)
 
@@ -69,7 +69,6 @@ sudo dnf install fuse-sshfs git
 
 | Dependency  | Debian 13 | Fedora 43 | Debian package       | Fedora package | Purpose                                              |
 |-------------|-----------|-----------|----------------------|----------------|------------------------------------------------------|
-| libcmark    | 0.30.2    | 0.30.3    | `libcmark0.30.2`     | `cmark-lib`    | Fast markdown-to-HTML (loaded via dlopen, regex fallback) |
 | rsync       | 3.4.1     | 3.4.1     | `rsync`              | `rsync`        | Efficient SSH file transfer (falls back to cp)       |
 
 ### Widget styles (optional)
@@ -87,12 +86,12 @@ sudo dnf install fuse-sshfs git
 
 **Debian / Ubuntu:**
 ```bash
-sudo apt install libcmark0.30.2 rsync adwaita-qt6 kde-style-breeze-data qt6-style-kvantum kde-style-oxygen-qt6
+sudo apt install rsync adwaita-qt6 kde-style-breeze-data qt6-style-kvantum kde-style-oxygen-qt6
 ```
 
 **Fedora:**
 ```bash
-sudo dnf install cmark-lib rsync kvantum
+sudo dnf install rsync kvantum
 ```
 
 ## Themes
@@ -108,6 +107,14 @@ Supported formats (auto-detected):
 - **Native** — flat JSON with `background`, `foreground`, `altBackground`, `border`, `hover`, `selected`, `lineHighlight`, `terminalScheme`
 - **Zed** — Zed editor theme format (`themes[]` array with `style` object)
 - **VS Code** — VS Code theme format (`colors` object with `editor.background`, etc.)
+
+## Statically Linked (fetched at build time via CMake FetchContent)
+
+| Library          | Version          | Purpose                                    |
+|------------------|------------------|--------------------------------------------|
+| cmark-gfm        | 0.29.0.gfm.13   | GitHub Flavored Markdown parsing (tables, strikethrough, autolinks) |
+
+> cmark-gfm is downloaded from GitHub during `cmake` configure and statically linked. No runtime dependency.
 
 ## Bundled Assets (compiled into binary via Qt resources)
 

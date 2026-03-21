@@ -32,15 +32,7 @@ private:
     QString m_hljsPath;
     QString m_katexDir;
 
-    // libcmark via dlopen (optional)
-    void *m_cmarkLib = nullptr;
-    typedef char* (*CmarkToHtmlFn)(const char *, size_t, int);
-    CmarkToHtmlFn m_cmarkToHtml = nullptr;
-    bool m_hasCmark = false;
-
     QString markdownToHtml(const QString &md);
-    QString cmarkConvert(const QString &md);
-    QString regexConvert(const QString &md);
     void render();
     void injectPrintCss(std::function<void()> then);
     void removePrintCss();

@@ -11,9 +11,19 @@ All notable changes to Vibe Coder are documented in this file.
 - **Theme-driven file browser colors** — hover and selection colors in file browser delegate now use theme colors. Selected file uses `lineHighlight` color (same as editor current line)
 - **File browser active file highlight** — switching editor tabs auto-selects and scrolls to the corresponding file in the file browser
 - **Editor line spacing** — `SpacedDocumentLayout` (QPlainTextDocumentLayout subclass) overrides `blockBoundingRect` to apply configurable line spacing factor. Previous approach via `QTextBlockFormat::lineHeight` did not work with QPlainTextEdit
+- **cmark-gfm integration** — replaced dlopen libcmark + regex fallback with statically linked cmark-gfm (GitHub Flavored Markdown). Native support for tables, strikethrough, autolinks, tagfilter. Math detection (`$...$`, `$$...$$`) now operates on AST text nodes only — code spans and code blocks are inherently excluded by the parser, eliminating all placeholder/masking bugs. ~450 lines of regex parsing code removed, replaced by ~80 lines of AST walking
 
 ### Fixed
 - **Font weight not working** — Qt5 font weight values (25-75) were passed to Qt6 which uses 100-1000 scale. Migrated to `QFont::Thin/Light/Normal/Medium/DemiBold/Bold` enum values. Saved settings auto-migrated on load
+
+### Removed
+- `regexConvert()` — entire regex-based markdown parser (~200 lines)
+- `processInline()` — regex inline formatting with placeholder protection (~80 lines)
+- `extractAndConvertTables()` — manual table pre-extraction for plain cmark (~80 lines)
+- `cmarkConvert()` — cmark wrapper with table placeholder restoration
+- All placeholder logic (CODEBLK, MATH, TABLE, CODE masking/unmasking)
+- `dlopen`/`dlsym` libcmark runtime dependency — cmark-gfm is now statically linked
+- `libdl` link dependency
 
 ## [0.14.0] - 2026-03-19
 
