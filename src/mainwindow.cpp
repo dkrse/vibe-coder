@@ -2,6 +2,7 @@
 #include "titlebar.h"
 #include "sshtunneldialog.h"
 #include <memory>
+#include <QCryptographicHash>
 
 #include <QStyleFactory>
 #include <QSplitter>
@@ -199,11 +200,65 @@ MainWindow::MainWindow(QWidget *parent)
     m_repeatPromptBtn = new QPushButton("Repeat");
     m_repeatPromptBtn->setToolTip("Repeat last sent prompt");
     m_repeatPromptBtn->setEnabled(false);
+    auto *showTerminalBtn = new QPushButton("AI-terminal");
+    showTerminalBtn->setToolTip("Show AI-terminal");
+    connect(showTerminalBtn, &QPushButton::clicked, this, [this]() {
+        m_tabWidget->setCurrentIndex(0);
+    });
+    // AI-terminal activity indicator
+    m_aiActivityLabel = new QLabel("●");
+    m_aiActivityLabel->setFixedWidth(20);
+    m_aiActivityLabel->setAlignment(Qt::AlignCenter);
+    m_aiActivityLabel->setToolTip("AI-terminal activity");
+
+    m_aiIdleTimer = new QTimer(this);
+    m_aiIdleTimer->setSingleShot(true);
+    m_aiIdleTimer->setInterval(1500);
+    connect(m_aiIdleTimer, &QTimer::timeout, this, [this]() {
+        m_aiAnimTimer->stop();
+        m_aiActivityLabel->setText("●");
+    });
+
+    m_aiAnimTimer = new QTimer(this);
+    m_aiAnimTimer->setInterval(200);
+    m_aiAnimFrame = 0;
+    connect(m_aiAnimTimer, &QTimer::timeout, this, [this]() {
+        const QString frames[] = {"|", "/", "-", "\\"};
+        m_aiActivityLabel->setText(frames[m_aiAnimFrame % 4]);
+        m_aiAnimFrame++;
+    });
+
     btnLayout->addWidget(m_sendBtn);
     btnLayout->addWidget(m_stopBtn);
     btnLayout->addWidget(m_repeatPromptBtn);
     btnLayout->addWidget(m_savePromptBtn);
+    btnLayout->addWidget(showTerminalBtn);
+    btnLayout->addWidget(m_aiActivityLabel);
     btnLayout->addStretch();
+
+    // Monitor AI-terminal content changes by comparing screen snapshots
+    // Uses raw image bits (no PNG encoding) for minimal CPU overhead
+    auto *pollTimer = new QTimer(this);
+    pollTimer->setInterval(1000);
+    QByteArray lastHash;
+    bool initialized = false;
+    connect(pollTimer, &QTimer::timeout, this, [this, lastHash, initialized]() mutable {
+        QImage img = m_terminal->terminal()->grab().toImage();
+        QByteArray raw(reinterpret_cast<const char*>(img.constBits()), img.sizeInBytes());
+        QByteArray hash = QCryptographicHash::hash(raw, QCryptographicHash::Md5);
+        if (!initialized) {
+            lastHash = hash;
+            initialized = true;
+            return;
+        }
+        if (hash != lastHash) {
+            lastHash = hash;
+            if (!m_aiAnimTimer->isActive())
+                m_aiAnimTimer->start();
+            m_aiIdleTimer->start();
+        }
+    });
+    pollTimer->start();
 
     promptLayout->addWidget(m_editor, 1);
     promptLayout->addLayout(btnLayout);
@@ -700,8 +755,11 @@ void MainWindow::sshConnectTerminals(const SshConfig &cfg)
 {
     QString sshLine = QString("ssh -o StrictHostKeyChecking=accept-new %1@%2 -p %3")
                           .arg(cfg.user, cfg.host, QString::number(cfg.port));
-    if (!cfg.identityFile.isEmpty())
-        sshLine += " -i " + cfg.identityFile;
+    if (!cfg.identityFile.isEmpty()) {
+        QString quoted = cfg.identityFile;
+        quoted.replace("'", "'\\''");
+        sshLine += " -i '" + quoted + "'";
+    }
 
     m_terminal->sendText(sshLine);
     m_bottomTerminal->sendText(sshLine);
@@ -1943,7 +2001,7 @@ void MainWindow::applyGlobalTheme()
         // Tabs
         "QTabWidget::pane { border: 1px solid %4; background: %1; }"
         "QTabBar::tab { background: %3; color: %2; padding: 6px 12px; border: 1px solid %4; }"
-        "QTabBar::tab:selected { background: %1; }"
+        "QTabBar::tab:selected { background: %1; border-bottom: 2px solid %6; }"
         "QTabBar::tab:hover { background: %5; }"
         "QTabBar::close-button { border: none; padding: 4px; }"
         "QTabBar::close-button:hover { background: rgba(128,128,128,0.4); border-radius: 3px; }"
@@ -1952,7 +2010,7 @@ void MainWindow::applyGlobalTheme()
         "QFontComboBox QAbstractItemView { background: %1; color: %2; selection-background-color: %6; }"
         "QDialogButtonBox QPushButton { min-width: 70px; }"
         // Splitter
-        "QSplitter::handle { background: %4; }"
+        "QSplitter::handle { background: %4; width: 1px; height: 1px; }"
         // Status bar
         "QStatusBar { background: %3; color: %2; border-top: 1px solid %4; }"
         "QStatusBar QLabel { color: %2; }"

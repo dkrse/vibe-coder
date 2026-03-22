@@ -26,7 +26,7 @@ graph TB
                 end
 
                 subgraph BottomTabWidget[Bottom Tab Widget]
-                    PT[Prompt Tab: PromptEdit + Send/Save]
+                    PT["Prompt Tab: PromptEdit + Send/Save + AI-terminal btn + activity indicator"]
                     BT[Terminal Tab]
                     NT[Notifications Tab]
                     DV[Diff Viewer Tab]
@@ -129,6 +129,9 @@ classDiagram
         -CommandPalette* m_commandPalette
         -NotificationPanel* m_notificationPanel
         -DiffViewer* m_diffViewer
+        -QLabel* m_aiActivityLabel
+        -QTimer* m_aiIdleTimer
+        -QTimer* m_aiAnimTimer
         -QPushButton* m_stopBtn
         -QComboBox* m_sshProfileCombo
         -QProgressBar* m_transferProgress

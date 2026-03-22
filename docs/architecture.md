@@ -83,6 +83,8 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - **Tab context menu** — Close, Close Others, Close All, Close to Right, Close to Left (all check unsaved changes)
 - Tab close properly deletes CodeEditor widget (no memory leak)
 - **Tab close icons** — dynamically generated PNG with theme-colored cross (✕), applied via stylesheet `image: url()` — automatically updates on theme change
+- **Active tab accent border** — `QTabBar::tab:selected` styled with 2px bottom border in theme accent color for clear tab identification across all themes
+- **Minimal splitter handles** — `QSplitter::handle` width/height set to 1px via global stylesheet
 - Async git commit via chained QProcess callbacks with `std::shared_ptr<QString>` (no leak on error)
 - Notification system: centralized logging with unread badge count
 - Changes monitor integration: tracks file changes per project, badge count on tab
@@ -165,6 +167,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - Font and color scheme configurable via Settings
 - Terminal color scheme mapped from global theme (Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight)
 - Font applied via `setFamily()` + `setStyleHint(QFont::Monospace)`, reapplied after event loop via `QTimer::singleShot(0)` to override QTermWidget reset
+- **Activity monitoring** — AI-terminal content changes detected via periodic screen snapshot comparison (`QWidget::grab()` + `QCryptographicHash::Md5`, 400ms interval). Works even when terminal tab is hidden. Drives animated spinner indicator in prompt area
 
 ### PromptEdit
 - QPlainTextEdit subclass with custom keyPressEvent
@@ -173,6 +176,8 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - Two signals: sendRequested() and saveAndSendRequested()
 - Stylesheet-based coloring with font-family/font-size in stylesheet (prevents QFont/stylesheet cascade conflict)
 - **Current line highlighting** — configurable via Settings > Prompt, auto-detects dark/light from palette
+- **AI-terminal button** — quick switch to AI-terminal tab (index 0)
+- **Activity indicator** — animated label (`| / - \` at 200ms) driven by terminal content change detection. `●` when idle, spinning when content changes. Idle timeout: 1.5s
 
 ### ExternalThemeLoader
 - Loads all themes from `~/.config/vibe-coder/themes/` (recursive JSON scan)

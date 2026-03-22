@@ -314,9 +314,10 @@ FileBrowser::FileBrowser(QWidget *parent)
     // Async git process
     m_gitProc = new QProcess(this);
 
-    // Git status refresh timer — fallback poll every 10s
+    // Git status refresh timer — adaptive poll: 10s → 30s → 60s when idle
     m_gitTimer = new QTimer(this);
-    m_gitTimer->setInterval(10000);
+    m_gitPollInterval = 10000;
+    m_gitTimer->setInterval(m_gitPollInterval);
     connect(m_gitTimer, &QTimer::timeout, this, [this]() {
         if (!m_gitBusy) startGitRefresh();
     });
@@ -330,9 +331,13 @@ FileBrowser::FileBrowser(QWidget *parent)
     // Filesystem watcher for instant git status updates
     m_fsWatcher = new QFileSystemWatcher(this);
     connect(m_fsWatcher, &QFileSystemWatcher::fileChanged, this, [this]() {
+        m_gitPollInterval = 10000;
+        m_gitTimer->setInterval(m_gitPollInterval);
         m_gitDebounce->start();
     });
     connect(m_fsWatcher, &QFileSystemWatcher::directoryChanged, this, [this]() {
+        m_gitPollInterval = 10000;
+        m_gitTimer->setInterval(m_gitPollInterval);
         m_gitDebounce->start();
     });
 
@@ -737,7 +742,14 @@ void FileBrowser::parseGitOutput()
         m_proxyModel->refresh();
         // Repaint after proxy filter change is fully processed
         QTimer::singleShot(0, m_treeView->viewport(), QOverload<>::of(&QWidget::repaint));
+        // Reset poll interval on changes
+        m_gitPollInterval = 10000;
+    } else {
+        // No changes — slow down polling (10s → 30s → 60s)
+        m_gitPollInterval = qMin(m_gitPollInterval * 2, 60000);
     }
+    if (m_gitTimer->isActive())
+        m_gitTimer->setInterval(m_gitPollInterval);
 }
 
 void FileBrowser::rebuildDirCache()

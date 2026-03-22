@@ -10,6 +10,7 @@
 #include <QComboBox>
 #include <QFileSystemWatcher>
 #include <QProgressBar>
+#include <QTimer>
 
 #include "terminalwidget.h"
 #include "filebrowser.h"
@@ -166,4 +167,10 @@ protected:
     // Git blame
     GitBlame *m_gitBlame;
     void blameCurrentFile();
+
+    // AI-terminal activity indicator
+    QLabel *m_aiActivityLabel = nullptr;
+    QTimer *m_aiIdleTimer = nullptr;
+    QTimer *m_aiAnimTimer = nullptr;
+    int m_aiAnimFrame = 0;
 };

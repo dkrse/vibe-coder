@@ -52,6 +52,7 @@ private:
 
     QFileSystemWatcher *m_watcher;
     QTimer *m_scanTimer;
+    int m_scanInterval = 10000; // adaptive: 10s → 30s → 60s
 
     QListWidget *m_fileList;
     QPlainTextEdit *m_diffPreview;

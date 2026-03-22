@@ -2,6 +2,14 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.16.0] - 2026-03-22
+
+### Added
+- **AI-terminal activity indicator** — animated spinner (`| / - \`) in prompt area shows when AI-terminal content is actively changing. Uses periodic screen snapshot comparison (`QWidget::grab()` + MD5 hash, 400ms interval) to detect content changes regardless of terminal visibility. Stops animating after 1.5s of idle. Works even when terminal tab is hidden
+- **AI-terminal quick button** — "AI-terminal" button in prompt area to quickly switch to the AI-terminal tab
+- **Active tab accent border** — selected tab now has a 2px bottom border in the theme's accent/selected color (`%6`), making the active tab clearly visible across all themes including those with subtle background differences
+- **Minimal splitter handles** — splitter handles between panels (file browser, editor, prompt) reduced to 1px width/height for maximum screen space utilization
+
 ## [0.15.0] - 2026-03-21
 
 ### Added

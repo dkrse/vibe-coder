@@ -89,10 +89,11 @@ ChangesMonitor::ChangesMonitor(QWidget *parent)
     connect(m_watcher, &QFileSystemWatcher::directoryChanged,
             this, &ChangesMonitor::onDirChanged);
 
-    // Periodic scan for new files (watcher doesn't catch new files)
+    // Periodic scan for new files — adaptive: 10s → 30s → 60s when idle
     m_scanTimer = new QTimer(this);
+    m_scanInterval = 10000;
     connect(m_scanTimer, &QTimer::timeout, this, &ChangesMonitor::scanForNewFiles);
-    m_scanTimer->start(10000);
+    m_scanTimer->start(m_scanInterval);
 
     // Connections
     connect(m_fileList, &QListWidget::currentRowChanged, this, [this](int row) {
@@ -239,11 +240,17 @@ void ChangesMonitor::onFileChanged(const QString &path)
     // Re-add to watcher (QFileSystemWatcher removes after signal on some platforms)
     if (fi.exists() && !m_watcher->files().contains(path))
         m_watcher->addPath(path);
+
+    // Reset adaptive interval on file change
+    m_scanInterval = 10000;
+    m_scanTimer->setInterval(m_scanInterval);
 }
 
 void ChangesMonitor::onDirChanged(const QString &)
 {
     // Debounce: restart the scan timer instead of scanning immediately
+    m_scanInterval = 10000;
+    m_scanTimer->setInterval(m_scanInterval);
     m_scanTimer->start();
 }
 
@@ -251,6 +258,7 @@ void ChangesMonitor::scanForNewFiles()
 {
     if (m_projectDir.isEmpty() || !isVisible()) return;
 
+    bool foundNew = false;
     QDirIterator it(m_projectDir, QDir::Files | QDir::NoDotAndDotDot,
                     QDirIterator::Subdirectories);
     int scanned = 0;
@@ -267,14 +275,13 @@ void ChangesMonitor::scanForNewFiles()
             continue;
 
         if (!m_knownFiles.contains(path)) {
-            // New file detected
+            foundNew = true;
             QFileInfo fi(path);
             m_knownFiles[path] = fi.lastModified();
 
             if (!m_watcher->files().contains(path))
                 m_watcher->addPath(path);
 
-            // Record as change
             FileChange change;
             change.filePath = path;
             change.timestamp = QDateTime::currentDateTime();
@@ -285,6 +292,14 @@ void ChangesMonitor::scanForNewFiles()
             emit changeDetected(path);
         }
     }
+
+    // Adaptive interval: speed up on changes, slow down when idle
+    if (foundNew) {
+        m_scanInterval = 10000;
+    } else {
+        m_scanInterval = qMin(m_scanInterval * 2, 60000);
+    }
+    m_scanTimer->setInterval(m_scanInterval);
 }
 
 void ChangesMonitor::showDiffForFile(const QString &filePath)

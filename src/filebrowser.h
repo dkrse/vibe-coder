@@ -127,6 +127,7 @@ private:
     FileItemDelegate *m_delegate;
     QTimer *m_gitTimer;
     QTimer *m_gitDebounce;
+    int m_gitPollInterval = 10000; // adaptive: 10s → 30s → 60s
     QFileSystemWatcher *m_fsWatcher;
 
     bool m_dark = true;
