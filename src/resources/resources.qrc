@@ -1,6 +1,6 @@
 <RCC>
     <qresource prefix="/">
-        <file>vibe-coder.svg</file>
+        <file>vibe-coder.png</file>
     </qresource>
     <qresource prefix="/js">
         <file>mermaid.min.js</file>

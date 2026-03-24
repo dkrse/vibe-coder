@@ -21,7 +21,7 @@ int main(int argc, char *argv[])
     app.setStyleSheet("QDialogButtonBox QPushButton { icon-size: 0px; }"
                        "QMessageBox QPushButton { icon-size: 0px; }");
 
-    app.setWindowIcon(QIcon(":/vibe-coder.svg"));
+    app.setWindowIcon(QIcon(":/vibe-coder.png"));
 
     MainWindow window;
     window.show();
