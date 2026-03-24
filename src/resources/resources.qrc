@@ -1,4 +1,7 @@
 <RCC>
+    <qresource prefix="/">
+        <file>vibe-coder.svg</file>
+    </qresource>
     <qresource prefix="/js">
         <file>mermaid.min.js</file>
         <file>highlight.min.js</file>

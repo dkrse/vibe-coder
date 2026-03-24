@@ -1,6 +1,6 @@
 # Vibe Coder
 
-A Qt6 C++ IDE-like application for AI-assisted development workflows. Combines a Zed-style file browser, code editor with syntax highlighting, dual embedded terminals, SSH remote development, and prompt system in a single window with a custom title bar.
+A Qt6 C++ IDE for AI-assisted development workflows. Combines a Zed-style file browser, code editor with syntax highlighting, dual embedded terminals, SSH remote development, and prompt system in a single window with a custom title bar.
 
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
 ![Qt6](https://img.shields.io/badge/Qt-6-green)

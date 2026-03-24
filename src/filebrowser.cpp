@@ -208,8 +208,7 @@ FileBrowserProxy::FileBrowserProxy(FileBrowser *fb, QObject *parent)
 
 void FileBrowserProxy::refresh()
 {
-    beginFilterChange();
-    endFilterChange();
+    invalidateFilter();
 }
 
 void FileBrowserProxy::notifyAllChanged()

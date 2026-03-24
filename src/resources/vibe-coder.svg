@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d0d1a"/>
+      <stop offset="100%" stop-color="#1a1033"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="50%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="cursor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="8" y="8" width="240" height="240" rx="44" ry="44" fill="url(#bg)"/>
+
+  <!-- Subtle glow behind wave -->
+  <ellipse cx="128" cy="128" rx="80" ry="40" fill="#7c3aed" opacity="0.08"/>
+
+  <!-- Sound/vibe wave - 3 lines representing vibration/energy -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Top wave -->
+    <path d="M 48 100 Q 80 75, 112 100 Q 144 125, 176 100 Q 208 75, 220 100"
+          stroke="url(#wave)" stroke-width="8" opacity="0.5"/>
+    <!-- Middle wave (main) -->
+    <path d="M 40 128 Q 72 88, 104 128 Q 136 168, 168 128 Q 200 88, 220 128"
+          stroke="url(#wave)" stroke-width="10"/>
+    <!-- Bottom wave -->
+    <path d="M 48 156 Q 80 181, 112 156 Q 144 131, 176 156 Q 208 181, 220 156"
+          stroke="url(#wave)" stroke-width="8" opacity="0.5"/>
+  </g>
+
+  <!-- Text cursor blinking in the wave -->
+  <rect x="122" y="96" width="4" height="64" rx="2" fill="url(#cursor)" opacity="0.9"/>
+
+  <!-- Small dot accents -->
+  <circle cx="56" cy="128" r="4" fill="#7c3aed" opacity="0.6"/>
+  <circle cx="212" cy="128" r="4" fill="#06b6d4" opacity="0.6"/>
+</svg>

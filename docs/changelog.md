@@ -2,6 +2,14 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.17.0] - 2026-03-24
+
+### Added
+- **Application icon** — SVG icon with vibe wave motif and text cursor, embedded via Qt resources. Set as window icon (`QIcon(":/vibe-coder.svg")`) for taskbar and title bar
+
+### Fixed
+- **Multi-line comment highlighting** — C/C++, JavaScript, Rust: when a `/* */` comment spanned multiple lines and the closing `*/` was within the first 2 characters of a line (e.g. ` */` or `*/`), it was skipped due to incorrect search offset. The `startIndex + 2` offset (needed to avoid matching `/*` as `*/`) was also applied when continuing from a previous block where `startIndex = 0`. Now uses offset 0 when continuing from previous block, +2 only for newly found `/*`
+
 ## [0.16.0] - 2026-03-22
 
 ### Added

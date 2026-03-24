@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QIcon>
 #include <QSettings>
 #include <QStyleFactory>
 #include "mainwindow.h"
@@ -19,6 +20,8 @@ int main(int argc, char *argv[])
     app.setAttribute(Qt::AA_DontShowIconsInMenus, false);
     app.setStyleSheet("QDialogButtonBox QPushButton { icon-size: 0px; }"
                        "QMessageBox QPushButton { icon-size: 0px; }");
+
+    app.setWindowIcon(QIcon(":/vibe-coder.svg"));
 
     MainWindow window;
     window.show();

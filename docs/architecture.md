@@ -49,7 +49,8 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 ├── fileopener.h/cpp      Fuzzy file opener popup (Ctrl+P)
 ├── workspacesearch.h/cpp Full-text workspace search (Ctrl+Shift+F)
 ├── gitblame.h/cpp        Git blame viewer with gutter annotations
-├── resources/resources.qrc  Qt resource file (bundled JS/CSS/fonts)
+├── resources/vibe-coder.svg Application icon (SVG, embedded via QRC)
+├── resources/resources.qrc  Qt resource file (bundled JS/CSS/fonts/icon)
 ├── resources/mermaid.min.js Mermaid.js library (~3MB, offline diagram rendering)
 ├── resources/highlight.min.js Highlight.js + 46 language modules (~270KB)
 ├── resources/hljs-dark.min.css VS2015 dark theme for code blocks
@@ -136,7 +137,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 
 ### CodeEditor
 - QPlainTextEdit subclass with LineNumberArea widget and SpacedDocumentLayout for configurable line spacing
-- SyntaxHighlighter: C/C++, Python, JavaScript/TypeScript, Rust + search pattern overlay
+- SyntaxHighlighter: C/C++, Python, JavaScript/TypeScript, Rust + search pattern overlay. Multi-line comment handling uses block state tracking with correct search offset (0 when continuing from previous block, +2 when starting from new `/*`)
 - Dark/Light color scheme with matching syntax colors via `setEditorColorScheme(scheme, bg, fg)`
 - QPalette-based coloring: Base, Text, AlternateBase, PlaceholderText derived from theme colors
 - **Line number area:** explicit stylesheet override (`background-color` + `color`) to prevent global stylesheet from overriding QPalette colors

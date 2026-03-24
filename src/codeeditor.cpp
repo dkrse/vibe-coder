@@ -431,11 +431,15 @@ void SyntaxHighlighter::highlightBlock(const QString &text)
         setCurrentBlockState(0);
 
         int startIndex = 0;
-        if (previousBlockState() != 1)
+        bool continuing = (previousBlockState() == 1);
+        if (!continuing)
             startIndex = text.indexOf(m_commentStartExpr);
 
         while (startIndex >= 0) {
-            auto endMatch = m_commentEndExpr.match(text, startIndex + 2);
+            // When continuing from previous block, search from startIndex;
+            // when we just found /*, skip past it (+2) to avoid matching /* as */
+            int searchFrom = continuing ? startIndex : startIndex + 2;
+            auto endMatch = m_commentEndExpr.match(text, searchFrom);
             int endIndex = endMatch.capturedStart();
             int commentLength;
             if (endIndex == -1 || !endMatch.hasMatch()) {
@@ -445,6 +449,7 @@ void SyntaxHighlighter::highlightBlock(const QString &text)
                 commentLength = endIndex - startIndex + endMatch.capturedLength();
             }
             setFormat(startIndex, commentLength, m_multiLineCommentFormat);
+            continuing = false;
             startIndex = text.indexOf(m_commentStartExpr, startIndex + commentLength);
         }
     }
