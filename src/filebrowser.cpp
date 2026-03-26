@@ -345,13 +345,17 @@ FileBrowser::FileBrowser(QWidget *parent)
             // Browse within the SSH mount point
             QString dir = QFileDialog::getExistingDirectory(
                 this, "Open Remote Directory", m_currentRoot);
-            if (!dir.isEmpty() && dir.startsWith(m_sshMountPoint))
+            if (!dir.isEmpty() && dir.startsWith(m_sshMountPoint)) {
                 setRootPath(dir);
+                emit rootPathOpenedByDialog(dir);
+            }
             return;
         }
         QString dir = QFileDialog::getExistingDirectory(this, "Open Directory", m_currentRoot);
-        if (!dir.isEmpty())
+        if (!dir.isEmpty()) {
             setRootPath(dir);
+            emit rootPathOpenedByDialog(dir);
+        }
     });
 
     connect(m_treeView, &QTreeView::clicked, this, [this](const QModelIndex &index) {

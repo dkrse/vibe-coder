@@ -467,6 +467,10 @@ MainWindow::MainWindow(QWidget *parent)
         m_changesMonitor->setProjectDir(path);
         m_workspaceSearch->setProjectDir(path);
         m_gitGraph->refresh(path);
+        tryLoadProject(path);
+    });
+
+    connect(m_fileBrowser, &FileBrowser::rootPathOpenedByDialog, this, [this](const QString &path) {
         if (m_sshManager->activeProfileIndex() >= 0) {
             QString remotePath = m_fileBrowser->toRemotePath(path);
             m_terminal->sendText("cd \"" + remotePath + "\"");
@@ -475,7 +479,6 @@ MainWindow::MainWindow(QWidget *parent)
             m_terminal->sendText("cd \"" + path + "\"");
             m_bottomTerminal->sendText("cd \"" + path + "\"");
         }
-        tryLoadProject(path);
     });
 
     // SSH profile combo switching
@@ -508,16 +511,22 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(m_sshManager, &SshManager::profileDisconnected, this, [this](int) {
+        qDebug() << "SSH profileDisconnected: updating combo";
         updateSshProfileCombo();
         if (m_sshManager->activeProfileIndex() < 0) {
+            qDebug() << "SSH profileDisconnected: disabling actions";
             m_sshDisconnectAction->setEnabled(false);
             m_sshTunnelsAction->setEnabled(false);
             m_sshUploadAction->setEnabled(false);
             m_sshDownloadAction->setEnabled(false);
             m_sshProfileCombo->hide();
+            qDebug() << "SSH profileDisconnected: clearing ssh mount";
             m_fileBrowser->clearSshMount();
-            if (!m_localRootBeforeSsh.isEmpty())
+            if (!m_localRootBeforeSsh.isEmpty()) {
+                qDebug() << "SSH profileDisconnected: restoring local root" << m_localRootBeforeSsh;
                 m_fileBrowser->setRootPath(m_localRootBeforeSsh);
+            }
+            qDebug() << "SSH profileDisconnected: done";
             m_statusFileLabel->setText("Ready");
         }
     });
@@ -725,8 +734,11 @@ void MainWindow::onSshDisconnect()
     int idx = m_sshManager->activeProfileIndex();
     if (idx < 0) return;
 
+    qDebug() << "SSH Disconnect: step 1 - disconnecting terminals";
     sshDisconnectTerminals();
+    qDebug() << "SSH Disconnect: step 2 - disconnecting profile" << idx;
     m_sshManager->disconnectProfile(idx);
+    qDebug() << "SSH Disconnect: step 3 - done";
 }
 
 void MainWindow::switchToSshProfile(int index)
@@ -1110,15 +1122,7 @@ void MainWindow::onFileOpened(const QString &filePath)
 
     m_fileWatcher->addPath(filePath);
 
-    QString fileDir = info.absolutePath();
-    if (m_sshManager->activeProfileIndex() >= 0) {
-        QString remoteDir = m_fileBrowser->toRemotePath(fileDir);
-        m_terminal->sendText("cd \"" + remoteDir + "\"");
-        m_bottomTerminal->sendText("cd \"" + remoteDir + "\"");
-    } else {
-        m_terminal->sendText("cd \"" + fileDir + "\"");
-        m_bottomTerminal->sendText("cd \"" + fileDir + "\"");
-    }
+
 
     connect(editor, &QPlainTextEdit::cursorPositionChanged, this, &MainWindow::updateStatusBar);
 

@@ -2,6 +2,14 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.18.0] - 2026-03-26
+
+### Changed
+- **Terminal directory behavior** — terminals now change directory only when a folder is opened via the Open Directory dialog. Navigating subdirectories by double-click or opening files in the file browser no longer triggers terminal `cd` commands. Added `rootPathOpenedByDialog` signal to FileBrowser to separate dialog-based navigation from tree navigation
+
+### Fixed
+- **SSH disconnect crash** — application crashed shortly after SSH disconnect. Root cause: `SshManager::disconnectProfile()` emitted `profileDisconnected` signal before updating `m_activeIndex`, so the MainWindow handler saw the profile as still active, skipped cleanup (clearSshMount, restore local root), and the file browser continued accessing the unmounted sshfs path. Fixed by moving the signal emission after all state updates (active index reset, health check stop)
+
 ## [0.17.0] - 2026-03-24
 
 ### Added

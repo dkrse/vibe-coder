@@ -171,6 +171,8 @@ classDiagram
         +setSshMount(QString, QString)
         +clearSshMount()
         +toRemotePath(QString) QString
+        +rootPathChanged(QString) signal
+        +rootPathOpenedByDialog(QString) signal
     }
 
     class ChangesMonitor {
@@ -356,6 +358,28 @@ sequenceDiagram
         SshManager-->>MainWindow: connectFailed(idx, error)
         MainWindow->>SshManager: removeProfile(idx)
     end
+```
+
+## SSH Disconnect Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant MainWindow
+    participant SshManager
+    participant FileBrowser
+
+    User->>MainWindow: SSH Disconnect (menu)
+    MainWindow->>MainWindow: sshDisconnectTerminals() (send "exit")
+    MainWindow->>SshManager: disconnectProfile(idx)
+    SshManager->>SshManager: doUnmount(ps) [async fusermount]
+    SshManager->>SshManager: stopHealthCheck() (if no connected profiles)
+    SshManager->>SshManager: m_activeIndex = -1
+    SshManager-->>MainWindow: profileDisconnected(idx)
+    Note over SshManager: Signal emitted AFTER state updates
+    MainWindow->>MainWindow: updateSshProfileCombo()
+    MainWindow->>FileBrowser: clearSshMount()
+    MainWindow->>FileBrowser: setRootPath(localRootBeforeSsh)
 ```
 
 ## SSH Health Check (Async Sequential)
@@ -591,6 +615,7 @@ sequenceDiagram
     MainWindow->>CodeEditor: setLanguage() then setEditorColorScheme()
     Note over CodeEditor: Single rehighlight pass
     MainWindow->>FileWatcher: addPath(filePath)
+    Note over MainWindow: No terminal cd (only on dialog open)
 ```
 
 ## Settings Data Flow

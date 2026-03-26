@@ -280,7 +280,6 @@ void SshManager::disconnectProfile(int index)
 
     auto &ps = m_profiles[index];
     doUnmount(ps);
-    emit profileDisconnected(index);
 
     // Check if any profiles still connected
     bool anyConnected = false;
@@ -299,6 +298,8 @@ void SshManager::disconnectProfile(int index)
             }
         }
     }
+
+    emit profileDisconnected(index);
 }
 
 void SshManager::disconnectAll()

@@ -77,6 +77,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - **Theme application order:** `applyGlobalTheme()` first (global QSS), then `applySettings()` (per-widget overrides) — ensures widget-specific styles take precedence
 - Status bar: file info, SSH profile combo, transfer progress bar
 - **Session persistence:** window geometry via `normalGeometry()`, splitter states, open files. Multi-monitor aware: finds target screen by geometry match, uses `setGeometry()` + deferred `showMaximized()`
+- **Terminal directory policy:** terminals change directory only when a folder is opened via the Open Directory dialog (`rootPathOpenedByDialog` signal). Tree navigation (double-click) and file opening do not affect terminal working directory
 - File watcher: auto-reload externally changed files (300ms debounce)
 - Keyboard shortcuts: Ctrl+S save, Ctrl+F find, Ctrl+H find & replace, Ctrl+P fuzzy file opener, Ctrl+Shift+P command palette, Ctrl+Shift+F workspace search, Ctrl+M markdown preview, Ctrl+= / Ctrl+- context-dependent zoom (editor/prompt/browser/preview)
 - **Stop button** — sends configurable stop sequence to terminal (default: `\x03`), supports escape sequences
@@ -204,6 +205,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - **Security:** allowlist-based input validation (`^[a-zA-Z0-9._@-]+$`, max 253 chars), identity file existence check, password never in process args, memfd_create for password storage (Linux)
 - **Cached rsync detection:** async `which rsync` at construction, result cached (non-blocking)
 - **Async unmount:** `doUnmount()` uses chained async QProcess (no `waitForFinished`), optional completion callback
+- **Signal ordering:** `disconnectProfile()` updates all internal state (active index, health check) before emitting `profileDisconnected` — ensures handlers see consistent state
 
 ### SshTunnelDialog
 - QDialog for creating/viewing SSH port forwards
@@ -335,14 +337,15 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 
 ## Data Flow
 
-1. **File Opening:** FileBrowser emits `fileOpened` -> MainWindow creates CodeEditor tab, adds to FileWatcher
+1. **File Opening:** FileBrowser emits `fileOpened` -> MainWindow creates CodeEditor tab, adds to FileWatcher (no terminal cd)
 2. **Prompt Sending:** PromptEdit emits `sendRequested` -> MainWindow logs to Project + sends to Terminal
 3. **Save+Send:** PromptEdit emits `saveAndSendRequested` -> MainWindow saves prompt ID + sends to Terminal
 4. **Git Commit:** Commit button (Git tab) -> themed dialog for message -> async QProcess chain: init -> add . -> commit -m "message" -> refresh git graph (non-blocking, shared_ptr for output)
 5. **Settings:** SettingsDialog -> MainWindow applies `applyGlobalTheme()` first, then `applySettings()` to all components (language set before theme for single rehighlight)
 6. **Git Status:** Timer (10s) + QFileSystemWatcher (instant) -> async QProcess pipeline (git status + ls-files + check-ignore) -> cache rebuild -> viewport update
 7. **SSH Connect:** SshDialog -> MainWindow adds profile -> SshManager async mount -> profileConnected signal -> setup file browser + terminals
-8. **SSH Reconnect:** Health timer -> async stat check -> connectionLost -> async fusermount + remount -> reconnected
+8. **SSH Disconnect:** onSshDisconnect() -> sshDisconnectTerminals() -> disconnectProfile(idx) -> doUnmount (async) + update activeIndex + stop health check -> emit profileDisconnected -> MainWindow clears SSH mount + restores local root
+9. **SSH Reconnect:** Health timer -> async stat check -> connectionLost -> async fusermount + remount -> reconnected
 9. **File Transfer:** Upload/Download via sshfs mount (rsync --progress or cp) -> transferProgress/transferFinished signals
 10. **Tab Close:** maybeSaveTab() checks unsaved changes -> removeTab + widget->deleteLater() prevents memory leak
 11. **Stop:** Stop button -> parse escape sequences -> sendText() to terminal
