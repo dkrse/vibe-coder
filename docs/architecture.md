@@ -117,7 +117,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
   2. `git rev-parse --show-toplevel`
   3. `git status --porcelain -unormal` (no --ignored flag)
   4. `git ls-files --others --ignored --exclude-standard --directory` + `git check-ignore --no-index --stdin` (recursive enumeration up to depth 6)
-- **Instant git status updates:** QFileSystemWatcher monitors root path, git root, and .gitignore — triggers refresh with 300ms debounce (no waiting for 10s poll)
+- **Instant git status updates:** QFileSystemWatcher monitors root path, git root, `.gitignore`, `.git/index`, and `.git/HEAD` — triggers refresh with 300ms debounce (no waiting for 10s poll). Watches `.git/index` because it is rewritten on every `git commit`, `git add`, `git reset`, and `git checkout`. Watches `.git/HEAD` for branch switches and commits. Files are automatically re-added to the watcher after atomic writes (git uses rename-over, which causes inotify to drop the watch)
 - Directory git status via precomputed cache (O(1) lookup) — covers modified, untracked, added (ignored NOT propagated to parents)
 - Visibility filtering via `FileBrowserProxy` (QSortFilterProxyModel):
   - Gitignored files: visible / grayed / hidden (configurable in Settings > Visibility)
@@ -342,7 +342,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 3. **Save+Send:** PromptEdit emits `saveAndSendRequested` -> MainWindow saves prompt ID + sends to Terminal
 4. **Git Commit:** Commit button (Git tab) -> themed dialog for message -> async QProcess chain: init -> add . -> commit -m "message" -> refresh git graph (non-blocking, shared_ptr for output)
 5. **Settings:** SettingsDialog -> MainWindow applies `applyGlobalTheme()` first, then `applySettings()` to all components (language set before theme for single rehighlight)
-6. **Git Status:** Timer (10s) + QFileSystemWatcher (instant) -> async QProcess pipeline (git status + ls-files + check-ignore) -> cache rebuild -> viewport update
+6. **Git Status:** Timer (10s→60s adaptive) + QFileSystemWatcher (instant, monitors .git/index + .git/HEAD + .gitignore + root) -> async QProcess pipeline (git status + ls-files + check-ignore) -> cache rebuild -> viewport update
 7. **SSH Connect:** SshDialog -> MainWindow adds profile -> SshManager async mount -> profileConnected signal -> setup file browser + terminals
 8. **SSH Disconnect:** onSshDisconnect() -> sshDisconnectTerminals() -> disconnectProfile(idx) -> doUnmount (async) + update activeIndex + stop health check -> emit profileDisconnected -> MainWindow clears SSH mount + restores local root
 9. **SSH Reconnect:** Health timer -> async stat check -> connectionLost -> async fusermount + remount -> reconnected

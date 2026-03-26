@@ -6,6 +6,7 @@ All notable changes to Vibe Coder are documented in this file.
 
 ### Changed
 - **Terminal directory behavior** — terminals now change directory only when a folder is opened via the Open Directory dialog. Navigating subdirectories by double-click or opening files in the file browser no longer triggers terminal `cd` commands. Added `rootPathOpenedByDialog` signal to FileBrowser to separate dialog-based navigation from tree navigation
+- **Instant git status after commit/add/reset** — QFileSystemWatcher now monitors `.git/index` and `.git/HEAD` in addition to `.gitignore` and git root. `.git/index` is rewritten on every `git commit`, `git add`, `git reset`, and `git checkout`, so file browser colors update within 300ms instead of waiting for the next polling cycle (up to 60s). `.git/HEAD` changes on branch switch and commit. Watched files are automatically re-added after atomic writes (git uses rename-over which causes inotify to drop the watch)
 
 ### Fixed
 - **SSH disconnect crash** — application crashed shortly after SSH disconnect. Root cause: `SshManager::disconnectProfile()` emitted `profileDisconnected` signal before updating `m_activeIndex`, so the MainWindow handler saw the profile as still active, skipped cleanup (clearSshMount, restore local root), and the file browser continued accessing the unmounted sshfs path. Fixed by moving the signal emission after all state updates (active index reset, health check stop)

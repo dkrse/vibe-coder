@@ -329,10 +329,13 @@ FileBrowser::FileBrowser(QWidget *parent)
 
     // Filesystem watcher for instant git status updates
     m_fsWatcher = new QFileSystemWatcher(this);
-    connect(m_fsWatcher, &QFileSystemWatcher::fileChanged, this, [this]() {
+    connect(m_fsWatcher, &QFileSystemWatcher::fileChanged, this, [this](const QString &path) {
         m_gitPollInterval = 10000;
         m_gitTimer->setInterval(m_gitPollInterval);
         m_gitDebounce->start();
+        // Re-add file watch — QFileSystemWatcher drops files after atomic replace (rename-over)
+        if (!path.isEmpty() && QFile::exists(path) && !m_fsWatcher->files().contains(path))
+            m_fsWatcher->addPath(path);
     });
     connect(m_fsWatcher, &QFileSystemWatcher::directoryChanged, this, [this]() {
         m_gitPollInterval = 10000;
@@ -600,7 +603,7 @@ void FileBrowser::onGitRootFinished(int exitCode, QProcess::ExitStatus)
 
     m_gitRoot = QString::fromUtf8(m_gitProc->readAllStandardOutput()).trimmed();
 
-    // Watch .gitignore and git root for instant updates
+    // Watch .gitignore, git root, and .git/index for instant updates
     QString gitignorePath = m_gitRoot + "/.gitignore";
     if (QFile::exists(gitignorePath) && !m_fsWatcher->files().contains(gitignorePath)
         && m_fsWatcher->files().size() < 4000)
@@ -608,6 +611,16 @@ void FileBrowser::onGitRootFinished(int exitCode, QProcess::ExitStatus)
     if (!m_fsWatcher->directories().contains(m_gitRoot)
         && m_fsWatcher->directories().size() < 4000)
         m_fsWatcher->addPath(m_gitRoot);
+    // Watch .git/index — it's rewritten on git commit/add/reset/checkout
+    QString gitIndexPath = m_gitRoot + "/.git/index";
+    if (QFile::exists(gitIndexPath) && !m_fsWatcher->files().contains(gitIndexPath)
+        && m_fsWatcher->files().size() < 4000)
+        m_fsWatcher->addPath(gitIndexPath);
+    // Watch .git/HEAD — changes on branch switch, commit
+    QString gitHeadPath = m_gitRoot + "/.git/HEAD";
+    if (QFile::exists(gitHeadPath) && !m_fsWatcher->files().contains(gitHeadPath)
+        && m_fsWatcher->files().size() < 4000)
+        m_fsWatcher->addPath(gitHeadPath);
 
     // Run git status from git root so paths are consistent
     m_gitProc->setWorkingDirectory(m_gitRoot);

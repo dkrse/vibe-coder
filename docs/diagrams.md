@@ -451,10 +451,11 @@ sequenceDiagram
     participant FileBrowser
     participant GitProc as QProcess
 
-    alt Instant trigger
+    alt Instant trigger (.git/index, .git/HEAD, .gitignore, root dir)
         FSW-->>FileBrowser: fileChanged / directoryChanged
         FileBrowser->>FileBrowser: 300ms debounce
-    else Periodic poll
+        FileBrowser->>FileBrowser: Re-add file to watcher (atomic write drops inotify)
+    else Periodic poll (adaptive 10s → 60s)
         Timer->>FileBrowser: startGitRefresh()
     end
 
