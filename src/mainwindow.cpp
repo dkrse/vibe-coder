@@ -498,7 +498,6 @@ MainWindow::MainWindow(QWidget *parent)
         m_sshProfileCombo->show();
         m_statusFileLabel->setText(QString("SSH: %1").arg(m_sshManager->profileLabel(idx)));
 
-        // Complete async connection: setup file browser + terminals
         switchToSshProfile(idx);
         sshConnectTerminals(m_sshManager->profileConfig(idx));
     });
@@ -750,10 +749,7 @@ void MainWindow::switchToSshProfile(int index)
     QString mp = m_sshManager->mountPoint(index);
 
     m_fileBrowser->setSshMount(mp, "");
-    QString startPath = cfg.remotePath;
-    if (startPath == "~" || startPath.isEmpty())
-        startPath = "/home/" + cfg.user;
-    m_fileBrowser->setRootPath(mp + startPath);
+    m_fileBrowser->setRootPath(mp);
 
     m_statusFileLabel->setText(QString("SSH: %1").arg(m_sshManager->profileLabel(index)));
 

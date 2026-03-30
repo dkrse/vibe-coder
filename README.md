@@ -19,7 +19,8 @@ A Qt6 C++ IDE for AI-assisted development workflows. Combines a Zed-style file b
 - **Diff Viewer** — Git diff viewer with syntax highlighting (working changes, staged, last commit)
 - **SSH Remote Development**
   - Multiple simultaneous SSH profiles with profile switcher
-  - sshfs-based file browsing (synchronous QStandardItemModel for reliability)
+  - sshfs-based file browsing with FUSE caching (mounts only configured remote path, not root)
+  - Works over Tailscale and high-latency networks (git operations skipped on SSH mounts to avoid UI blocking)
   - Auto-reconnect on connection loss (health check every 15s, up to 3 retries)
   - File upload/download via sshfs mount with rsync progress bar
   - SSH port forwarding management (local -L / remote -R tunnels)

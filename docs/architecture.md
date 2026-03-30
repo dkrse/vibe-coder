@@ -197,7 +197,8 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 ### SshManager
 - Central SSH management replacing scattered SSH state
 - **Profile management:** add/remove/connect/disconnect multiple simultaneous profiles
-- **Async mount:** sshfs mount runs asynchronously via QProcess signals (no UI blocking)
+- **Async mount:** sshfs mounts only the configured remotePath (not root `/`) asynchronously via QProcess signals. Password delivery waits for `started` signal. FUSE caching enabled for responsive file browsing over high-latency networks (Tailscale, VPN)
+- **Git skip on SSH:** git status, check-ignore, and filesystem watchers are disabled on SSH mounts to prevent UI-blocking synchronous operations over sshfs
 - **Health check:** async sequential check of each profile's mount (stat with 3s timeout, 15s interval)
 - **Auto-reconnect:** up to 3 attempts on connection loss, async fusermount + remount
 - **File transfer:** upload/download via sshfs mount point (rsync --progress or cp)
@@ -374,7 +375,7 @@ Stored in QSettings on application close:
 
 ## Security Model
 
-- SSH passwords: sent via PTY (echo off) for terminals, password_stdin for sshfs, SSH_ASKPASS for tunnels
+- SSH passwords: sent via PTY (echo off) for terminals, password_stdin for sshfs (delivered after `started` signal), SSH_ASKPASS for tunnels
 - Passwords never persisted to disk (QSettings stores connections without password)
 - Passwords never appear in process argument lists (no sshpass -p)
 - On Linux, passwords written to in-memory file descriptor via `memfd_create(MFD_CLOEXEC)` — never touches filesystem. Accessed via `/proc/self/fd/N`. Falls back to `QTemporaryFile` on non-Linux

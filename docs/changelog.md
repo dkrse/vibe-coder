@@ -2,6 +2,15 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.19.0] - 2026-03-30
+
+### Fixed
+- **SSH remote development over Tailscale/high-latency networks** — three issues caused the UI to freeze when connecting via sshfs:
+  1. `cache=no,no_readahead` sshfs flags disabled all caching, forcing every `stat()` call to make a round-trip over the network. Removed these flags to allow kernel-level FUSE caching
+  2. sshfs mounted the entire remote root filesystem (`:/`), so file browser population and git operations traversed thousands of directories over the network. Now mounts only the configured `remotePath` (e.g. `/home/user`)
+  3. Git status operations (`git status`, `git check-ignore --stdin` with recursive directory walk up to depth 6) ran synchronously on the UI thread over sshfs. Git operations and filesystem watchers are now skipped on SSH mounts
+- **sshfs password delivery** — password was written to sshfs stdin immediately after `QProcess::start()` before the process was ready. Now waits for the `started` signal before writing
+
 ## [0.18.0] - 2026-03-26
 
 ### Changed

@@ -132,10 +132,12 @@ QStringList SshManager::buildSshArgs(const SshConfig &cfg) const
 QStringList SshManager::buildSshfsArgs(const SshConfig &cfg, const QString &mp) const
 {
     QStringList args;
-    args << (cfg.user + "@" + cfg.host + ":/") << mp;
+    QString remotePath = cfg.remotePath;
+    if (remotePath.isEmpty() || remotePath == "~")
+        remotePath = "/home/" + cfg.user;
+    args << (cfg.user + "@" + cfg.host + ":" + remotePath) << mp;
     args << "-p" << QString::number(cfg.port);
-    args << "-o" << "reconnect,ServerAliveInterval=15,StrictHostKeyChecking=accept-new"
-         << "-o" << "cache=no,no_readahead";
+    args << "-o" << "reconnect,ServerAliveInterval=15,StrictHostKeyChecking=accept-new";
     if (!cfg.identityFile.isEmpty() && QFileInfo(cfg.identityFile).exists())
         args << "-o" << ("IdentityFile=" + cfg.identityFile);
     if (!cfg.password.isEmpty())
@@ -162,12 +164,18 @@ void SshManager::doMountAsync(int profileIndex)
         onMountFinished(profileIndex, exitCode);
     });
 
-    ps.mountProc->start("sshfs", args);
-
     if (!ps.config.password.isEmpty()) {
-        ps.mountProc->write((ps.config.password + "\n").toUtf8());
-        ps.mountProc->closeWriteChannel();
+        connect(ps.mountProc, &QProcess::started, this, [this, profileIndex]() {
+            if (profileIndex < 0 || profileIndex >= m_profiles.size()) return;
+            auto &ps = m_profiles[profileIndex];
+            if (ps.mountProc) {
+                ps.mountProc->write((ps.config.password + "\n").toUtf8());
+                ps.mountProc->closeWriteChannel();
+            }
+        });
     }
+
+    ps.mountProc->start("sshfs", args);
 }
 
 void SshManager::onMountFinished(int profileIndex, int exitCode)

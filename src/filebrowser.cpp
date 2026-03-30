@@ -537,6 +537,12 @@ void FileBrowser::startGitRefresh()
 {
     if (m_currentRoot.isEmpty()) return;
 
+    // Skip git operations on SSH mounts — synchronous git calls over sshfs freeze the UI
+    if (isSshActive()) {
+        m_gitBusy = false;
+        return;
+    }
+
     // Cancel any ongoing git process (e.g. from previous root path)
     if (m_gitBusy) {
         disconnect(m_gitProc, nullptr, this, nullptr);
@@ -947,12 +953,12 @@ void FileBrowser::setRootPath(const QString &path)
     if (dirName.isEmpty()) dirName = path;
     m_openBtn->setText(isSshActive() ? toRemotePath(path) : dirName);
 
-    // Rewire filesystem watcher for new root
+    // Rewire filesystem watcher for new root (skip on SSH — avoids blocking FUSE calls)
     if (!m_fsWatcher->directories().isEmpty())
         m_fsWatcher->removePaths(m_fsWatcher->directories());
     if (!m_fsWatcher->files().isEmpty())
         m_fsWatcher->removePaths(m_fsWatcher->files());
-    if (m_fsWatcher->directories().size() < 4000)
+    if (!isSshActive() && m_fsWatcher->directories().size() < 4000)
         m_fsWatcher->addPath(path);
 
     startGitRefresh();
