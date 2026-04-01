@@ -66,6 +66,7 @@ public:
     explicit FileBrowser(QWidget *parent = nullptr);
 
     void setRootPath(const QString &path);
+    bool eventFilter(QObject *obj, QEvent *event) override;
     QString rootPath() const;
     void setFont(const QFont &font);
     void setTheme(const QString &theme, const QColor &bg = QColor(), const QColor &fg = QColor());
@@ -126,6 +127,9 @@ private:
     FileBrowserTreeView *m_treeView;
     QLineEdit *m_pathEdit;
     QPushButton *m_openBtn;
+    QPushButton *m_refreshBtn;
+    QTimer *m_refreshAnimTimer;
+    int m_refreshAngle = 0;
     FileItemDelegate *m_delegate;
     QTimer *m_gitTimer;
     QTimer *m_gitDebounce;

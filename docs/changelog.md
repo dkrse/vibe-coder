@@ -12,6 +12,9 @@ All notable changes to Vibe Coder are documented in this file.
 - **GitGraph — O(n) commit reachability** — replaced O(n²) brute-force flood-fill (repeated full-array scans) with hash-map indexed stack-based BFS for marking remote-only commits
 - **GitGraph — SSH-aware** — when SSH is active, git commands run directly on the remote server via SSH with ControlMaster multiplexing, avoiding sshfs FUSE overhead
 - **FileBrowser header** — shows only directory name instead of full remote path when SSH is active
+- **FileBrowser refresh button** — added animated refresh button next to directory name. Custom QPainter-drawn rotating arrow icon with spin animation on click (15°/30ms, 800ms duration). Matches height of directory button via shared layout
+- **Modern UI overhaul** — complete QSS restyle inspired by Zed/VS Code: rounded buttons/inputs/combos (`border-radius: 6px`), rounded menus (`border-radius: 8px`) with rounded items, custom checkbox indicators, flat borderless tabs with accent underline, thin rounded scrollbars with hover effect, rounded tooltips/group boxes/progress bars, transparent label backgrounds, pressed/disabled button states
+- **Status bar cleanup** — removed all borders (`QStatusBar::item { border: none }`), size grip disabled. SSH profile combo uses `AdjustToContents` instead of fixed width for dynamic sizing. Status info label moved from permanent to regular widget for better space allocation
 
 ## [0.19.0] - 2026-03-30
 

@@ -11,6 +11,7 @@
 #include <QDir>
 #include <QFile>
 #include <QPainter>
+#include <QtMath>
 #include <QFileInfo>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -304,10 +305,49 @@ FileBrowser::FileBrowser(QWidget *parent)
     m_openBtn = new QPushButton("Open Directory…", this);
     m_openBtn->setFlat(true);
 
+    m_refreshBtn = new QPushButton(this);
+    m_refreshBtn->setFlat(true);
+    m_refreshBtn->setToolTip("Refresh");
+    m_refreshBtn->setFixedWidth(28);
+    m_refreshBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+
+    m_refreshAngle = 0;
+    m_refreshAnimTimer = new QTimer(this);
+    m_refreshAnimTimer->setInterval(30);
+    connect(m_refreshAnimTimer, &QTimer::timeout, this, [this]() {
+        m_refreshAngle = (m_refreshAngle + 15) % 360;
+        // Unicode ↻ doesn't rotate, so we use a painted approach
+        m_refreshBtn->update();
+    });
+
+    connect(m_refreshBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_currentRoot.isEmpty()) {
+            // Start spin animation
+            m_refreshAngle = 0;
+            m_refreshAnimTimer->start();
+            setRootPath(m_currentRoot);
+            // Stop after refresh completes (debounce + git process time)
+            QTimer::singleShot(800, this, [this]() {
+                m_refreshAnimTimer->stop();
+                m_refreshAngle = 0;
+                m_refreshBtn->update();
+            });
+        }
+    });
+
+    // Paint rotating refresh icon
+    m_refreshBtn->installEventFilter(this);
+
+    auto *headerLayout = new QHBoxLayout;
+    headerLayout->setContentsMargins(0, 0, 0, 0);
+    headerLayout->setSpacing(2);
+    headerLayout->addWidget(m_openBtn, 1);
+    headerLayout->addWidget(m_refreshBtn);
+
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    layout->addWidget(m_openBtn);
+    layout->addLayout(headerLayout);
     layout->addWidget(m_treeView, 1);
 
     applyStyle();
@@ -536,7 +576,7 @@ void FileBrowser::applyStyle()
         QTreeView::branch { background-color: %1; }
         QTreeView::branch:has-children:closed,
         QTreeView::branch:has-children:open { image: none; }
-        QPushButton { color: %2; background: %3; border: none; padding: 4px 8px; text-align: left; }
+        QPushButton { color: %2; background: %3; border: none; padding: 6px 10px; text-align: left; border-radius: 6px; }
         QPushButton:hover { background-color: %4; }
         QScrollBar:vertical {
             background: %1; width: 8px;
@@ -847,6 +887,47 @@ void FileBrowser::onLocalGitFinished(int exitCode, QProcess::ExitStatus)
 }
 
 // Legacy handlers removed — local git now uses onGitDiscoverFinished + onLocalGitFinished
+
+bool FileBrowser::eventFilter(QObject *obj, QEvent *event)
+{
+    if (obj == m_refreshBtn && event->type() == QEvent::Paint) {
+        QPainter p(m_refreshBtn);
+        p.setRenderHint(QPainter::Antialiasing);
+
+        // Draw hover/pressed background
+        if (m_refreshBtn->underMouse()) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(m_hoverBg.isValid() ? m_hoverBg : QColor(128, 128, 128, 40));
+            p.drawRoundedRect(m_refreshBtn->rect(), 6, 6);
+        }
+
+        // Draw rotating arrow
+        QColor iconColor = m_textColor.isValid() ? m_textColor : QColor("#cccccc");
+        p.setPen(QPen(iconColor, 1.6));
+        p.setBrush(Qt::NoBrush);
+
+        int sz = qMin(m_refreshBtn->width(), m_refreshBtn->height());
+        int r = sz / 2 - 5;
+        QPointF center(m_refreshBtn->width() / 2.0, m_refreshBtn->height() / 2.0);
+
+        p.translate(center);
+        p.rotate(m_refreshAngle);
+
+        // Arc (270 degrees)
+        QRectF arcRect(-r, -r, r * 2, r * 2);
+        p.drawArc(arcRect, 30 * 16, 300 * 16);
+
+        // Arrowhead at the end of the arc
+        double tipAngle = qDegreesToRadians(30.0);
+        QPointF tip(r * qCos(tipAngle), -r * qSin(tipAngle));
+        double aw = 4.0;
+        p.drawLine(tip, tip + QPointF(-aw, -aw));
+        p.drawLine(tip, tip + QPointF(aw, -aw + 1));
+
+        return true; // handled
+    }
+    return QWidget::eventFilter(obj, event);
+}
 
 void FileBrowser::rebuildDirCache()
 {

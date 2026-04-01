@@ -126,7 +126,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
   - SSH model filters in `sshPopulateDir()`
 - Context menu: New File, New Directory, Rename, Delete
 - **Drag & drop** — `FileBrowserTreeView` subclass handles drop events, moves files/directories via `QFile::rename()`. Prevents moving into self or overwriting existing files
-- **Simplified UI** — removed path text field, replaced with "Open Directory…" button showing current directory name
+- **Simplified UI** — removed path text field, replaced with "Open Directory…" button showing current directory name + animated refresh button (custom QPainter-drawn rotating arrow, 15°/30ms spin on click)
 - SSH path translation: toRemotePath() maps mount paths to remote paths
 - Theme-aware: accepts bg/fg/hover/selected/lineHighlight color parameters from active theme. Selected file uses lineHighlight color (same as editor current line). Auto-highlights file corresponding to active editor tab
 - Path traversal protection in file operations
@@ -332,7 +332,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
   - All themes loaded from `~/.config/vibe-coder/themes/` (native JSON, Zed, VS Code formats)
   - `applyThemeDefaults()` derives all component colors from selected theme (editor/browser/terminal color schemes, bgColor, textColor, lineHighlight)
 - **Widget style:** configurable Qt widget style via `QStyleFactory::create()`. Available styles auto-detected from installed Qt6 plugins (Fusion, Windows always built-in; Breeze, Adwaita, Oxygen, Kvantum available via system packages). Applied at startup in `main.cpp` before widget creation, and live-switchable via `qApp->setStyle()` in `applySettings()`
-- **Theme cascade:** `applyGlobalTheme()` sets comprehensive QSS stylesheet covering QWidget, QLabel, QPlainTextEdit, QTextEdit, QLineEdit, QSpinBox, QComboBox, QCheckBox, QPushButton, QToolButton, QListWidget, QMenu, QDialog, QGroupBox, QScrollBar, QProgressBar, QTabWidget, QTabBar, QFontComboBox, QDialogButtonBox
+- **Theme cascade:** `applyGlobalTheme()` sets comprehensive QSS stylesheet with modern rounded design (border-radius: 6px on inputs/buttons/combos, 8px on menus/group boxes). Covers QWidget, QLabel, QPlainTextEdit, QTextEdit, QLineEdit, QSpinBox, QComboBox (with custom drop-down), QCheckBox (custom indicator), QPushButton (hover/pressed/disabled states), QToolButton, QListWidget (rounded items), QTableWidget, QHeaderView, QMenu (rounded with padded items), QDialog, QGroupBox, QScrollBar (thin, rounded, hover), QProgressBar, QTabWidget (flat borderless pane), QTabBar (accent underline), QFontComboBox, QDialogButtonBox, QToolTip, QScrollArea
 - **Live theme switching:** theme changes apply immediately without restart
 - Tabbed SettingsDialog: Global Theme (top, populated from `~/.config/vibe-coder/themes/`), GUI (widget style + font), Terminal (theme override + font), Editor, File Browser, Prompt, Diff Viewer, Changes Monitor, Visibility, PDF tabs
 - **Terminal theme override:** "Auto" (follows global theme) or explicit: Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight
