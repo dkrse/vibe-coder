@@ -1,6 +1,7 @@
 #include "terminalwidget.h"
 #include <QVBoxLayout>
 #include <QFont>
+#include <QTimer>
 
 TerminalWidget::TerminalWidget(QWidget *parent)
     : QWidget(parent)
@@ -18,7 +19,8 @@ TerminalWidget::TerminalWidget(QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(m_term);
 
-    m_term->startShellProgram(); // start shell after widget is in layout
+    // Defer shell start to after event loop — avoids blocking constructor
+    QTimer::singleShot(0, m_term, &QTermWidget::startShellProgram);
 }
 
 void TerminalWidget::sendText(const QString &text)

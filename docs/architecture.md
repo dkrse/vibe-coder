@@ -76,7 +76,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - **Unified global theme system:** All themes loaded from `~/.config/vibe-coder/themes/` (native JSON, Zed, VS Code formats). Ships with 8 themes. Single global stylesheet cascades to all widgets including title bar, menus, dialogs, tabs, splitters, status bar
 - **Theme application order:** `applyGlobalTheme()` first (global QSS), then `applySettings()` (per-widget overrides) — ensures widget-specific styles take precedence
 - Status bar: file info, SSH profile combo, transfer progress bar
-- **Session persistence:** window geometry via `normalGeometry()`, splitter states, open files. Multi-monitor aware: finds target screen by geometry match, uses `setGeometry()` + deferred `showMaximized()`
+- **Session persistence:** window geometry via `normalGeometry()`, splitter states, open files. Multi-monitor aware: finds target screen by geometry match, uses `setGeometry()`. Maximize state restored via `m_restoreMaximized` flag checked in `main.cpp` (single show, no double-display)
 - **Terminal directory policy:** terminals change directory only when a folder is opened via the Open Directory dialog (`rootPathOpenedByDialog` signal). Tree navigation (double-click) and file opening do not affect terminal working directory
 - File watcher: auto-reload externally changed files (300ms debounce)
 - Keyboard shortcuts: Ctrl+S save, Ctrl+F find, Ctrl+H find & replace, Ctrl+P fuzzy file opener, Ctrl+Shift+P command palette, Ctrl+Shift+F workspace search, Ctrl+M markdown preview, Ctrl+= / Ctrl+- context-dependent zoom (editor/prompt/browser/preview)
@@ -90,7 +90,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - Async git commit via chained QProcess callbacks with `std::shared_ptr<QString>` (no leak on error)
 - Notification system: centralized logging with unread badge count
 - Changes monitor integration: tracks file changes per project, badge count on tab
-- **Markdown preview** — multiple `MarkdownPreview` instances (one per .md file). Toggled as editor tab via Ctrl+M or 👁 tab button. Each preview has live updates connected to its source editor's `textChanged` signal. Source editor destruction auto-closes preview. Chromium pre-initialized via hidden 0x0 QWebEngineView at startup
+- **Markdown preview** — multiple `MarkdownPreview` instances (one per .md file). Toggled as editor tab via Ctrl+M or 👁 tab button. Each preview has live updates connected to its source editor's `textChanged` signal. Source editor destruction auto-closes preview. Chromium pre-initialized via deferred hidden QWebEngineView (500ms after show, no parent, `WA_DontShowOnScreen`)
 - **Commit moved to Git tab** — commit button in GitGraph toolbar, shows themed dialog with editable commit message
 
 ### TitleBar
@@ -163,7 +163,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 
 ### TerminalWidget
 - Thin wrapper around QTermWidget
-- Shell started after widget is placed in layout (deferred startShellProgram)
+- Shell start deferred via `QTimer::singleShot(0)` — constructor doesn't block, shell launches after first event loop cycle
 - sendText() appends \r for proper Enter simulation
 - Supports interactive apps (claude, mc, vim, etc.)
 - Font and color scheme configurable via Settings

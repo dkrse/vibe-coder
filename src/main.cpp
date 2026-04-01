@@ -24,7 +24,10 @@ int main(int argc, char *argv[])
     app.setWindowIcon(QIcon(":/vibe-coder.png"));
 
     MainWindow window;
-    window.show();
+    if (window.shouldRestoreMaximized())
+        window.showMaximized();
+    else
+        window.show();
 
     return app.exec();
 }

@@ -39,6 +39,7 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+    bool shouldRestoreMaximized() const { return m_restoreMaximized; }
 
 private slots:
     void onFileOpened(const QString &filePath);
@@ -68,6 +69,7 @@ private:
     QPushButton *m_sendBtn;
     QPushButton *m_stopBtn;
     QPushButton *m_savePromptBtn;
+    QPushButton *m_showTerminalBtn;
     QPushButton *m_repeatPromptBtn;
     QString m_lastPrompt;
     QComboBox *m_savedPromptsCombo;
@@ -116,6 +118,7 @@ protected:
     QAction *m_sshUploadAction = nullptr;
     QAction *m_sshDownloadAction = nullptr;
     QString m_localRootBeforeSsh;
+    bool m_restoreMaximized = false;
 
     void sshConnectTerminals(const SshConfig &cfg);
     void sshDisconnectTerminals();

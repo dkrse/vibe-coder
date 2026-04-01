@@ -17,6 +17,8 @@ All notable changes to Vibe Coder are documented in this file.
 - **Status bar cleanup** — removed all borders (`QStatusBar::item { border: none }`), size grip disabled. SSH profile combo uses `AdjustToContents` instead of fixed width for dynamic sizing. Status info label moved from permanent to regular widget for better space allocation
 - **Consistent GUI font across all bottom tabs** — `qApp->setFont(guiFont)` sets application-wide default. All buttons, labels, combos, checkboxes, and list items in Notifications, Diff, Changes, Git, Search, and Blame tabs now use the configured GUI font. Removed hardcoded `font-size: 11px` from GitGraph tracking label. Removed `setFixedWidth` from buttons in Notifications (Clear), Diff (Refresh), and Changes (Refresh, Clear) for dynamic sizing. Tab bars (`tabBar()`) explicitly set to GUI font. Notification list items inherit GUI font at creation time. Dialogs (Git Remotes, Git User, SSH, Settings) inherit font via `qApp->setFont()`
 - **FileBrowser refresh triggers Git tab** — refresh button click emits `refreshRequested` signal, MainWindow refreshes GitGraph in response
+- **Faster startup** — QWebEngine warmup deferred 500ms after window show (no parent, `WA_DontShowOnScreen` to prevent window flash). Terminal shell start deferred via `QTimer::singleShot(0)` so constructors don't block. Window maximize restored without double-show (`m_restoreMaximized` flag checked in `main.cpp`)
+- **Prompt tab GUI font** — AI-terminal button and activity indicator now use GUI font
 
 ## [0.19.0] - 2026-03-30
 

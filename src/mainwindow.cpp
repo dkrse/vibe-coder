@@ -200,9 +200,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_repeatPromptBtn = new QPushButton("Repeat");
     m_repeatPromptBtn->setToolTip("Repeat last sent prompt");
     m_repeatPromptBtn->setEnabled(false);
-    auto *showTerminalBtn = new QPushButton("AI-terminal");
-    showTerminalBtn->setToolTip("Show AI-terminal");
-    connect(showTerminalBtn, &QPushButton::clicked, this, [this]() {
+    m_showTerminalBtn = new QPushButton("AI-terminal");
+    m_showTerminalBtn->setToolTip("Show AI-terminal");
+    connect(m_showTerminalBtn, &QPushButton::clicked, this, [this]() {
         m_tabWidget->setCurrentIndex(0);
     });
     // AI-terminal activity indicator
@@ -232,7 +232,7 @@ MainWindow::MainWindow(QWidget *parent)
     btnLayout->addWidget(m_stopBtn);
     btnLayout->addWidget(m_repeatPromptBtn);
     btnLayout->addWidget(m_savePromptBtn);
-    btnLayout->addWidget(showTerminalBtn);
+    btnLayout->addWidget(m_showTerminalBtn);
     btnLayout->addWidget(m_aiActivityLabel);
     btnLayout->addStretch();
 
@@ -675,16 +675,18 @@ MainWindow::MainWindow(QWidget *parent)
         notify(msg, level);
     });
 
-    // Pre-initialize QWebEngine to avoid flicker on first MarkdownPreview
-    auto *warmup = new QWebEngineView(this);
-    warmup->setFixedSize(0, 0);
-    warmup->setVisible(false);
-    warmup->load(QUrl("about:blank"));
-    connect(warmup, &QWebEngineView::loadFinished, warmup, &QObject::deleteLater);
-
     applyGlobalTheme();
     applySettings();
     restoreSession();
+
+    // Pre-initialize QWebEngine process (deferred, no parent to avoid window flash)
+    QTimer::singleShot(500, this, []() {
+        auto *warmup = new QWebEngineView;
+        warmup->setFixedSize(0, 0);
+        warmup->setAttribute(Qt::WA_DontShowOnScreen, true);
+        warmup->load(QUrl("about:blank"));
+        connect(warmup, &QWebEngineView::loadFinished, warmup, &QObject::deleteLater);
+    });
 
     // QTermWidget resets font after show/startShellProgram — reapply after event loop
     QTimer::singleShot(0, this, [this]() {
@@ -955,6 +957,8 @@ void MainWindow::applySettings()
     m_statusFileLabel->setFont(guiFont);
     m_statusInfoLabel->setFont(guiFont);
     if (m_menuBtn) m_menuBtn->setFont(guiFont);
+    m_showTerminalBtn->setFont(guiFont);
+    m_aiActivityLabel->setFont(guiFont);
     // Apply GUI font to toolbar elements (buttons, combos, labels) in bottom tabs
     for (auto *widget : {static_cast<QWidget*>(m_notificationPanel),
                          static_cast<QWidget*>(m_gitGraph),
@@ -2314,14 +2318,11 @@ void MainWindow::restoreSession()
             }
         }
 
+        m_restoreMaximized = wasMaximized;
         if (targetScreen) {
             if (wasMaximized) {
-                // Position on correct screen, then maximize after event loop
                 QRect screenGeom = targetScreen->availableGeometry();
                 setGeometry(screenGeom);
-                QTimer::singleShot(0, this, [this]() {
-                    showMaximized();
-                });
             } else {
                 move(savedPos);
                 resize(savedSize);
