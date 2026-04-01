@@ -62,6 +62,8 @@ private:
     void computeGraph();
 };
 
+class SshManager;
+
 class GitGraph : public QWidget {
     Q_OBJECT
 public:
@@ -69,6 +71,8 @@ public:
     void refresh(const QString &workDir);
     void setViewerFont(const QFont &font);
     void setViewerColors(const QColor &bg, const QColor &fg);
+    void setSshInfo(SshManager *mgr, const QString &mountPoint, const QString &remotePrefix);
+    void clearSshInfo();
 
 signals:
     void outputMessage(const QString &msg, int level); // 0=info,1=warn,2=err,3=ok
@@ -88,12 +92,20 @@ private:
     QPushButton *m_remoteBtn;
     QString m_workDir;
 
+    // SSH support
+    SshManager *m_sshManager = nullptr;
+    QString m_sshMountPoint;
+    QString m_sshRemotePrefix;
+    bool isSshActive() const { return m_sshManager && !m_sshMountPoint.isEmpty(); }
+    QString toRemotePath(const QString &localPath) const;
+
     // Remotes: name -> url
     QMap<QString, QString> m_remotes;
 
     void loadBranches();
     void loadLog();
     void loadTrackingInfo();
+    void parseTrackingInfo(const QString &raw);
     void loadRemotes();
     void showRemotesDialog();
     void loadUserInfo();

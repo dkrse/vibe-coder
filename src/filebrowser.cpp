@@ -1,4 +1,5 @@
 #include "filebrowser.h"
+#include "sshmanager.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -6,6 +7,7 @@
 #include <QHeaderView>
 #include <QInputDialog>
 #include "themeddialog.h"
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QPainter>
@@ -324,23 +326,38 @@ FileBrowser::FileBrowser(QWidget *parent)
     // Debounce timer for filesystem watcher — coalesce rapid changes into one refresh
     m_gitDebounce = new QTimer(this);
     m_gitDebounce->setSingleShot(true);
-    m_gitDebounce->setInterval(300);
+    m_gitDebounce->setInterval(150);
     connect(m_gitDebounce, &QTimer::timeout, this, &FileBrowser::startGitRefresh);
+
+    // SSH git debounce — longer interval to avoid spawning SSH connections too rapidly
+    m_sshGitDebounce = new QTimer(this);
+    m_sshGitDebounce->setSingleShot(true);
+    m_sshGitDebounce->setInterval(1500);
+    connect(m_sshGitDebounce, &QTimer::timeout, this, &FileBrowser::startGitRefresh);
 
     // Filesystem watcher for instant git status updates
     m_fsWatcher = new QFileSystemWatcher(this);
     connect(m_fsWatcher, &QFileSystemWatcher::fileChanged, this, [this](const QString &path) {
         m_gitPollInterval = 10000;
         m_gitTimer->setInterval(m_gitPollInterval);
-        m_gitDebounce->start();
+        if (isSshActive())
+            m_sshGitDebounce->start();
+        else
+            m_gitDebounce->start();
         // Re-add file watch — QFileSystemWatcher drops files after atomic replace (rename-over)
-        if (!path.isEmpty() && QFile::exists(path) && !m_fsWatcher->files().contains(path))
-            m_fsWatcher->addPath(path);
+        // Use a short delay so the new file is fully written before re-watching
+        QTimer::singleShot(50, this, [this, path]() {
+            if (!path.isEmpty() && QFile::exists(path) && !m_fsWatcher->files().contains(path))
+                m_fsWatcher->addPath(path);
+        });
     });
     connect(m_fsWatcher, &QFileSystemWatcher::directoryChanged, this, [this]() {
         m_gitPollInterval = 10000;
         m_gitTimer->setInterval(m_gitPollInterval);
-        m_gitDebounce->start();
+        if (isSshActive())
+            m_sshGitDebounce->start();
+        else
+            m_gitDebounce->start();
     });
 
     connect(m_openBtn, &QPushButton::clicked, this, [this]() {
@@ -537,55 +554,163 @@ void FileBrowser::startGitRefresh()
 {
     if (m_currentRoot.isEmpty()) return;
 
-    // Skip git operations on SSH mounts — synchronous git calls over sshfs freeze the UI
+    // For SSH mounts, run git commands remotely via ssh (not on sshfs mount)
     if (isSshActive()) {
-        m_gitBusy = false;
+        startSshGitRefresh();
         return;
     }
 
-    // Cancel any ongoing git process (e.g. from previous root path)
+    // Cancel any ongoing git process
     if (m_gitBusy) {
         disconnect(m_gitProc, nullptr, this, nullptr);
         if (m_gitProc->state() != QProcess::NotRunning) {
             m_gitProc->kill();
-            // Wait for process to actually terminate before reusing
             connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
                     this, [this](int, QProcess::ExitStatus) {
                 m_gitBusy = false;
-                startGitRefresh(); // retry
+                startGitRefresh();
             });
             return;
         }
     }
 
     m_gitBusy = true;
-    m_gitProc->setWorkingDirectory(m_currentRoot);
 
-    disconnect(m_gitProc, nullptr, this, nullptr);
-    connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, &FileBrowser::onGitCheckFinished);
-    m_gitProc->start("git", {"rev-parse", "--is-inside-work-tree"});
+    // First call: discover git root, then cache it for subsequent refreshes
+    if (m_gitRoot.isEmpty()) {
+        m_gitProc->setWorkingDirectory(m_currentRoot);
+        disconnect(m_gitProc, nullptr, this, nullptr);
+        connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                this, &FileBrowser::onGitDiscoverFinished);
+        m_gitProc->start("git", {"rev-parse", "--show-toplevel"});
+    } else {
+        // Cached git root — go straight to status
+        startGitStatusOnly();
+    }
 }
 
-void FileBrowser::onGitCheckFinished(int exitCode, QProcess::ExitStatus)
+void FileBrowser::startGitStatusOnly()
+{
+    m_gitProc->setWorkingDirectory(m_gitRoot);
+    disconnect(m_gitProc, nullptr, this, nullptr);
+    connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, &FileBrowser::onLocalGitFinished);
+    // Single command: --ignored shows !! entries, --no-optional-locks avoids blocking
+    m_gitProc->start("git", {"--no-optional-locks", "status", "--porcelain", "-unormal", "--ignored"});
+}
+
+void FileBrowser::onGitDiscoverFinished(int exitCode, QProcess::ExitStatus)
 {
     disconnect(m_gitProc, nullptr, this, nullptr);
 
     if (exitCode != 0) {
         m_hasGit = false;
+        m_gitBusy = false;
         m_gitTimer->stop();
         bool changed = !m_modified.isEmpty() || !m_untracked.isEmpty() || !m_added.isEmpty() || !m_ignored.isEmpty();
-        m_modified.clear();
-        m_untracked.clear();
-        m_added.clear();
-        m_ignored.clear();
-        m_dirModified.clear();
-        m_dirUntracked.clear();
-        m_dirAdded.clear();
-        m_dirIgnored.clear();
+        m_modified.clear(); m_untracked.clear(); m_added.clear(); m_ignored.clear();
+        m_dirModified.clear(); m_dirUntracked.clear(); m_dirAdded.clear(); m_dirIgnored.clear();
+        if (changed) m_treeView->viewport()->update();
+        return;
+    }
+
+    m_hasGit = true;
+    m_gitRoot = QString::fromUtf8(m_gitProc->readAllStandardOutput()).trimmed();
+
+    // Watch .git/ directory — catches index, HEAD, refs changes all at once
+    QString gitDir = m_gitRoot + "/.git";
+    if (QFileInfo(gitDir).isDir() && !m_fsWatcher->directories().contains(gitDir)
+        && m_fsWatcher->directories().size() < 4000)
+        m_fsWatcher->addPath(gitDir);
+    // Watch .gitignore for ignore rule changes
+    QString gitignorePath = m_gitRoot + "/.gitignore";
+    if (QFile::exists(gitignorePath) && !m_fsWatcher->files().contains(gitignorePath)
+        && m_fsWatcher->files().size() < 4000)
+        m_fsWatcher->addPath(gitignorePath);
+
+    if (!m_gitTimer->isActive())
+        m_gitTimer->start();
+
+    // Now run the actual status
+    startGitStatusOnly();
+}
+
+void FileBrowser::startSshGitRefresh()
+{
+    if (!m_sshManager || m_sshManager->activeProfileIndex() < 0) {
         m_gitBusy = false;
-        if (changed)
-            m_treeView->viewport()->update();
+        return;
+    }
+
+    if (m_gitBusy) {
+        disconnect(m_gitProc, nullptr, this, nullptr);
+        if (m_gitProc->state() != QProcess::NotRunning) {
+            m_gitProc->kill();
+            connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                    this, [this](int, QProcess::ExitStatus) {
+                m_gitBusy = false;
+                startSshGitRefresh();
+            });
+            return;
+        }
+    }
+
+    m_gitBusy = true;
+
+    const auto &cfg = m_sshManager->profileConfig(m_sshManager->activeProfileIndex());
+    QString remotePath = toRemotePath(m_currentRoot);
+
+    // Single SSH command: git root + status + ls-files ignored, separated by markers
+    QString cmd = QString(
+        "cd %1 2>/dev/null && "
+        "git rev-parse --is-inside-work-tree 2>/dev/null && "
+        "echo '%%GIT_ROOT%%' && "
+        "git rev-parse --show-toplevel && "
+        "echo '%%GIT_STATUS%%' && "
+        "git status --porcelain -unormal && "
+        "echo '%%GIT_IGNORED%%' && "
+        "git ls-files --others --ignored --exclude-standard --directory"
+    ).arg(QString("'%1'").arg(remotePath.replace("'", "'\\''")));
+
+    disconnect(m_gitProc, nullptr, this, nullptr);
+    connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, &FileBrowser::onSshGitFinished);
+
+    QStringList args;
+    args << "-o" << "StrictHostKeyChecking=accept-new"
+         << "-o" << "ConnectTimeout=5"
+         << "-o" << "ControlMaster=auto"
+         << "-o" << QString("ControlPath=/tmp/vibe-ssh-%1-%r@%h:%p").arg(QCoreApplication::applicationPid())
+         << "-o" << "ControlPersist=120"
+         << "-p" << QString::number(cfg.port);
+    if (!cfg.identityFile.isEmpty() && QFileInfo(cfg.identityFile).exists())
+        args << "-i" << cfg.identityFile;
+    args << (cfg.user + "@" + cfg.host) << cmd;
+
+    if (!cfg.password.isEmpty())
+        m_sshManager->setupSshpassEnv(m_gitProc, cfg.password);
+
+    if (!cfg.password.isEmpty())
+        m_gitProc->start("sshpass", QStringList() << "-e" << "ssh" << args);
+    else
+        m_gitProc->start("ssh", args);
+}
+
+void FileBrowser::onSshGitFinished(int exitCode, QProcess::ExitStatus)
+{
+    disconnect(m_gitProc, nullptr, this, nullptr);
+    m_gitBusy = false;
+
+    QByteArray raw = m_gitProc->readAllStandardOutput();
+    QString output = QString::fromUtf8(raw);
+
+    // First line should be "true" from rev-parse --is-inside-work-tree
+    if (!output.startsWith("true")) {
+        m_hasGit = false;
+        bool changed = !m_modified.isEmpty() || !m_untracked.isEmpty() || !m_added.isEmpty() || !m_ignored.isEmpty();
+        m_modified.clear(); m_untracked.clear(); m_added.clear(); m_ignored.clear();
+        m_dirModified.clear(); m_dirUntracked.clear(); m_dirAdded.clear(); m_dirIgnored.clear();
+        if (changed) m_treeView->viewport()->update();
         return;
     }
 
@@ -593,163 +718,41 @@ void FileBrowser::onGitCheckFinished(int exitCode, QProcess::ExitStatus)
     if (!m_gitTimer->isActive())
         m_gitTimer->start();
 
-    connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, &FileBrowser::onGitRootFinished);
-    m_gitProc->start("git", {"rev-parse", "--show-toplevel"});
-}
+    // Parse sections separated by markers
+    int rootIdx = output.indexOf("%%GIT_ROOT%%");
+    int statusIdx = output.indexOf("%%GIT_STATUS%%");
+    int ignoredIdx = output.indexOf("%%GIT_IGNORED%%");
 
-void FileBrowser::onGitRootFinished(int exitCode, QProcess::ExitStatus)
-{
-    disconnect(m_gitProc, nullptr, this, nullptr);
+    if (rootIdx < 0 || statusIdx < 0) return;
 
-    if (exitCode != 0) {
-        m_gitBusy = false;
-        return;
-    }
+    QString remoteGitRoot = output.mid(rootIdx + 12, statusIdx - rootIdx - 12).trimmed();
+    m_gitRoot = m_sshMountPoint + remoteGitRoot;
 
-    m_gitRoot = QString::fromUtf8(m_gitProc->readAllStandardOutput()).trimmed();
+    int statusEnd = (ignoredIdx >= 0) ? ignoredIdx : output.length();
+    QString statusOutput = output.mid(statusIdx + 14, statusEnd - statusIdx - 14).trimmed();
+    QString ignoredOutput = (ignoredIdx >= 0) ? output.mid(ignoredIdx + 15).trimmed() : QString();
 
-    // Watch .gitignore, git root, and .git/index for instant updates
-    QString gitignorePath = m_gitRoot + "/.gitignore";
-    if (QFile::exists(gitignorePath) && !m_fsWatcher->files().contains(gitignorePath)
-        && m_fsWatcher->files().size() < 4000)
-        m_fsWatcher->addPath(gitignorePath);
-    if (!m_fsWatcher->directories().contains(m_gitRoot)
-        && m_fsWatcher->directories().size() < 4000)
-        m_fsWatcher->addPath(m_gitRoot);
-    // Watch .git/index — it's rewritten on git commit/add/reset/checkout
-    QString gitIndexPath = m_gitRoot + "/.git/index";
-    if (QFile::exists(gitIndexPath) && !m_fsWatcher->files().contains(gitIndexPath)
-        && m_fsWatcher->files().size() < 4000)
-        m_fsWatcher->addPath(gitIndexPath);
-    // Watch .git/HEAD — changes on branch switch, commit
-    QString gitHeadPath = m_gitRoot + "/.git/HEAD";
-    if (QFile::exists(gitHeadPath) && !m_fsWatcher->files().contains(gitHeadPath)
-        && m_fsWatcher->files().size() < 4000)
-        m_fsWatcher->addPath(gitHeadPath);
-
-    // Run git status from git root so paths are consistent
-    m_gitProc->setWorkingDirectory(m_gitRoot);
-    connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, &FileBrowser::onGitStatusFinished);
-    m_gitProc->start("git", {"status", "--porcelain", "-unormal"});
-}
-
-void FileBrowser::onGitStatusFinished(int exitCode, QProcess::ExitStatus)
-{
-    disconnect(m_gitProc, nullptr, this, nullptr);
-
-    if (exitCode != 0) {
-        m_gitBusy = false;
-        return;
-    }
-
-    QByteArray raw = m_gitProc->readAllStandardOutput();
-    if (raw.size() > 2 * 1024 * 1024) raw.truncate(2 * 1024 * 1024); // 2MB limit
-    m_gitStatusOutput = QString::fromUtf8(raw);
-
-    // Step 1: get untracked ignored files/dirs (catches nested files like ABC/x.txt)
-    m_gitProc->setWorkingDirectory(m_gitRoot);
-    connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, &FileBrowser::onGitLsIgnoredFinished);
-    m_gitProc->start("git", {"ls-files", "--others", "--ignored", "--exclude-standard", "--directory"});
-}
-
-void FileBrowser::onGitLsIgnoredFinished(int exitCode, QProcess::ExitStatus)
-{
-    disconnect(m_gitProc, nullptr, this, nullptr);
-
-    QByteArray raw = m_gitProc->readAllStandardOutput();
-    if (raw.size() > 2 * 1024 * 1024) raw.truncate(2 * 1024 * 1024);
-    m_gitLsIgnoredOutput = (exitCode == 0) ? QString::fromUtf8(raw) : QString();
-
-    // Step 2: check root-level entries against .gitignore rules (catches tracked dirs like docs/)
-    connect(m_gitProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, &FileBrowser::onGitCheckIgnoreFinished);
-    m_gitProc->start("git", {"check-ignore", "--no-index", "--stdin"});
-
-    // Feed all files and dirs recursively (skip .git) so that
-    // both root-level dirs and nested files like docs/architecture.md are checked
-    int feedCount = 0;
-    static constexpr int MAX_FEED_ENTRIES = 5000;
-    std::function<void(const QString &, int)> feedEntries =
-        [&](const QString &dirPath, int depth) {
-        if (depth > 6 || feedCount >= MAX_FEED_ENTRIES) return;
-        QDir dir(dirPath);
-        for (const auto &entry : dir.entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot)) {
-            if (entry == ".git") continue;
-            QString fullPath = dirPath + "/" + entry;
-            QString relative = fullPath.mid(m_gitRoot.length() + 1);
-            if (!relative.contains('\n') && !relative.contains('\r') && !relative.contains('\0')) {
-                m_gitProc->write((relative + "\n").toUtf8());
-                if (++feedCount >= MAX_FEED_ENTRIES) return;
-            }
-            if (QFileInfo(fullPath).isDir())
-                feedEntries(fullPath, depth + 1);
-        }
-    };
-    feedEntries(m_gitRoot, 0);
-    m_gitProc->closeWriteChannel();
-}
-
-void FileBrowser::onGitCheckIgnoreFinished(int exitCode, QProcess::ExitStatus)
-{
-    disconnect(m_gitProc, nullptr, this, nullptr);
-    m_gitBusy = false;
-
-    // git check-ignore exits 0 if matches found, 1 if no matches — both are OK
-    QByteArray raw = m_gitProc->readAllStandardOutput();
-    if (raw.size() > 2 * 1024 * 1024) raw.truncate(2 * 1024 * 1024);
-    m_gitCheckIgnoreOutput = (exitCode == 0) ? QString::fromUtf8(raw) : QString();
-    parseGitOutput();
-}
-
-void FileBrowser::parseGitOutput()
-{
+    // Parse status + ignored into sets
     QSet<QString> newModified, newUntracked, newAdded, newIgnored;
 
-    for (const QString &line : m_gitStatusOutput.split('\n', Qt::SkipEmptyParts)) {
+    for (const QString &line : statusOutput.split('\n', Qt::SkipEmptyParts)) {
         if (line.length() < 4) continue;
-        QChar x = line[0];
-        QChar y = line[1];
+        QChar x = line[0], y = line[1];
         QString file = line.mid(3).trimmed();
-        if (file.contains(" -> "))
-            file = file.split(" -> ").last();
-
-        // Remove trailing slash for directories
-        if (file.endsWith('/'))
-            file.chop(1);
-
+        if (file.contains(" -> ")) file = file.split(" -> ").last();
+        if (file.endsWith('/')) file.chop(1);
         QString fullPath = m_gitRoot + "/" + file;
 
-        // Skip !! lines — ignored files come from git ls-files instead
-        if (x == '?' && y == '?') {
-            newUntracked.insert(fullPath);
-        } else if (x == 'A') {
-            newAdded.insert(fullPath);
-        } else if (y == 'M' || x == 'M') {
-            newModified.insert(fullPath);
-        } else if (x == 'D' || y == 'D') {
-            newModified.insert(fullPath);
-        }
+        if (x == '?' && y == '?') newUntracked.insert(fullPath);
+        else if (x == 'A') newAdded.insert(fullPath);
+        else if (y == 'M' || x == 'M') newModified.insert(fullPath);
+        else if (x == 'D' || y == 'D') newModified.insert(fullPath);
     }
 
-    // Parse untracked ignored from git ls-files output (nested files like ABC/x.txt)
-    for (const QString &line : m_gitLsIgnoredOutput.split('\n', Qt::SkipEmptyParts)) {
+    for (const QString &line : ignoredOutput.split('\n', Qt::SkipEmptyParts)) {
         QString file = line.trimmed();
-        if (file.endsWith('/'))
-            file.chop(1);
-        if (!file.isEmpty())
-            newIgnored.insert(m_gitRoot + "/" + file);
-    }
-
-    // Parse git check-ignore output (tracked dirs/files matching .gitignore)
-    for (const QString &line : m_gitCheckIgnoreOutput.split('\n', Qt::SkipEmptyParts)) {
-        QString file = line.trimmed();
-        if (file.endsWith('/'))
-            file.chop(1);
-        if (!file.isEmpty())
-            newIgnored.insert(m_gitRoot + "/" + file);
+        if (file.endsWith('/')) file.chop(1);
+        if (!file.isEmpty()) newIgnored.insert(m_gitRoot + "/" + file);
     }
 
     bool changed = (newModified != m_modified || newUntracked != m_untracked
@@ -761,18 +764,89 @@ void FileBrowser::parseGitOutput()
 
     if (changed) {
         rebuildDirCache();
-        m_proxyModel->refresh();
-        // Repaint after proxy filter change is fully processed
-        QTimer::singleShot(0, m_treeView->viewport(), QOverload<>::of(&QWidget::repaint));
-        // Reset poll interval on changes
+        m_treeView->viewport()->update();
         m_gitPollInterval = 10000;
     } else {
-        // No changes — slow down polling (10s → 30s → 60s)
         m_gitPollInterval = qMin(m_gitPollInterval * 2, 60000);
     }
     if (m_gitTimer->isActive())
         m_gitTimer->setInterval(m_gitPollInterval);
 }
+
+void FileBrowser::onLocalGitFinished(int exitCode, QProcess::ExitStatus)
+{
+    disconnect(m_gitProc, nullptr, this, nullptr);
+    m_gitBusy = false;
+
+    if (exitCode != 0 && exitCode != 128) {
+        // git root may have changed (e.g. moved outside repo) — rediscover
+        m_gitRoot.clear();
+        return;
+    }
+
+    QByteArray raw = m_gitProc->readAllStandardOutput();
+    if (raw.size() > 2 * 1024 * 1024) raw.truncate(2 * 1024 * 1024);
+
+    // Parse git status --porcelain --ignored output directly
+    // Format: XY filename  (!! = ignored, ?? = untracked, M = modified, A = added, etc.)
+    QSet<QString> newModified, newUntracked, newAdded, newIgnored;
+
+    const QStringList lines = QString::fromUtf8(raw).split('\n', Qt::SkipEmptyParts);
+    for (const QString &line : lines) {
+        if (line.length() < 4) continue;
+        QChar x = line[0];
+        QChar y = line[1];
+        QString file = line.mid(3).trimmed();
+        if (file.contains(" -> "))
+            file = file.split(" -> ").last();
+        if (file.endsWith('/'))
+            file.chop(1);
+
+        QString fullPath = m_gitRoot + "/" + file;
+
+        if (x == '!' && y == '!') {
+            newIgnored.insert(fullPath);
+        } else if (x == '?' && y == '?') {
+            newUntracked.insert(fullPath);
+        } else if (x == 'A') {
+            newAdded.insert(fullPath);
+        } else if (y == 'M' || x == 'M') {
+            newModified.insert(fullPath);
+        } else if (x == 'D' || y == 'D') {
+            newModified.insert(fullPath);
+        }
+    }
+
+    bool changed = (newModified != m_modified || newUntracked != m_untracked
+                     || newAdded != m_added || newIgnored != m_ignored);
+    m_modified = newModified;
+    m_untracked = newUntracked;
+    m_added = newAdded;
+    m_ignored = newIgnored;
+
+    // Re-ensure watches (atomic saves drop file watches)
+    if (!m_gitRoot.isEmpty()) {
+        QString gitignorePath = m_gitRoot + "/.gitignore";
+        if (QFile::exists(gitignorePath) && !m_fsWatcher->files().contains(gitignorePath))
+            m_fsWatcher->addPath(gitignorePath);
+        QString gitDir = m_gitRoot + "/.git";
+        if (QFileInfo(gitDir).isDir() && !m_fsWatcher->directories().contains(gitDir))
+            m_fsWatcher->addPath(gitDir);
+    }
+
+    if (changed) {
+        rebuildDirCache();
+        m_proxyModel->refresh();
+        m_treeView->viewport()->update();
+        m_gitPollInterval = 10000;
+    } else {
+        m_gitPollInterval = qMin(m_gitPollInterval * 2, 60000);
+    }
+    if (m_gitTimer->isActive())
+        m_gitTimer->setInterval(m_gitPollInterval);
+}
+
+// Legacy handlers removed — local git now uses onGitDiscoverFinished + onLocalGitFinished
 
 void FileBrowser::rebuildDirCache()
 {
@@ -951,7 +1025,14 @@ void FileBrowser::setRootPath(const QString &path)
     // Show directory name on the button
     QString dirName = QFileInfo(path).fileName();
     if (dirName.isEmpty()) dirName = path;
-    m_openBtn->setText(isSshActive() ? toRemotePath(path) : dirName);
+    if (isSshActive()) {
+        QString remotePath = toRemotePath(path);
+        QString remoteDirName = remotePath.section('/', -1);
+        if (remoteDirName.isEmpty()) remoteDirName = remotePath;
+        m_openBtn->setText(remoteDirName);
+    } else {
+        m_openBtn->setText(dirName);
+    }
 
     // Rewire filesystem watcher for new root (skip on SSH — avoids blocking FUSE calls)
     if (!m_fsWatcher->directories().isEmpty())
@@ -961,6 +1042,7 @@ void FileBrowser::setRootPath(const QString &path)
     if (!isSshActive() && m_fsWatcher->directories().size() < 4000)
         m_fsWatcher->addPath(path);
 
+    m_gitRoot.clear(); // force rediscovery of git root for new path
     startGitRefresh();
     emit rootPathChanged(path);
 }

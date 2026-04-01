@@ -355,6 +355,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_rightSplitter->setStretchFactor(1, 1);
 
     m_fileBrowser = new FileBrowser;
+    m_fileBrowser->setSshManager(m_sshManager);
 
     m_mainSplitter->addWidget(m_fileBrowser);
     m_mainSplitter->addWidget(m_rightSplitter);
@@ -464,9 +465,12 @@ MainWindow::MainWindow(QWidget *parent)
 
     // File browser directory changes — also update changes monitor
     connect(m_fileBrowser, &FileBrowser::rootPathChanged, this, [this](const QString &path) {
-        m_changesMonitor->setProjectDir(path);
+        bool isSsh = m_sshManager->activeProfileIndex() >= 0;
+        if (!isSsh) {
+            m_changesMonitor->setProjectDir(path);
+            m_gitGraph->refresh(path);
+        }
         m_workspaceSearch->setProjectDir(path);
-        m_gitGraph->refresh(path);
         tryLoadProject(path);
     });
 
@@ -521,6 +525,7 @@ MainWindow::MainWindow(QWidget *parent)
             m_sshProfileCombo->hide();
             qDebug() << "SSH profileDisconnected: clearing ssh mount";
             m_fileBrowser->clearSshMount();
+            m_gitGraph->clearSshInfo();
             if (!m_localRootBeforeSsh.isEmpty()) {
                 qDebug() << "SSH profileDisconnected: restoring local root" << m_localRootBeforeSsh;
                 m_fileBrowser->setRootPath(m_localRootBeforeSsh);
@@ -749,7 +754,11 @@ void MainWindow::switchToSshProfile(int index)
     QString mp = m_sshManager->mountPoint(index);
 
     m_fileBrowser->setSshMount(mp, "");
-    m_fileBrowser->setRootPath(mp);
+    m_gitGraph->setSshInfo(m_sshManager, mp, "");
+    QString startPath = cfg.remotePath;
+    if (startPath == "~" || startPath.isEmpty())
+        startPath = "/home/" + cfg.user;
+    m_fileBrowser->setRootPath(mp + startPath);
 
     m_statusFileLabel->setText(QString("SSH: %1").arg(m_sshManager->profileLabel(index)));
 

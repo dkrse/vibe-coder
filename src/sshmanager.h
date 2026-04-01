@@ -57,6 +57,9 @@ public:
     // Input validation
     static bool isValidSshIdentifier(const QString &s);
 
+    // Password helper for external SSH commands
+    void setupSshpassEnv(QProcess *proc, const QString &password);
+
 signals:
     void profileConnected(int index);
     void connectFailed(int index, const QString &error);
@@ -106,7 +109,6 @@ private:
     int writePasswordToMemfd(const QString &password);
     QTemporaryFile *writeSshpassFileFallback(const QString &password);
     QString writePasswordFile(const QString &password, QObject *parent = nullptr);
-    void setupSshpassEnv(QProcess *proc, const QString &password);
 
     int m_healthCheckIndex = -1; // current profile being checked
     QProcess *m_healthProc = nullptr;

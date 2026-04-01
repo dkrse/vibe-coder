@@ -15,6 +15,7 @@
 #include <QSortFilterProxyModel>
 #include <QFileSystemWatcher>
 
+class SshManager;
 class FileBrowser;
 class FileBrowserProxy;
 
@@ -73,6 +74,7 @@ public:
 
     // SSH mount mapping
     void setSshMount(const QString &mountPoint, const QString &remotePrefix);
+    void setSshManager(SshManager *mgr) { m_sshManager = mgr; }
     void clearSshMount();
     bool isSshActive() const { return !m_sshMountPoint.isEmpty(); }
     QString toRemotePath(const QString &localPath) const;
@@ -105,12 +107,11 @@ private:
     QString selectedDirPath() const;
     void applyStyle();
     void startGitRefresh();
-    void onGitCheckFinished(int exitCode, QProcess::ExitStatus status);
-    void onGitStatusFinished(int exitCode, QProcess::ExitStatus status);
-    void onGitLsIgnoredFinished(int exitCode, QProcess::ExitStatus status);
-    void onGitCheckIgnoreFinished(int exitCode, QProcess::ExitStatus status);
-    void onGitRootFinished(int exitCode, QProcess::ExitStatus status);
-    void parseGitOutput();
+    void startGitStatusOnly();
+    void onGitDiscoverFinished(int exitCode, QProcess::ExitStatus status);
+    void onLocalGitFinished(int exitCode, QProcess::ExitStatus status);
+    void startSshGitRefresh();
+    void onSshGitFinished(int exitCode, QProcess::ExitStatus status);
     void rebuildDirCache();
 
     // SSH model helpers
@@ -128,6 +129,7 @@ private:
     FileItemDelegate *m_delegate;
     QTimer *m_gitTimer;
     QTimer *m_gitDebounce;
+    QTimer *m_sshGitDebounce;
     int m_gitPollInterval = 10000; // adaptive: 10s → 30s → 60s
     QFileSystemWatcher *m_fsWatcher;
 
@@ -151,9 +153,6 @@ private:
     QSet<QString> m_dirIgnored;
 
     QProcess *m_gitProc;
-    QString m_gitStatusOutput;
-    QString m_gitLsIgnoredOutput;
-    QString m_gitCheckIgnoreOutput;
     QString m_gitRoot;
 
     // Visibility
@@ -161,6 +160,7 @@ private:
     QString m_dotGitVis = "hidden";
 
     // SSH
+    SshManager *m_sshManager = nullptr;
     QString m_sshMountPoint;
     QString m_sshRemotePrefix;
 };

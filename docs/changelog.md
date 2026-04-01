@@ -2,13 +2,23 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.20.0] - 2026-04-01
+
+### Changed
+- **FileBrowser git status — single-command architecture** — replaced 5-step sequential QProcess pipeline (`rev-parse` → `rev-parse` → `git status` → `ls-files --ignored` → `check-ignore --stdin` with recursive 5000-entry dir scan) with a single `git --no-optional-locks status --porcelain --ignored` command. Git root is discovered once and cached (cleared on root path change). `--no-optional-locks` prevents blocking when other git processes are running. Debounce reduced from 300ms to 150ms
+- **FileBrowser git watches** — replaced individual watches on `.git/index`, `.git/HEAD`, `.gitignore`, and root directory with a single watch on `.git/` directory (catches all git state changes) plus `.gitignore`. Watches are re-ensured after every git refresh to handle atomic saves (rename-over drops inotify watches)
+- **SSH git operations run on remote server** — FileBrowser and GitGraph now execute git commands via `ssh user@host "cd /path && git ..."` instead of running git on the slow sshfs FUSE mount. SSH ControlMaster multiplexing (`ControlMaster=auto`, `ControlPath=/tmp/vibe-ssh-...`, `ControlPersist=120`) reuses a single SSH connection, eliminating repeated handshake overhead (~0.5-2s per call). Separate 1500ms debounce for SSH mode
+- **GitGraph — single combined refresh** — replaced 5-7 sequential QProcess spawns (`loadBranches`, `loadLog`, `loadTrackingInfo`, `loadRemotes`, `loadUserInfo`) with a single `sh -c` command using marker-separated sections. All callers (tab activation, Refresh button, branch switch, Fetch/Pull/Push completion, Remotes dialog, User dialog) now use the unified `refresh()` method
+- **GitGraph — O(n) commit reachability** — replaced O(n²) brute-force flood-fill (repeated full-array scans) with hash-map indexed stack-based BFS for marking remote-only commits
+- **GitGraph — SSH-aware** — when SSH is active, git commands run directly on the remote server via SSH with ControlMaster multiplexing, avoiding sshfs FUSE overhead
+- **FileBrowser header** — shows only directory name instead of full remote path when SSH is active
+
 ## [0.19.0] - 2026-03-30
 
 ### Fixed
 - **SSH remote development over Tailscale/high-latency networks** — three issues caused the UI to freeze when connecting via sshfs:
   1. `cache=no,no_readahead` sshfs flags disabled all caching, forcing every `stat()` call to make a round-trip over the network. Removed these flags to allow kernel-level FUSE caching
-  2. sshfs mounted the entire remote root filesystem (`:/`), so file browser population and git operations traversed thousands of directories over the network. Now mounts only the configured `remotePath` (e.g. `/home/user`)
-  3. Git status operations (`git status`, `git check-ignore --stdin` with recursive directory walk up to depth 6) ran synchronously on the UI thread over sshfs. Git operations and filesystem watchers are now skipped on SSH mounts
+  2. Git status operations (`git status`, `git check-ignore --stdin` with recursive directory walk up to depth 6) and filesystem watchers ran synchronously on the UI thread over sshfs. Git operations and filesystem watchers are now skipped on SSH mounts
 - **sshfs password delivery** — password was written to sshfs stdin immediately after `QProcess::start()` before the process was ready. Now waits for the `started` signal before writing
 
 ## [0.18.0] - 2026-03-26

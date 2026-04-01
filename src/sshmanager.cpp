@@ -132,10 +132,7 @@ QStringList SshManager::buildSshArgs(const SshConfig &cfg) const
 QStringList SshManager::buildSshfsArgs(const SshConfig &cfg, const QString &mp) const
 {
     QStringList args;
-    QString remotePath = cfg.remotePath;
-    if (remotePath.isEmpty() || remotePath == "~")
-        remotePath = "/home/" + cfg.user;
-    args << (cfg.user + "@" + cfg.host + ":" + remotePath) << mp;
+    args << (cfg.user + "@" + cfg.host + ":/") << mp;
     args << "-p" << QString::number(cfg.port);
     args << "-o" << "reconnect,ServerAliveInterval=15,StrictHostKeyChecking=accept-new";
     if (!cfg.identityFile.isEmpty() && QFileInfo(cfg.identityFile).exists())

@@ -1,5 +1,8 @@
 #include "gitgraph.h"
+#include "sshmanager.h"
 
+#include <QCoreApplication>
+#include <QFileInfo>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPainter>
@@ -391,13 +394,11 @@ GitGraph::GitGraph(QWidget *parent)
     layout->addWidget(m_scrollArea, 1);
 
     connect(m_refreshBtn, &QPushButton::clicked, this, [this]() {
-        loadBranches();
-        loadLog();
-        loadTrackingInfo();
+        refresh(m_workDir);
     });
 
     connect(m_branchCombo, &QComboBox::currentTextChanged, this, [this]() {
-        loadLog();
+        refresh(m_workDir);
     });
 
     connect(m_fetchBtn, &QPushButton::clicked, this, [this]() {
@@ -426,11 +427,200 @@ GitGraph::GitGraph(QWidget *parent)
 void GitGraph::refresh(const QString &workDir)
 {
     m_workDir = workDir;
-    loadBranches();
-    loadLog();
-    loadTrackingInfo();
-    loadRemotes();
-    loadUserInfo();
+    if (m_workDir.isEmpty()) return;
+
+    // Single combined git command instead of 5 separate processes
+    auto *proc = new QProcess(this);
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc](int exitCode, QProcess::ExitStatus) {
+        if (exitCode != 0) {
+            proc->deleteLater();
+            return;
+        }
+        QString output = QString::fromUtf8(proc->readAllStandardOutput());
+        proc->deleteLater();
+
+        // Parse sections
+        int branchIdx = output.indexOf("%%BRANCHES%%");
+        int trackIdx = output.indexOf("%%TRACKING%%");
+        int remoteIdx = output.indexOf("%%REMOTES%%");
+        int userIdx = output.indexOf("%%USER%%");
+        int localIdx = output.indexOf("%%LOCAL_HASHES%%");
+        int logIdx = output.indexOf("%%LOG%%");
+
+        if (branchIdx < 0) return;
+
+        // Parse branches
+        QString branchOutput = output.mid(branchIdx + 12, trackIdx - branchIdx - 12).trimmed();
+        {
+            QString current = m_branchCombo->currentText();
+            m_branchCombo->blockSignals(true);
+            m_branchCombo->clear();
+            m_branchCombo->addItem("--all--");
+            QStringList localBranches, remoteBranches;
+            for (const auto &line : branchOutput.split('\n', Qt::SkipEmptyParts)) {
+                QString branch = line.trimmed();
+                if (branch.startsWith("* ")) branch = branch.mid(2);
+                if (branch.isEmpty() || branch.startsWith("(")) continue;
+                if (branch.startsWith("remotes/")) {
+                    QString remote = branch.mid(8);
+                    if (!remote.contains("/HEAD")) remoteBranches.append(remote);
+                } else {
+                    localBranches.append(branch);
+                }
+            }
+            for (const auto &b : localBranches) m_branchCombo->addItem(b);
+            if (!remoteBranches.isEmpty()) {
+                m_branchCombo->insertSeparator(m_branchCombo->count());
+                for (const auto &b : remoteBranches) m_branchCombo->addItem(b);
+            }
+            int idx = m_branchCombo->findText(current);
+            m_branchCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+            m_branchCombo->blockSignals(false);
+        }
+
+        // Parse tracking
+        QString trackOutput = output.mid(trackIdx + 12, remoteIdx - trackIdx - 12).trimmed();
+        parseTrackingInfo(trackOutput);
+
+        // Parse remotes
+        QString remoteOutput = output.mid(remoteIdx + 11, userIdx - remoteIdx - 11).trimmed();
+        {
+            m_remotes.clear();
+            for (const auto &line : remoteOutput.split('\n', Qt::SkipEmptyParts)) {
+                if (!line.contains("(fetch)")) continue;
+                int tabI = line.indexOf('\t');
+                if (tabI < 0) continue;
+                QString name = line.left(tabI).trimmed();
+                QString url = line.mid(tabI + 1).trimmed();
+                url.remove(QRegularExpression("\\s*\\(fetch\\)\\s*$"));
+                m_remotes[name] = url;
+            }
+            if (m_remotes.isEmpty()) {
+                m_remoteBtn->setText("Remotes");
+            } else {
+                m_remoteBtn->setText(QString("Remotes (%1)").arg(m_remotes.size()));
+                QStringList tip;
+                for (auto it = m_remotes.begin(); it != m_remotes.end(); ++it)
+                    tip << it.key() + ": " + it.value();
+                m_remoteBtn->setToolTip(tip.join('\n'));
+            }
+        }
+
+        // Parse user
+        QString userOutput = output.mid(userIdx + 8, localIdx - userIdx - 8).trimmed();
+        {
+            QStringList userLines = userOutput.split('\n', Qt::SkipEmptyParts);
+            QString userName = userLines.value(0).trimmed();
+            QString userEmail = userLines.value(1).trimmed();
+            if (!userName.isEmpty() || !userEmail.isEmpty())
+                m_userBtn->setText(userName);
+        }
+
+        // Parse local hashes + log, compute graph
+        QString localHashOutput = output.mid(localIdx + 16, logIdx - localIdx - 16).trimmed();
+        QString logOutput = output.mid(logIdx + 7).trimmed();
+
+        QSet<QString> localHashes;
+        for (const auto &line : localHashOutput.split('\n', Qt::SkipEmptyParts))
+            localHashes.insert(line.trimmed());
+
+        auto commits = parseGitLog(logOutput);
+
+        // Mark remote-only commits using hash-map lookup instead of O(n²) walk
+        QHash<QString, int> hashToIdx;
+        hashToIdx.reserve(commits.size());
+        for (int i = 0; i < commits.size(); ++i)
+            hashToIdx[commits[i].hash] = i;
+
+        QVector<bool> reachable(commits.size(), false);
+        QVector<int> stack;
+        for (int i = 0; i < commits.size(); ++i) {
+            if (localHashes.contains(commits[i].hash)) {
+                reachable[i] = true;
+                stack.append(i);
+            }
+        }
+        while (!stack.isEmpty()) {
+            int ci = stack.takeLast();
+            for (const auto &p : commits[ci].parents) {
+                auto it = hashToIdx.find(p);
+                if (it != hashToIdx.end() && !reachable[it.value()]) {
+                    reachable[it.value()] = true;
+                    stack.append(it.value());
+                }
+            }
+        }
+        for (int i = 0; i < commits.size(); ++i) {
+            if (!reachable[i]) commits[i].isRemoteOnly = true;
+        }
+
+        m_graphView->setCommits(commits);
+    });
+    connect(proc, &QProcess::errorOccurred, this, [proc]() {
+        proc->deleteLater();
+    });
+
+    // Determine which branch to log
+    QString branch = m_branchCombo->currentText();
+    QString logBranch = (branch.isEmpty() || branch == "--all--") ? "--all" : branch;
+
+    QString cmd =
+        "echo '%%BRANCHES%%' && git branch -a 2>/dev/null; "
+        "echo '%%TRACKING%%' && git status -sb --porcelain=v1 2>/dev/null; "
+        "echo '%%REMOTES%%' && git remote -v 2>/dev/null; "
+        "echo '%%USER%%' && git config user.name 2>/dev/null; git config user.email 2>/dev/null; "
+        "echo '%%LOCAL_HASHES%%' && git rev-list --branches -n 200 2>/dev/null; "
+        "echo '%%LOG%%' && git --no-optional-locks log --format='%H|%h|%P|%D|%an|%cr|%s' -n 200 " + logBranch;
+
+    if (isSshActive()) {
+        // Run git commands on remote server via SSH (not on slow sshfs mount)
+        QString remotePath = toRemotePath(m_workDir);
+        QString remoteCmd = "cd '" + remotePath.replace("'", "'\\''") + "' 2>/dev/null && " + cmd;
+
+        const auto &cfg = m_sshManager->profileConfig(m_sshManager->activeProfileIndex());
+        QStringList args;
+        args << "-o" << "StrictHostKeyChecking=accept-new"
+             << "-o" << "ConnectTimeout=5"
+             << "-o" << "ControlMaster=auto"
+             << "-o" << QString("ControlPath=/tmp/vibe-ssh-%1-%r@%h:%p").arg(QCoreApplication::applicationPid())
+             << "-o" << "ControlPersist=120"
+             << "-p" << QString::number(cfg.port);
+        if (!cfg.identityFile.isEmpty() && QFileInfo(cfg.identityFile).exists())
+            args << "-i" << cfg.identityFile;
+        args << (cfg.user + "@" + cfg.host) << remoteCmd;
+
+        if (!cfg.password.isEmpty()) {
+            m_sshManager->setupSshpassEnv(proc, cfg.password);
+            proc->start("sshpass", QStringList() << "-e" << "ssh" << args);
+        } else {
+            proc->start("ssh", args);
+        }
+    } else {
+        proc->setWorkingDirectory(m_workDir);
+        proc->start("sh", {"-c", cmd});
+    }
+}
+
+void GitGraph::setSshInfo(SshManager *mgr, const QString &mountPoint, const QString &remotePrefix)
+{
+    m_sshManager = mgr;
+    m_sshMountPoint = mountPoint;
+    m_sshRemotePrefix = remotePrefix;
+}
+
+void GitGraph::clearSshInfo()
+{
+    m_sshManager = nullptr;
+    m_sshMountPoint.clear();
+    m_sshRemotePrefix.clear();
+}
+
+QString GitGraph::toRemotePath(const QString &localPath) const
+{
+    if (m_sshMountPoint.isEmpty() || !localPath.startsWith(m_sshMountPoint))
+        return localPath;
+    return localPath.mid(m_sshMountPoint.length());
 }
 
 void GitGraph::setViewerFont(const QFont &font)
@@ -463,9 +653,7 @@ void GitGraph::runGitCommand(const QStringList &args, const QString &successMsg,
         if (exitCode == 0) {
             emit outputMessage(successMsg, 3); // ok
             // Refresh graph after successful operation
-            loadBranches();
-            loadLog();
-            loadTrackingInfo();
+            refresh(m_workDir);
         } else {
             QString err = QString::fromUtf8(proc->readAllStandardError()).trimmed();
             emit outputMessage(errorMsg + ": " + err, 2); // error
@@ -482,6 +670,58 @@ void GitGraph::runGitCommand(const QStringList &args, const QString &successMsg,
         proc->deleteLater();
     });
     proc->start("git", args);
+}
+
+void GitGraph::parseTrackingInfo(const QString &raw)
+{
+    QString output = raw.trimmed();
+    if (output.isEmpty()) {
+        m_trackingLabel->setText("No branch");
+        return;
+    }
+
+    if (output.startsWith("## "))
+        output = output.mid(3);
+
+    // Take only first line
+    output = output.split('\n').first().trimmed();
+
+    QString info;
+    int dotIdx = output.indexOf("...");
+    if (dotIdx < 0) {
+        info = output + "  (no upstream)";
+        m_trackingLabel->setStyleSheet("font-size: 11px; color: #e5c07b; padding: 0 4px;");
+    } else {
+        QString branch = output.left(dotIdx);
+        QString rest = output.mid(dotIdx + 3).trimmed();
+
+        QString upstream, aheadBehind;
+        int bracketIdx = rest.indexOf('[');
+        if (bracketIdx >= 0) {
+            upstream = rest.left(bracketIdx).trimmed();
+            aheadBehind = rest.mid(bracketIdx);
+        } else {
+            upstream = rest.trimmed();
+        }
+
+        info = branch + " -> " + upstream;
+
+        if (aheadBehind.contains("ahead") && aheadBehind.contains("behind")) {
+            info += "  " + aheadBehind;
+            m_trackingLabel->setStyleSheet("font-size: 11px; color: #e06c75; padding: 0 4px;");
+        } else if (aheadBehind.contains("ahead")) {
+            info += "  " + aheadBehind;
+            m_trackingLabel->setStyleSheet("font-size: 11px; color: #98c379; padding: 0 4px;");
+        } else if (aheadBehind.contains("behind")) {
+            info += "  " + aheadBehind;
+            m_trackingLabel->setStyleSheet("font-size: 11px; color: #e5c07b; padding: 0 4px;");
+        } else {
+            info += "  [up to date]";
+            m_trackingLabel->setStyleSheet("font-size: 11px; color: #888888; padding: 0 4px;");
+        }
+    }
+
+    m_trackingLabel->setText(info);
 }
 
 void GitGraph::loadTrackingInfo()
@@ -769,8 +1009,7 @@ void GitGraph::showRemotesDialog()
     dlg->exec();
 
     // Refresh after dialog closes
-    loadRemotes();
-    loadBranches();
+    refresh(m_workDir);
     dlg->deleteLater();
 }
 
@@ -871,7 +1110,7 @@ void GitGraph::showUserDialog()
         auto remaining = std::make_shared<int>(total);
         auto finish = [this, remaining]() {
             if (--(*remaining) == 0) {
-                loadUserInfo();
+                refresh(m_workDir);
                 emit outputMessage("Git user updated", 3);
             }
         };

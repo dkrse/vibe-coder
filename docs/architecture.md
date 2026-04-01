@@ -112,12 +112,12 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - Dual model: QFileSystemModel for local, QStandardItemModel for SSH (synchronous QDir reads over sshfs)
 - QTreeView with custom FileItemDelegate for Zed editor-style rendering
 - File type colors, directory arrows, git status colors (modified, untracked, added, ignored)
-- **Async git status via 4-step QProcess pipeline** (non-blocking, 10s interval):
-  1. `git rev-parse --is-inside-work-tree`
-  2. `git rev-parse --show-toplevel`
-  3. `git status --porcelain -unormal` (no --ignored flag)
-  4. `git ls-files --others --ignored --exclude-standard --directory` + `git check-ignore --no-index --stdin` (recursive enumeration up to depth 6)
-- **Instant git status updates:** QFileSystemWatcher monitors root path, git root, `.gitignore`, `.git/index`, and `.git/HEAD` — triggers refresh with 300ms debounce (no waiting for 10s poll). Watches `.git/index` because it is rewritten on every `git commit`, `git add`, `git reset`, and `git checkout`. Watches `.git/HEAD` for branch switches and commits. Files are automatically re-added to the watcher after atomic writes (git uses rename-over, which causes inotify to drop the watch)
+- **Single-command git status** (non-blocking, 10s adaptive polling):
+  - First call: `git rev-parse --show-toplevel` to discover and **cache** git root (not repeated on subsequent refreshes)
+  - Subsequent calls: `git --no-optional-locks status --porcelain -unormal --ignored` — single process, returns both file status AND ignored files (`!!` entries). No shell wrapper, no `ls-files`, no `check-ignore`
+  - `--no-optional-locks` prevents blocking when another git process is running
+- **SSH git operations run on remote server** — when SSH is active, git commands are executed via `ssh user@host "cd /path && git ..."` instead of on the slow sshfs FUSE mount. Uses SSH ControlMaster multiplexing (`ControlMaster=auto`, `ControlPersist=120`) to reuse a single SSH connection for all git refreshes (eliminates repeated SSH handshake overhead). SSH debounce is 1500ms (vs 150ms local)
+- **Instant git status updates:** QFileSystemWatcher monitors `.git/` directory (catches index, HEAD, refs changes all at once) and `.gitignore`. Triggers refresh with 150ms debounce (no waiting for 10s poll). Watches are automatically re-added after each git refresh to handle atomic writes (editors use rename-over, which causes inotify to drop the watch)
 - Directory git status via precomputed cache (O(1) lookup) — covers modified, untracked, added (ignored NOT propagated to parents)
 - Visibility filtering via `FileBrowserProxy` (QSortFilterProxyModel):
   - Gitignored files: visible / grayed / hidden (configurable in Settings > Visibility)
@@ -131,10 +131,10 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - Theme-aware: accepts bg/fg/hover/selected/lineHighlight color parameters from active theme. Selected file uses lineHighlight color (same as editor current line). Auto-highlights file corresponding to active editor tab
 - Path traversal protection in file operations
 - **QFileSystemWatcher limits** — max 4000 entries to stay within OS limits (~8192 on Linux)
-- **Git output capping** — status/ls-files/check-ignore output truncated at 2MB
-- **feedEntries limit** — max 5000 files fed to git check-ignore stdin
+- **Git output capping** — status output truncated at 2MB
 - **Git timer skip** — 10s timer skips refresh if previous git operation still running
 - Git polling timer only starts after git repo confirmed, stops when no repo
+- **Git root caching** — `rev-parse --show-toplevel` called once per root path change, cached in `m_gitRoot`. Cleared on `setRootPath()` to force rediscovery
 
 ### CodeEditor
 - QPlainTextEdit subclass with LineNumberArea widget and SpacedDocumentLayout for configurable line spacing
@@ -197,8 +197,8 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 ### SshManager
 - Central SSH management replacing scattered SSH state
 - **Profile management:** add/remove/connect/disconnect multiple simultaneous profiles
-- **Async mount:** sshfs mounts only the configured remotePath (not root `/`) asynchronously via QProcess signals. Password delivery waits for `started` signal. FUSE caching enabled for responsive file browsing over high-latency networks (Tailscale, VPN)
-- **Git skip on SSH:** git status, check-ignore, and filesystem watchers are disabled on SSH mounts to prevent UI-blocking synchronous operations over sshfs
+- **Async mount:** sshfs mount runs asynchronously via QProcess signals. Password delivery waits for `started` signal. FUSE caching enabled for responsive file browsing over high-latency networks (Tailscale, VPN)
+- **SSH git via remote execution:** git operations (status, log, branch, etc.) run on the remote server via `ssh user@host` instead of on the sshfs mount. SSH ControlMaster multiplexing reuses a single connection (`ControlPersist=120s`)
 - **Health check:** async sequential check of each profile's mount (stat with 3s timeout, 15s interval)
 - **Auto-reconnect:** up to 3 attempts on connection loss, async fusermount + remount
 - **File transfer:** upload/download via sshfs mount point (rsync --progress or cp)
@@ -283,6 +283,9 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
   - Remote-only commits: dashed lines, dimmed text
 - Ref labels: green (local branch), orange (remote branch), yellow (tag), blue (HEAD)
 - Commit metadata: short hash, subject (elided), author, relative date
+- **Single combined refresh** — all git data (branches, tracking, remotes, user, local hashes, log) loaded in one `sh -c` command with marker-separated sections. Replaces 5-7 sequential QProcess spawns
+- **O(n) commit reachability** — remote-only commit detection uses hash-map indexed BFS (stack-based) instead of O(n²) repeated full-array scans
+- **SSH-aware** — when SSH is active, git commands run directly on the remote server via `ssh user@host "cd /path && ..."` with ControlMaster multiplexing. Avoids running git on slow sshfs FUSE mount
 - **Branch selector** combo: local branches, separator, remote branches (`git branch -a`), or `--all--`
 - **Remote operations:** Fetch (`git fetch --all --prune`), Pull (`git pull`), Push (`git push`) buttons with loading state
 - **Upstream tracking info:** label showing `branch -> upstream [ahead N, behind M]` with color coding (green=ahead, yellow=behind, red=both)
@@ -343,7 +346,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 3. **Save+Send:** PromptEdit emits `saveAndSendRequested` -> MainWindow saves prompt ID + sends to Terminal
 4. **Git Commit:** Commit button (Git tab) -> themed dialog for message -> async QProcess chain: init -> add . -> commit -m "message" -> refresh git graph (non-blocking, shared_ptr for output)
 5. **Settings:** SettingsDialog -> MainWindow applies `applyGlobalTheme()` first, then `applySettings()` to all components (language set before theme for single rehighlight)
-6. **Git Status:** Timer (10s→60s adaptive) + QFileSystemWatcher (instant, monitors .git/index + .git/HEAD + .gitignore + root) -> async QProcess pipeline (git status + ls-files + check-ignore) -> cache rebuild -> viewport update
+6. **Git Status:** Timer (10s→60s adaptive) + QFileSystemWatcher (instant, monitors `.git/` directory + `.gitignore`) -> single `git --no-optional-locks status --porcelain --ignored` (git root cached) -> parse XY entries inline -> set comparison -> cache rebuild -> viewport update. SSH mode: same command via `ssh user@host` with ControlMaster multiplexing
 7. **SSH Connect:** SshDialog -> MainWindow adds profile -> SshManager async mount -> profileConnected signal -> setup file browser + terminals
 8. **SSH Disconnect:** onSshDisconnect() -> sshDisconnectTerminals() -> disconnectProfile(idx) -> doUnmount (async) + update activeIndex + stop health check -> emit profileDisconnected -> MainWindow clears SSH mount + restores local root
 9. **SSH Reconnect:** Health timer -> async stat check -> connectionLost -> async fusermount + remount -> reconnected
@@ -354,7 +357,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 13. **Command Palette:** Ctrl+Shift+P -> CommandPalette.show() -> user selects command -> action callback executed
 14. **Changes Monitor:** QFileSystemWatcher + scan timer (10s) -> changeDetected -> badge update on tab; user selects file -> git diff preview; Revert -> git checkout
 15. **Theme Switch:** Settings/CommandPalette -> applyGlobalTheme() (global QSS) -> applySettings() (per-widget overrides) -> force repaint all children
-16. **Git Graph:** Tab activation -> loadBranches + loadLog + loadTrackingInfo + loadRemotes + loadUserInfo -> GitGraphView.setCommits() -> QPainter render
+16. **Git Graph:** Tab activation -> single `sh -c` with marker-separated git commands (branch -a, status -sb, remote -v, config, rev-list, log) -> parse sections -> O(n) BFS reachability -> GitGraphView.setCommits() -> QPainter render. SSH mode: same command via `ssh user@host` with ControlMaster
 17. **Remote Operations:** Fetch/Pull/Push buttons -> async QProcess -> outputMessage signal -> NotificationPanel; Remotes dialog -> git remote add/set-url/rename/remove
 18. **Markdown Preview:** Ctrl+M on .md file (or 👁 tab button) -> create new MarkdownPreview instance -> add as tab -> connect editor.textChanged -> 500ms debounce -> markdownToHtml (cmark-gfm parse -> AST math injection -> render HTML) -> render() builds full HTML page -> write to temp file -> setUrl() loads page -> hljs.highlightAll() -> mermaid.run() -> katex.render() per span
 19. **PDF Export:** Command Palette "Export Preview to PDF" -> QFileDialog for path -> injectPrintCss -> printToPdf (QByteArray callback) -> QPdfDocument count pages -> QPdfWriter+QPainter render each page (image + white margin overlays + optional border + optional page number) -> removePrintCss
