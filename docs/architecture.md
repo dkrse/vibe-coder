@@ -338,6 +338,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - **Terminal theme override:** "Auto" (follows global theme) or explicit: Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight
 - SettingsDialog preserves externalThemes list through `result()` method
 - **Font size clamping:** all font sizes clamped to 6–72 range after loading to prevent invalid values from corrupted settings
+- **Application-wide GUI font:** `qApp->setFont(guiFont)` sets default font for all widgets and dialogs. `applySettings()` additionally sets GUI font on tab bars, all buttons/labels/combos/checkboxes in bottom tabs (Notifications, Diff, Changes, Git, Search, Blame) via `findChildren<>()` loop. Notification list items inherit font at creation. No hardcoded font sizes in any widget
 
 ## Data Flow
 

@@ -102,6 +102,7 @@ signals:
     void fileOpened(const QString &filePath);
     void rootPathChanged(const QString &path);
     void rootPathOpenedByDialog(const QString &path);
+    void refreshRequested();
 
 private:
     void showContextMenu(const QPoint &pos);

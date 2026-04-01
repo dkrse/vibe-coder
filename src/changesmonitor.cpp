@@ -53,9 +53,7 @@ ChangesMonitor::ChangesMonitor(QWidget *parent)
     m_openBtn->setToolTip("Open selected file in editor");
     m_openBtn->setEnabled(false);
     m_refreshBtn = new QPushButton("Refresh");
-    m_refreshBtn->setFixedWidth(70);
     m_clearBtn = new QPushButton("Clear");
-    m_clearBtn->setFixedWidth(60);
 
     toolbar->addWidget(m_infoLabel, 1);
     toolbar->addWidget(m_openBtn);

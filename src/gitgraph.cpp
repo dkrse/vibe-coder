@@ -363,7 +363,7 @@ GitGraph::GitGraph(QWidget *parent)
 
     // Tracking info label
     m_trackingLabel = new QLabel;
-    m_trackingLabel->setStyleSheet("font-size: 11px; color: #888888; padding: 0 4px;");
+    m_trackingLabel->setStyleSheet("color: #888888; padding: 0 4px;");
     toolbar->addWidget(m_trackingLabel);
 
     toolbar->addStretch();
@@ -690,7 +690,7 @@ void GitGraph::parseTrackingInfo(const QString &raw)
     int dotIdx = output.indexOf("...");
     if (dotIdx < 0) {
         info = output + "  (no upstream)";
-        m_trackingLabel->setStyleSheet("font-size: 11px; color: #e5c07b; padding: 0 4px;");
+        m_trackingLabel->setStyleSheet("color: #e5c07b; padding: 0 4px;");
     } else {
         QString branch = output.left(dotIdx);
         QString rest = output.mid(dotIdx + 3).trimmed();
@@ -708,16 +708,16 @@ void GitGraph::parseTrackingInfo(const QString &raw)
 
         if (aheadBehind.contains("ahead") && aheadBehind.contains("behind")) {
             info += "  " + aheadBehind;
-            m_trackingLabel->setStyleSheet("font-size: 11px; color: #e06c75; padding: 0 4px;");
+            m_trackingLabel->setStyleSheet("color: #e06c75; padding: 0 4px;");
         } else if (aheadBehind.contains("ahead")) {
             info += "  " + aheadBehind;
-            m_trackingLabel->setStyleSheet("font-size: 11px; color: #98c379; padding: 0 4px;");
+            m_trackingLabel->setStyleSheet("color: #98c379; padding: 0 4px;");
         } else if (aheadBehind.contains("behind")) {
             info += "  " + aheadBehind;
-            m_trackingLabel->setStyleSheet("font-size: 11px; color: #e5c07b; padding: 0 4px;");
+            m_trackingLabel->setStyleSheet("color: #e5c07b; padding: 0 4px;");
         } else {
             info += "  [up to date]";
-            m_trackingLabel->setStyleSheet("font-size: 11px; color: #888888; padding: 0 4px;");
+            m_trackingLabel->setStyleSheet("color: #888888; padding: 0 4px;");
         }
     }
 
@@ -755,7 +755,7 @@ void GitGraph::loadTrackingInfo()
             // No upstream
             QString branch = output.split('\n').first().trimmed();
             info = branch + "  (no upstream)";
-            m_trackingLabel->setStyleSheet("font-size: 11px; color: #e5c07b; padding: 0 4px;");
+            m_trackingLabel->setStyleSheet("color: #e5c07b; padding: 0 4px;");
         } else {
             QString branch = output.left(dotIdx);
             QString rest = output.mid(dotIdx + 3).split('\n').first().trimmed();
@@ -775,16 +775,16 @@ void GitGraph::loadTrackingInfo()
 
             if (aheadBehind.contains("ahead") && aheadBehind.contains("behind")) {
                 info += "  " + aheadBehind;
-                m_trackingLabel->setStyleSheet("font-size: 11px; color: #e06c75; padding: 0 4px;");
+                m_trackingLabel->setStyleSheet("color: #e06c75; padding: 0 4px;");
             } else if (aheadBehind.contains("ahead")) {
                 info += "  " + aheadBehind;
-                m_trackingLabel->setStyleSheet("font-size: 11px; color: #98c379; padding: 0 4px;");
+                m_trackingLabel->setStyleSheet("color: #98c379; padding: 0 4px;");
             } else if (aheadBehind.contains("behind")) {
                 info += "  " + aheadBehind;
-                m_trackingLabel->setStyleSheet("font-size: 11px; color: #e5c07b; padding: 0 4px;");
+                m_trackingLabel->setStyleSheet("color: #e5c07b; padding: 0 4px;");
             } else {
                 info += "  [up to date]";
-                m_trackingLabel->setStyleSheet("font-size: 11px; color: #888888; padding: 0 4px;");
+                m_trackingLabel->setStyleSheet("color: #888888; padding: 0 4px;");
             }
         }
 

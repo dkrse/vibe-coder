@@ -322,11 +322,10 @@ FileBrowser::FileBrowser(QWidget *parent)
 
     connect(m_refreshBtn, &QPushButton::clicked, this, [this]() {
         if (!m_currentRoot.isEmpty()) {
-            // Start spin animation
             m_refreshAngle = 0;
             m_refreshAnimTimer->start();
             setRootPath(m_currentRoot);
-            // Stop after refresh completes (debounce + git process time)
+            emit refreshRequested();
             QTimer::singleShot(800, this, [this]() {
                 m_refreshAnimTimer->stop();
                 m_refreshAngle = 0;

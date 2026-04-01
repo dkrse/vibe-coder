@@ -52,7 +52,6 @@ DiffViewer::DiffViewer(QWidget *parent)
     toolbar->addWidget(m_modeCombo);
 
     m_refreshBtn = new QPushButton("Refresh");
-    m_refreshBtn->setFixedWidth(80);
     toolbar->addWidget(m_refreshBtn);
     toolbar->addStretch();
     layout->addLayout(toolbar);

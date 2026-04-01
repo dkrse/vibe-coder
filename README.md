@@ -37,7 +37,7 @@ A Qt6 C++ IDE for AI-assisted development workflows. Combines a Zed-style file b
 - **Custom Title Bar** — VS Code/Zed-style frameless window (CSD) with themed minimize/maximize/close buttons. All dialogs use themed title bars
 - **Global Themes** — External theme system loading from `~/.config/vibe-coder/themes/`. Ships with 8 themes (Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord). Supports native JSON, Zed, and VS Code theme formats. Live switching without restart. Theme colors control editor line highlight, file browser selection, and all UI elements
 - **Widget Styles** — Configurable Qt widget style (Fusion, Windows, Breeze, Adwaita, Oxygen, Kvantum). Auto-detects installed Qt6 style plugins. Affects button shapes, scrollbars, checkboxes, and other GUI component rendering
-- **Settings** — Tabbed dialog with configurable fonts, sizes, global theme, and widget style for all components (terminal, editor, file browser, prompt, diff viewer, changes monitor, visibility, PDF export)
+- **Settings** — Tabbed dialog with configurable fonts, sizes, global theme, and widget style for all components (terminal, editor, file browser, prompt). GUI font applies globally to all tabs, dialogs, buttons, labels, and status bar via `qApp->setFont()`
 - **Session Persistence** — Remembers window size, splitter positions, open files, active tab, cursor positions, scroll positions, and active bottom tab. Multi-monitor aware
 - **Fully Offline** — cmark-gfm statically linked, all resources (mermaid.js, KaTeX, highlight.js, fonts) bundled with integrity verification on startup. No network requests or runtime library dependencies. WebEngine remote URL access explicitly disabled
 

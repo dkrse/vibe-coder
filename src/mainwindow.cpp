@@ -480,6 +480,10 @@ MainWindow::MainWindow(QWidget *parent)
         tryLoadProject(path);
     });
 
+    connect(m_fileBrowser, &FileBrowser::refreshRequested, this, [this]() {
+        m_gitGraph->refresh(m_fileBrowser->rootPath());
+    });
+
     connect(m_fileBrowser, &FileBrowser::rootPathOpenedByDialog, this, [this](const QString &path) {
         if (m_sshManager->activeProfileIndex() >= 0) {
             QString remotePath = m_fileBrowser->toRemotePath(path);
@@ -934,11 +938,14 @@ void MainWindow::applySettings()
         if (style) qApp->setStyle(style);
     }
 
-    // GUI font for tabs, buttons, status bar, menus
+    // GUI font for tabs, buttons, status bar, menus, dialogs
     QFont guiFont(m_settings.guiFontFamily, m_settings.guiFontSize);
     guiFont.setWeight(static_cast<QFont::Weight>(m_settings.guiFontWeight));
+    qApp->setFont(guiFont);
     m_tabWidget->setFont(guiFont);
+    m_tabWidget->tabBar()->setFont(guiFont);
     m_bottomTabWidget->setFont(guiFont);
+    m_bottomTabWidget->tabBar()->setFont(guiFont);
     m_sendBtn->setFont(guiFont);
     m_stopBtn->setFont(guiFont);
     m_savePromptBtn->setFont(guiFont);
@@ -948,6 +955,22 @@ void MainWindow::applySettings()
     m_statusFileLabel->setFont(guiFont);
     m_statusInfoLabel->setFont(guiFont);
     if (m_menuBtn) m_menuBtn->setFont(guiFont);
+    // Apply GUI font to toolbar elements (buttons, combos, labels) in bottom tabs
+    for (auto *widget : {static_cast<QWidget*>(m_notificationPanel),
+                         static_cast<QWidget*>(m_gitGraph),
+                         static_cast<QWidget*>(m_diffViewer),
+                         static_cast<QWidget*>(m_changesMonitor),
+                         static_cast<QWidget*>(m_workspaceSearch),
+                         static_cast<QWidget*>(m_gitBlame)}) {
+        for (auto *btn : widget->findChildren<QPushButton*>())
+            btn->setFont(guiFont);
+        for (auto *combo : widget->findChildren<QComboBox*>())
+            combo->setFont(guiFont);
+        for (auto *label : widget->findChildren<QLabel*>())
+            label->setFont(guiFont);
+        for (auto *cb : widget->findChildren<QCheckBox*>())
+            cb->setFont(guiFont);
+    }
 
     QFont termFont;
     termFont.setFamily(m_settings.termFontFamily);
@@ -995,30 +1018,27 @@ void MainWindow::applySettings()
     m_fileBrowser->setDotGitVisibility(m_settings.dotGitVisibility);
 
     // Diff viewer
-    QFont diffFont(m_settings.diffFontFamily, m_settings.diffFontSize);
-    diffFont.setWeight(static_cast<QFont::Weight>(m_settings.diffFontWeight));
-    m_diffViewer->setViewerFont(diffFont);
+    m_diffViewer->setViewerFont(guiFont);
     m_diffViewer->setViewerColors(m_settings.bgColor, m_settings.textColor);
 
     // Changes monitor
-    QFont changesFont(m_settings.changesFontFamily, m_settings.changesFontSize);
-    changesFont.setWeight(static_cast<QFont::Weight>(m_settings.changesFontWeight));
-    m_changesMonitor->setViewerFont(changesFont);
+    m_changesMonitor->setViewerFont(guiFont);
     m_changesMonitor->setViewerColors(m_settings.bgColor, m_settings.textColor);
 
     // Git graph
-    QFont gitGraphFont(m_settings.diffFontFamily, m_settings.diffFontSize);
-    gitGraphFont.setWeight(static_cast<QFont::Weight>(m_settings.diffFontWeight));
-    m_gitGraph->setViewerFont(gitGraphFont);
+    m_gitGraph->setViewerFont(guiFont);
     m_gitGraph->setViewerColors(m_settings.bgColor, m_settings.textColor);
 
     // Workspace search
-    m_workspaceSearch->setViewerFont(diffFont);
+    m_workspaceSearch->setViewerFont(guiFont);
     m_workspaceSearch->setViewerColors(m_settings.bgColor, m_settings.textColor);
 
     // Git blame
-    m_gitBlame->setViewerFont(diffFont);
+    m_gitBlame->setViewerFont(guiFont);
     m_gitBlame->setViewerColors(m_settings.bgColor, m_settings.textColor);
+
+    // Notification panel
+    m_notificationPanel->setFont(guiFont);
 
     // Markdown previews — update font
     for (auto *mdp : m_mdPreviews) {

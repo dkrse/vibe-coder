@@ -13,7 +13,6 @@ NotificationPanel::NotificationPanel(QWidget *parent)
     auto *toolbar = new QHBoxLayout;
     m_countLabel = new QLabel("0 entries");
     m_clearBtn = new QPushButton("Clear");
-    m_clearBtn->setFixedWidth(60);
     toolbar->addWidget(m_countLabel);
     toolbar->addStretch();
     toolbar->addWidget(m_clearBtn);
@@ -46,6 +45,7 @@ void NotificationPanel::addEntry(LogEntry::Level level, const QString &msg)
 
     auto *item = new QListWidgetItem(text);
     item->setForeground(levelColor(level));
+    item->setFont(m_list->font());
     m_list->addItem(item);
     m_list->scrollToBottom();
 
