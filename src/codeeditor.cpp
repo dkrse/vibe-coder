@@ -643,23 +643,23 @@ void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
 
     QTextBlock block = firstVisibleBlock();
     int blockNumber = block.blockNumber();
-    int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
-    int bottom = top + qRound(blockBoundingRect(block).height());
+    qreal topF = blockBoundingGeometry(block).translated(contentOffset()).top();
+    qreal bottomF = topF + blockBoundingRect(block).height();
 
     QColor numColor = palette().color(QPalette::PlaceholderText);
     painter.setPen(numColor);
     int areaWidth = m_lineNumberArea->width() - 2;
-    int lineHeight = fontMetrics().height();
+    int fontHeight = fontMetrics().height();
     QString number;
 
-    while (block.isValid() && top <= event->rect().bottom()) {
-        if (block.isVisible() && bottom >= event->rect().top()) {
+    while (block.isValid() && qRound(topF) <= event->rect().bottom()) {
+        if (block.isVisible() && qRound(bottomF) >= event->rect().top()) {
             number.setNum(blockNumber + 1);
-            painter.drawText(0, top, areaWidth, lineHeight, Qt::AlignRight, number);
+            painter.drawText(0, qRound(topF), areaWidth, fontHeight, Qt::AlignRight, number);
         }
         block = block.next();
-        top = bottom;
-        bottom = top + qRound(blockBoundingRect(block).height());
+        topF = bottomF;
+        bottomF = topF + blockBoundingRect(block).height();
         ++blockNumber;
     }
 }
@@ -730,6 +730,12 @@ void CodeEditor::setLineSpacing(double factor)
 {
     m_lineSpacing = factor;
     m_spacedLayout->setSpacingFactor(factor);
+
+    // Update bottom viewport margin so last line is not hidden behind status bar
+    int bottomMargin = 0;
+    if (factor > 1.01)
+        bottomMargin = qRound(fontMetrics().height() * (factor - 1.0) * 2);
+    setViewportMargins(lineNumberAreaWidth(), 0, 0, bottomMargin);
 }
 
 void CodeEditor::setLargeFile(bool large)

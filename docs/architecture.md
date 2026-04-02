@@ -139,7 +139,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - **Git root caching** — `rev-parse --show-toplevel` called once per root path change, cached in `m_gitRoot`. Cleared on `setRootPath()` to force rediscovery
 
 ### CodeEditor
-- QPlainTextEdit subclass with LineNumberArea widget and SpacedDocumentLayout for configurable line spacing
+- QPlainTextEdit subclass with LineNumberArea widget and SpacedDocumentLayout for configurable line spacing. Extra bottom viewport margin added when spacing > 1.0 to prevent last line from being clipped
 - SyntaxHighlighter: C/C++, Python, JavaScript/TypeScript, Rust + search pattern overlay. Multi-line comment handling uses block state tracking with correct search offset (0 when continuing from previous block, +2 when starting from new `/*`)
 - Dark/Light color scheme with matching syntax colors via `setEditorColorScheme(scheme, bg, fg)`
 - QPalette-based coloring: Base, Text, AlternateBase, PlaceholderText derived from theme colors
@@ -159,7 +159,8 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - **Search debouncing** — 200ms delay before scanning document on keystroke
 - **Large file mode** — files >1MB disable syntax highlighting and line wrapping for performance
 - **O(1) match navigation** — `onFindNext()`/`onFindPrev()` use counter increment instead of O(n) document scan
-- **Optimized line number painting** — reuses QString via `setNum()`, caches font metrics and area width
+- **Word wrap** — configurable via Settings > Editor. Uses `QTextOption::WrapAtWordBoundaryOrAnywhere` when enabled, `NoWrap` when disabled. Large file mode force-disables wrapping
+- **Optimized line number painting** — reuses QString via `setNum()`, caches font metrics and area width. Uses floating-point (`qreal`) block position accumulation to prevent rounding drift at non-1.0 line spacing
 - **Bracket matching** — highlights matching `()`, `{}`, `[]` pairs at cursor position via extra selections. Searches forward for opening brackets, backward for closing. Depth-tracked for nested brackets
 - **Auto-close brackets** — typing `(`, `{`, `[`, `"`, `'` inserts closing pair and positions cursor between them. Typing a closing bracket skips over existing one. Backspace between a pair deletes both characters
 
@@ -337,7 +338,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - **Widget style:** configurable Qt widget style via `QStyleFactory::create()`. Available styles auto-detected from installed Qt6 plugins (Fusion, Windows always built-in; Breeze, Adwaita, Oxygen, Kvantum available via system packages). Applied at startup in `main.cpp` before widget creation, and live-switchable via `qApp->setStyle()` in `applySettings()`
 - **Theme cascade:** `applyGlobalTheme()` sets comprehensive QSS stylesheet with modern rounded design (border-radius: 6px on inputs/buttons/combos, 8px on menus/group boxes). Covers QWidget, QLabel, QPlainTextEdit, QTextEdit, QLineEdit, QSpinBox, QComboBox (with custom drop-down), QCheckBox (custom indicator), QPushButton (hover/pressed/disabled states), QToolButton, QListWidget (rounded items), QTableWidget, QHeaderView, QMenu (rounded with padded items), QDialog, QGroupBox, QScrollBar (thin, rounded, hover), QProgressBar, QTabWidget (flat borderless pane), QTabBar (accent underline), QFontComboBox, QDialogButtonBox, QToolTip, QScrollArea
 - **Live theme switching:** theme changes apply immediately without restart
-- Tabbed SettingsDialog: Global Theme (top, populated from `~/.config/vibe-coder/themes/`), GUI (widget style + font), Terminal (theme override + font), Editor, File Browser, Prompt, Diff Viewer, Changes Monitor, Visibility, PDF tabs
+- Tabbed SettingsDialog: Global Theme (top, populated from `~/.config/vibe-coder/themes/`), GUI (widget style + font), Terminal (theme override + font), Editor (font, line spacing, word wrap, line numbers, syntax highlighting, highlight current line), File Browser, Prompt, Diff Viewer, Changes Monitor, Visibility, PDF tabs
 - **Terminal theme override:** "Auto" (follows global theme) or explicit: Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight
 - SettingsDialog preserves externalThemes list through `result()` method
 - **Font size clamping:** all font sizes clamped to 6–72 range after loading to prevent invalid values from corrupted settings

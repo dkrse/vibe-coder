@@ -632,7 +632,7 @@ flowchart LR
     SS --> ALL[All Widgets + TitleBar]
     B -->|applySettings| WS["Widget Style (QStyleFactory)"]
     B -->|applySettings| D[Terminal font/scheme]
-    B -->|applySettings| E[Editor font/scheme/lineNumbers/highlightLine]
+    B -->|applySettings| E[Editor font/scheme/lineNumbers/highlightLine/wordWrap]
     B -->|applySettings| VIS[FileBrowser visibility filtering]
     B -->|applySettings| F[FileBrowser font/theme/colors]
     B -->|applySettings| G[PromptEdit font/colors/sendKey/highlightLine]

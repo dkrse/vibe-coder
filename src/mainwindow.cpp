@@ -928,6 +928,9 @@ void MainWindow::applySettingsToEditor(CodeEditor *editor, const QString &lang)
     }
     editor->setHighlightCurrentLine(m_settings.editorHighlightLine);
     editor->setLineSpacing(m_settings.editorLineSpacing);
+    editor->setWordWrapMode(m_settings.editorWordWrap
+        ? QTextOption::WrapAtWordBoundaryOrAnywhere
+        : QTextOption::NoWrap);
 }
 
 void MainWindow::updateStatusBar()

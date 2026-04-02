@@ -2,6 +2,15 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.22.0] - 2026-04-02
+
+### Added
+- **Word wrap setting** — configurable word wrap toggle in Settings > Editor. Wraps at word boundary or anywhere. Default: enabled. Disabled automatically for large files (>1MB) for performance
+
+### Fixed
+- **Line number alignment with line spacing** — line numbers drifted from editor text at non-1.0 line spacing (e.g. 1.2, 1.5) due to cumulative integer rounding in the line number paint loop. Fixed by using floating-point (`qreal`) accumulation for block positions, rounding only at draw time
+- **Last line hidden behind status bar at large line spacing** — with line spacing ≥1.5–2.0 the last editor line was clipped behind the status bar. Fixed by adding a proportional bottom viewport margin when line spacing exceeds 1.0
+
 ## [0.21.0] - 2026-04-02
 
 ### Added
