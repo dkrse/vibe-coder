@@ -103,6 +103,7 @@ public:
 
     void setLanguage(const QString &lang);
     void setDarkTheme(bool dark);
+    void setIntensity(double intensity, const QColor &bgColor);
 
     void setSearchPattern(const QString &text);
 
@@ -115,6 +116,8 @@ private:
     QVector<HighlightRule> m_rules;
     QString m_language;
     bool m_dark = false;
+    double m_intensity = 1.0;
+    QColor m_bgColor;
 
     QRegularExpression m_commentStartExpr;
     QRegularExpression m_commentEndExpr;

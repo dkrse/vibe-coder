@@ -2,6 +2,23 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.21.0] - 2026-04-02
+
+### Added
+- **Font intensity** — per-component text opacity control (30%–100%) for editor, file browser, prompt, diff viewer, changes monitor, terminal, and GUI. Blends text color towards background. Editor intensity affects syntax highlighting colors. File browser intensity affects all file type colors, git status colors, and directory colors via delegate. GUI intensity applies to global stylesheet text color (tabs, buttons, status bar, menus, dialogs). Terminal intensity uses QTermWidget opacity. Settings UI: percentage spinbox in each tab
+- **Tab maximize on double-click** — double-clicking a tab bar (top or bottom) maximizes that panel to fill the entire window, hiding the file browser and the other panel. Double-click again to restore original splitter layout
+
+### Fixed
+- **Markdown preview first-open flicker** — first markdown preview caused window resize/flicker due to QWebEngineView Chromium process initialization. Fixed by pre-creating a hidden MarkdownPreview instance at startup; first preview reuses the pre-initialized instance
+- **Diff/Changes viewer colors** — `setViewerColors()` was an empty stub (colors ignored). Now applies background and text colors via stylesheet with ID selectors
+- **Font intensity not applied** — `qApp->setStyleSheet()` type selectors (`QWidget`, `QPlainTextEdit`) overrode per-widget stylesheets. Fixed by removing `color` from base type selectors and applying GUI-blended text color directly in global stylesheet. Per-widget intensity uses `objectName` + ID selectors for higher specificity
+- **Settings spinbox value not saved on direct typing** — typing a value and clicking OK without pressing Enter didn't commit the spinbox value. Fixed by calling `interpretText()` before reading values
+- **Deprecated `invalidateFilter()` warning** — replaced with `beginFilterChange()`/`endFilterChange()` in FileBrowserProxy
+
+### Changed
+- **Diff/Changes viewers now use dedicated font settings** — previously used GUI font; now use their own font family, size, and weight from Settings (Diff tab, Changes tab)
+- **Markdown preview rendering** — switched from file-based rendering (`load(QUrl::fromLocalFile)`) to in-memory rendering (`setHtml()` with base URL) to reduce filesystem I/O
+
 ## [0.20.0] - 2026-04-01
 
 ### Changed

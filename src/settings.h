@@ -20,6 +20,7 @@ struct AppSettings {
     QString termFontFamily = "Adwaita Mono";
     int termFontSize = 14;
     int termFontWeight = 400; // QFont::Normal
+    double termFontIntensity = 1.0; // 0.3 .. 1.0 (text alpha)
     QString termTheme = "Auto"; // "Auto" or specific: Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight
 
     // Editor
@@ -30,11 +31,13 @@ struct AppSettings {
     bool showLineNumbers = true;
     bool syntaxHighlighting = true;
     bool editorHighlightLine = true;
+    double editorFontIntensity = 1.0; // 0.3 .. 1.0 (text alpha)
 
     // File browser
     QString browserFontFamily = "Noto Sans";
     int browserFontSize = 12;
     int browserFontWeight = 400;
+    double browserFontIntensity = 1.0; // 0.3 .. 1.0 (text alpha)
 
     // Prompt
     QString promptFontFamily = "Monospace";
@@ -43,16 +46,19 @@ struct AppSettings {
     QString promptSendKey = "Ctrl+Enter"; // "Ctrl+Enter" or "Enter"
     QString modelStopSequence = "\\x03"; // sent to terminal to stop model (default: Ctrl+C)
     bool promptHighlightLine = false;
+    double promptFontIntensity = 1.0; // 0.3 .. 1.0 (text alpha)
 
     // Diff viewer
     QString diffFontFamily = "Monospace";
     int diffFontSize = 13;
     int diffFontWeight = 400;
+    double diffFontIntensity = 1.0; // 0.3 .. 1.0 (text alpha)
 
     // Changes monitor
     QString changesFontFamily = "Monospace";
     int changesFontSize = 13;
     int changesFontWeight = 400;
+    double changesFontIntensity = 1.0; // 0.3 .. 1.0 (text alpha)
 
     // Visibility
     // "visible" = normal, "grayed" = shown but gray, "hidden" = not shown
@@ -72,6 +78,7 @@ struct AppSettings {
     QString guiFontFamily = "Noto Sans";
     int guiFontSize = 11;
     int guiFontWeight = 400;
+    double guiFontIntensity = 1.0; // 0.3 .. 1.0 (text alpha)
 
     // Widget style (Fusion, Windows, etc.)
     QString widgetStyle = "Auto"; // "Auto" = system default
@@ -99,7 +106,7 @@ class SettingsDialog : public QDialog {
     Q_OBJECT
 public:
     explicit SettingsDialog(const AppSettings &current, QWidget *parent = nullptr);
-    AppSettings result() const;
+    AppSettings result();
 
 private:
     QVector<ExternalTheme> m_externalThemes;
@@ -112,11 +119,13 @@ private:
     QFontComboBox *m_guiFontCombo;
     QSpinBox *m_guiFontSizeSpin;
     QComboBox *m_guiFontWeightCombo;
+    QSpinBox *m_guiFontIntensitySpin;
 
     // Terminal
     QFontComboBox *m_termFontCombo;
     QSpinBox *m_termFontSizeSpin;
     QComboBox *m_termFontWeightCombo;
+    QSpinBox *m_termFontIntensitySpin;
     QComboBox *m_termThemeCombo;
 
     // Editor
@@ -127,11 +136,13 @@ private:
     QCheckBox *m_lineNumbersCheck;
     QCheckBox *m_syntaxHighlightCheck;
     QCheckBox *m_editorHighlightLineCheck;
+    QSpinBox *m_editorFontIntensitySpin;
 
     // File browser
     QFontComboBox *m_browserFontCombo;
     QSpinBox *m_browserFontSizeSpin;
     QComboBox *m_browserFontWeightCombo;
+    QSpinBox *m_browserFontIntensitySpin;
 
     // Prompt
     QFontComboBox *m_promptFontCombo;
@@ -140,17 +151,20 @@ private:
     QComboBox *m_promptSendKeyCombo;
     QLineEdit *m_modelStopSequenceEdit;
     QCheckBox *m_promptHighlightLineCheck;
+    QSpinBox *m_promptFontIntensitySpin;
     QCheckBox *m_promptStayOnTabCheck;
 
     // Diff
     QFontComboBox *m_diffFontCombo;
     QSpinBox *m_diffFontSizeSpin;
     QComboBox *m_diffFontWeightCombo;
+    QSpinBox *m_diffFontIntensitySpin;
 
     // Changes
     QFontComboBox *m_changesFontCombo;
     QSpinBox *m_changesFontSizeSpin;
     QComboBox *m_changesFontWeightCombo;
+    QSpinBox *m_changesFontIntensitySpin;
 
     // Visibility
     QComboBox *m_gitignoreVisibilityCombo;

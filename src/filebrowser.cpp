@@ -138,7 +138,7 @@ void FileItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
     if (m_fb && !fullPath.isEmpty()) {
         QString baseName = QFileInfo(fullPath).fileName();
         if (baseName == ".git" && m_fb->dotGitVisibility() == "grayed") {
-            textColor = dark ? QColor("#5a5a5a") : QColor("#b0b0b0");
+            textColor = blendColor(dark ? QColor("#5a5a5a") : QColor("#b0b0b0"));
             gitColored = true;
         }
     }
@@ -147,16 +147,16 @@ void FileItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
     if (!gitColored && m_fb && m_fb->hasGit() && !fullPath.isEmpty()) {
         auto status = m_fb->gitStatus(fullPath);
         if (status == FileBrowser::Ignored && m_fb->gitignoreVisibility() != "visible") {
-            textColor = dark ? QColor("#5a5a5a") : QColor("#b0b0b0");
+            textColor = blendColor(dark ? QColor("#5a5a5a") : QColor("#b0b0b0"));
             gitColored = true;
         } else if (status == FileBrowser::Modified) {
-            textColor = dark ? QColor("#e2c08d") : QColor("#986801");
+            textColor = blendColor(dark ? QColor("#e2c08d") : QColor("#986801"));
             gitColored = true;
         } else if (status == FileBrowser::Untracked) {
-            textColor = dark ? QColor("#73c991") : QColor("#22863a");
+            textColor = blendColor(dark ? QColor("#73c991") : QColor("#22863a"));
             gitColored = true;
         } else if (status == FileBrowser::Added) {
-            textColor = dark ? QColor("#73c991") : QColor("#22863a");
+            textColor = blendColor(dark ? QColor("#73c991") : QColor("#22863a"));
             gitColored = true;
         }
     }
@@ -165,25 +165,25 @@ void FileItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
         bool expanded = option.state & QStyle::State_Open;
         icon = expanded ? "\u25BE " : "\u25B8 ";
         if (!gitColored)
-            textColor = dark ? QColor("#c5c5c5") : QColor("#333333");
+            textColor = blendColor(dark ? QColor("#c5c5c5") : QColor("#333333"));
     } else {
         icon = "  ";
         if (!gitColored) {
             QString suffix = QFileInfo(name).suffix().toLower();
             if (suffix == "cpp" || suffix == "c" || suffix == "h" || suffix == "hpp")
-                textColor = dark ? QColor("#519aba") : QColor("#0550ae");
+                textColor = blendColor(dark ? QColor("#519aba") : QColor("#0550ae"));
             else if (suffix == "py")
-                textColor = dark ? QColor("#4584b6") : QColor("#0550ae");
+                textColor = blendColor(dark ? QColor("#4584b6") : QColor("#0550ae"));
             else if (suffix == "js" || suffix == "ts" || suffix == "jsx" || suffix == "tsx")
-                textColor = dark ? QColor("#e8d44d") : QColor("#953800");
+                textColor = blendColor(dark ? QColor("#e8d44d") : QColor("#953800"));
             else if (suffix == "rs")
-                textColor = dark ? QColor("#dea584") : QColor("#953800");
+                textColor = blendColor(dark ? QColor("#dea584") : QColor("#953800"));
             else if (suffix == "json")
-                textColor = dark ? QColor("#a9dc76") : QColor("#116329");
+                textColor = blendColor(dark ? QColor("#a9dc76") : QColor("#116329"));
             else if (suffix == "md" || suffix == "txt")
-                textColor = dark ? QColor("#c5c5c5") : QColor("#57606a");
+                textColor = blendColor(dark ? QColor("#c5c5c5") : QColor("#57606a"));
             else
-                textColor = dark ? QColor("#d4d4d4") : QColor("#24292f");
+                textColor = blendColor(dark ? QColor("#d4d4d4") : QColor("#24292f"));
         }
     }
 
@@ -211,7 +211,8 @@ FileBrowserProxy::FileBrowserProxy(FileBrowser *fb, QObject *parent)
 
 void FileBrowserProxy::refresh()
 {
-    invalidateFilter();
+    beginFilterChange();
+    endFilterChange();
 }
 
 void FileBrowserProxy::notifyAllChanged()
@@ -520,6 +521,12 @@ void FileBrowser::onSshItemExpanded(const QModelIndex &index)
 }
 
 // ── Style ───────────────────────────────────────────────────────────
+
+void FileBrowser::setDelegateIntensity(double intensity, const QColor &bg)
+{
+    m_delegate->setIntensity(intensity, bg);
+    m_treeView->viewport()->update();
+}
 
 void FileBrowser::setThemeColors(const QColor &hoverBg, const QColor &selectedBg, const QColor &lineHighlight)
 {

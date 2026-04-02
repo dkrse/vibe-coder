@@ -19,8 +19,12 @@ MarkdownPreview::MarkdownPreview(QWidget *parent)
 {
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setMinimumSize(1, 1);
 
     m_webView = new QWebEngineView(this);
+    m_webView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_webView->setMinimumSize(1, 1);
     m_webView->settings()->setAttribute(QWebEngineSettings::JavascriptEnabled, true);
     m_webView->settings()->setAttribute(QWebEngineSettings::LocalContentCanAccessRemoteUrls, false);
     m_webView->settings()->setAttribute(QWebEngineSettings::LocalContentCanAccessFileUrls, true);
@@ -82,6 +86,9 @@ MarkdownPreview::MarkdownPreview(QWidget *parent)
     m_debounce->setSingleShot(true);
     m_debounce->setInterval(500);
     connect(m_debounce, &QTimer::timeout, this, &MarkdownPreview::render);
+
+    // Pre-load blank page to initialize Chromium engine before first real render
+    m_webView->setHtml(QStringLiteral("<html><body></body></html>"));
 }
 
 MarkdownPreview::~MarkdownPreview()
@@ -212,13 +219,7 @@ void MarkdownPreview::render()
         "}\n"
         "</script>\n</body></html>");
 
-    QString tmpPath = QDir::tempPath() + "/vibe-coder-preview.html";
-    QFile f(tmpPath);
-    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        f.write(page.toUtf8());
-        f.close();
-    }
-    m_webView->load(QUrl::fromLocalFile(tmpPath));
+    m_webView->setHtml(page, QUrl::fromLocalFile(QDir::tempPath() + "/"));
 }
 
 void MarkdownPreview::injectPrintCss(std::function<void()> then)

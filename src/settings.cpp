@@ -33,6 +33,20 @@ static int weightFromCombo(const QComboBox *combo) {
     return combo->currentData().toInt();
 }
 
+static QSpinBox *createIntensitySpin(double currentValue) {
+    auto *spin = new QSpinBox;
+    spin->setRange(30, 100);
+    spin->setSuffix("%");
+    spin->setValue(qRound(currentValue * 100));
+    spin->setToolTip("Font intensity (text opacity): 30% = faded, 100% = full");
+    return spin;
+}
+
+static double intensityFromSpin(QSpinBox *spin) {
+    spin->interpretText();
+    return spin->value() / 100.0;
+}
+
 // --- AppSettings ---
 
 void AppSettings::load()
@@ -76,6 +90,13 @@ void AppSettings::load()
     guiFontFamily = s.value("gui/fontFamily", guiFontFamily).toString();
     guiFontSize = s.value("gui/fontSize", guiFontSize).toInt();
     guiFontWeight = s.value("gui/fontWeight", guiFontWeight).toInt();
+    guiFontIntensity = s.value("gui/fontIntensity", guiFontIntensity).toDouble();
+    editorFontIntensity = s.value("editor/fontIntensity", editorFontIntensity).toDouble();
+    browserFontIntensity = s.value("browser/fontIntensity", browserFontIntensity).toDouble();
+    promptFontIntensity = s.value("prompt/fontIntensity", promptFontIntensity).toDouble();
+    diffFontIntensity = s.value("diff/fontIntensity", diffFontIntensity).toDouble();
+    changesFontIntensity = s.value("changes/fontIntensity", changesFontIntensity).toDouble();
+    termFontIntensity = s.value("terminal/fontIntensity", termFontIntensity).toDouble();
     promptStayOnTab = s.value("prompt/stayOnTab", promptStayOnTab).toBool();
 
     // Clamp font sizes to valid range
@@ -87,6 +108,16 @@ void AppSettings::load()
     clampSize(diffFontSize);
     clampSize(changesFontSize);
     clampSize(guiFontSize);
+
+    // Clamp font intensities
+    auto clampIntensity = [](double &v) { if (v < 0.3) v = 0.3; if (v > 1.0) v = 1.0; };
+    clampIntensity(guiFontIntensity);
+    clampIntensity(editorFontIntensity);
+    clampIntensity(browserFontIntensity);
+    clampIntensity(promptFontIntensity);
+    clampIntensity(diffFontIntensity);
+    clampIntensity(changesFontIntensity);
+    clampIntensity(termFontIntensity);
 
     // Migrate old Qt5 font weights (0-99) to Qt6 (100-1000)
     auto migrateWeight = [](int &w) {
@@ -192,6 +223,13 @@ void AppSettings::save()
     s.setValue("gui/fontFamily", guiFontFamily);
     s.setValue("gui/fontSize", guiFontSize);
     s.setValue("gui/fontWeight", guiFontWeight);
+    s.setValue("gui/fontIntensity", guiFontIntensity);
+    s.setValue("editor/fontIntensity", editorFontIntensity);
+    s.setValue("browser/fontIntensity", browserFontIntensity);
+    s.setValue("prompt/fontIntensity", promptFontIntensity);
+    s.setValue("diff/fontIntensity", diffFontIntensity);
+    s.setValue("changes/fontIntensity", changesFontIntensity);
+    s.setValue("terminal/fontIntensity", termFontIntensity);
     s.setValue("prompt/stayOnTab", promptStayOnTab);
 }
 
@@ -240,6 +278,8 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     guiLayout->addRow("Font family:", m_guiFontCombo);
     guiLayout->addRow("Font size:", m_guiFontSizeSpin);
     guiLayout->addRow("Font weight:", m_guiFontWeightCombo);
+    m_guiFontIntensitySpin = createIntensitySpin(current.guiFontIntensity);
+    guiLayout->addRow("Font intensity:", m_guiFontIntensitySpin);
     tabs->addTab(guiPage, "GUI");
 
     // ── Terminal tab ────────────────────────────────────────────────
@@ -263,6 +303,8 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     termLayout->addRow("Font family:", m_termFontCombo);
     termLayout->addRow("Font size:", m_termFontSizeSpin);
     termLayout->addRow("Font weight:", m_termFontWeightCombo);
+    m_termFontIntensitySpin = createIntensitySpin(current.termFontIntensity);
+    termLayout->addRow("Font intensity:", m_termFontIntensitySpin);
     tabs->addTab(termPage, "Terminal");
 
     // ── Editor tab ──────────────────────────────────────────────────
@@ -303,6 +345,8 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     editorLayout->addRow("Font family:", m_editorFontCombo);
     editorLayout->addRow("Font size:", m_editorFontSizeSpin);
     editorLayout->addRow("Font weight:", m_editorFontWeightCombo);
+    m_editorFontIntensitySpin = createIntensitySpin(current.editorFontIntensity);
+    editorLayout->addRow("Font intensity:", m_editorFontIntensitySpin);
     editorLayout->addRow("Line spacing:", m_editorLineSpacingCombo);
     editorLayout->addRow(m_lineNumbersCheck);
     editorLayout->addRow(m_syntaxHighlightCheck);
@@ -324,6 +368,8 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     browserLayout->addRow("Font family:", m_browserFontCombo);
     browserLayout->addRow("Font size:", m_browserFontSizeSpin);
     browserLayout->addRow("Font weight:", m_browserFontWeightCombo);
+    m_browserFontIntensitySpin = createIntensitySpin(current.browserFontIntensity);
+    browserLayout->addRow("Font intensity:", m_browserFontIntensitySpin);
     tabs->addTab(browserPage, "File Browser");
 
     // ── Prompt tab ──────────────────────────────────────────────────
@@ -352,6 +398,8 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     promptLayout->addRow("Font family:", m_promptFontCombo);
     promptLayout->addRow("Font size:", m_promptFontSizeSpin);
     promptLayout->addRow("Font weight:", m_promptFontWeightCombo);
+    m_promptFontIntensitySpin = createIntensitySpin(current.promptFontIntensity);
+    promptLayout->addRow("Font intensity:", m_promptFontIntensitySpin);
     promptLayout->addRow("Send key:", m_promptSendKeyCombo);
     promptLayout->addRow("Stop sequence:", m_modelStopSequenceEdit);
     m_promptStayOnTabCheck = new QCheckBox("Stay on current tab after sending");
@@ -378,6 +426,8 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     diffLayout->addRow("Font family:", m_diffFontCombo);
     diffLayout->addRow("Font size:", m_diffFontSizeSpin);
     diffLayout->addRow("Font weight:", m_diffFontWeightCombo);
+    m_diffFontIntensitySpin = createIntensitySpin(current.diffFontIntensity);
+    diffLayout->addRow("Font intensity:", m_diffFontIntensitySpin);
     tabs->addTab(diffPage, "Diff");
 
     // ── Changes tab ─────────────────────────────────────────────────
@@ -396,6 +446,8 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     changesLayout->addRow("Font family:", m_changesFontCombo);
     changesLayout->addRow("Font size:", m_changesFontSizeSpin);
     changesLayout->addRow("Font weight:", m_changesFontWeightCombo);
+    m_changesFontIntensitySpin = createIntensitySpin(current.changesFontIntensity);
+    changesLayout->addRow("Font intensity:", m_changesFontIntensitySpin);
     tabs->addTab(changesPage, "Changes");
 
     // ── Visibility tab ─────────────────────────────────────────────
@@ -457,7 +509,7 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     ThemedDialog::apply(this, "Settings");
 }
 
-AppSettings SettingsDialog::result() const
+AppSettings SettingsDialog::result()
 {
     AppSettings s;
     s.globalTheme = m_globalThemeCombo->currentText();
@@ -498,6 +550,13 @@ AppSettings SettingsDialog::result() const
     s.guiFontFamily = m_guiFontCombo->currentFont().family();
     s.guiFontSize = m_guiFontSizeSpin->value();
     s.guiFontWeight = weightFromCombo(m_guiFontWeightCombo);
+    s.guiFontIntensity = intensityFromSpin(m_guiFontIntensitySpin);
+    s.editorFontIntensity = intensityFromSpin(m_editorFontIntensitySpin);
+    s.browserFontIntensity = intensityFromSpin(m_browserFontIntensitySpin);
+    s.promptFontIntensity = intensityFromSpin(m_promptFontIntensitySpin);
+    s.diffFontIntensity = intensityFromSpin(m_diffFontIntensitySpin);
+    s.changesFontIntensity = intensityFromSpin(m_changesFontIntensitySpin);
+    s.termFontIntensity = intensityFromSpin(m_termFontIntensitySpin);
     s.promptStayOnTab = m_promptStayOnTabCheck->isChecked();
     s.externalThemes = m_externalThemes;
     s.applyThemeDefaults();

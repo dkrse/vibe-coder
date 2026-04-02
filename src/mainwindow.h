@@ -125,6 +125,12 @@ protected:
     void switchToSshProfile(int index);
     void updateSshProfileCombo();
 
+    // Tab maximize on double-click
+    void toggleTabMaximize(QTabWidget *tabWidget);
+    bool m_tabMaximized = false;
+    QList<int> m_savedMainSizes;
+    QList<int> m_savedRightSizes;
+
     // Split view
     void splitEditorHorizontal();
     void splitEditorVertical();
@@ -151,6 +157,7 @@ protected:
 
     // Markdown previews (multiple allowed, one per source file)
     QList<MarkdownPreview *> m_mdPreviews;
+    MarkdownPreview *m_previewWarmup = nullptr;
     void toggleMarkdownPreview();
     void exportMarkdownToPdf();
     MarkdownPreview *currentMarkdownPreview();

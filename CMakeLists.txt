@@ -94,4 +94,6 @@ target_link_libraries(vibe-coder PRIVATE
     ${QTERMWIDGET_LIB}
     libcmark-gfm-extensions_static
     libcmark-gfm_static
+    selinux
+    glib-2.0
 )

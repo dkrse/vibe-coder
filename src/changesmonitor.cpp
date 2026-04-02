@@ -66,10 +66,12 @@ ChangesMonitor::ChangesMonitor(QWidget *parent)
     auto *splitter = new QSplitter(Qt::Horizontal);
 
     m_fileList = new QListWidget;
+    m_fileList->setObjectName("changesFileList");
     m_fileList->setMaximumWidth(300);
     splitter->addWidget(m_fileList);
 
     m_diffPreview = new QPlainTextEdit;
+    m_diffPreview->setObjectName("changesDiffPreview");
     m_diffPreview->setReadOnly(true);
     m_diffPreview->setFont(QFont("Monospace", 10));
     m_diffPreview->setLineWrapMode(QPlainTextEdit::NoWrap);
@@ -387,9 +389,14 @@ void ChangesMonitor::setViewerFont(const QFont &font)
     m_diffPreview->setFont(font);
 }
 
-void ChangesMonitor::setViewerColors(const QColor &, const QColor &)
+void ChangesMonitor::setViewerColors(const QColor &bg, const QColor &fg)
 {
-    // Colors are now handled by the global theme stylesheet
+    m_diffPreview->setStyleSheet(
+        QString("#changesDiffPreview { background-color: %1; color: %2; }")
+            .arg(bg.name(), fg.name()));
+    m_fileList->setStyleSheet(
+        QString("#changesFileList { background-color: %1; color: %2; }")
+            .arg(bg.name(), fg.name()));
 }
 
 void ChangesMonitor::refreshList()

@@ -36,6 +36,17 @@
 #include <QPixmap>
 #include <QWebEngineView>
 
+// Blend text color towards background by intensity (1.0 = full text, 0.3 = mostly bg)
+static QColor blendIntensity(const QColor &text, const QColor &bg, double intensity)
+{
+    if (intensity >= 0.99) return text;
+    double t = qBound(0.0, intensity, 1.0);
+    return QColor::fromRgbF(
+        bg.redF()   + t * (text.redF()   - bg.redF()),
+        bg.greenF() + t * (text.greenF() - bg.greenF()),
+        bg.blueF()  + t * (text.blueF()  - bg.blueF()));
+}
+
 static QString langFromSuffix(const QString &suffix)
 {
     QString s = suffix.toLower();
@@ -189,6 +200,7 @@ MainWindow::MainWindow(QWidget *parent)
     promptLayout->addLayout(savedLayout);
 
     m_editor = new PromptEdit;
+    m_editor->setObjectName("promptEdit");
     m_editor->setPlaceholderText("Type prompt here...");
 
     auto *btnLayout = new QHBoxLayout;
@@ -343,6 +355,14 @@ MainWindow::MainWindow(QWidget *parent)
             // Auto-blame current file when switching to Blame tab
             blameCurrentFile();
         }
+    });
+
+    // Double-click on tab bar to maximize/restore
+    connect(m_tabWidget->tabBar(), &QTabBar::tabBarDoubleClicked, this, [this](int) {
+        toggleTabMaximize(m_tabWidget);
+    });
+    connect(m_bottomTabWidget->tabBar(), &QTabBar::tabBarDoubleClicked, this, [this](int) {
+        toggleTabMaximize(m_bottomTabWidget);
     });
 
     // Editor splitter wraps the main tab widget (split view adds second tab widget here)
@@ -677,16 +697,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     applyGlobalTheme();
     applySettings();
+
     restoreSession();
 
-    // Pre-initialize QWebEngine process (deferred, no parent to avoid window flash)
-    QTimer::singleShot(500, this, []() {
-        auto *warmup = new QWebEngineView;
-        warmup->setFixedSize(0, 0);
-        warmup->setAttribute(Qt::WA_DontShowOnScreen, true);
-        warmup->load(QUrl("about:blank"));
-        connect(warmup, &QWebEngineView::loadFinished, warmup, &QObject::deleteLater);
-    });
+    // Pre-create a hidden MarkdownPreview so QWebEngineView/Chromium is fully initialized
+    // before user opens first preview (avoids window resize flicker)
+    m_previewWarmup = new MarkdownPreview(this);
+    m_previewWarmup->setVisible(false);
 
     // QTermWidget resets font after show/startShellProgram — reapply after event loop
     QTimer::singleShot(0, this, [this]() {
@@ -899,7 +916,11 @@ void MainWindow::applySettingsToEditor(CodeEditor *editor, const QString &lang)
     } else {
         editor->highlighter()->setLanguage("");
     }
-    editor->setEditorColorScheme(m_settings.editorColorScheme, m_settings.bgColor, m_settings.textColor);
+    {
+        QColor editorTextColor = blendIntensity(m_settings.textColor, m_settings.bgColor, m_settings.editorFontIntensity);
+        editor->setEditorColorScheme(m_settings.editorColorScheme, m_settings.bgColor, editorTextColor);
+        editor->highlighter()->setIntensity(m_settings.editorFontIntensity, m_settings.bgColor);
+    }
     {
         const ExternalTheme *et = m_settings.findExternalTheme(m_settings.globalTheme);
         if (et && !et->lineHighlight.isEmpty())
@@ -944,6 +965,16 @@ void MainWindow::applySettings()
     QFont guiFont(m_settings.guiFontFamily, m_settings.guiFontSize);
     guiFont.setWeight(static_cast<QFont::Weight>(m_settings.guiFontWeight));
     qApp->setFont(guiFont);
+    // Apply GUI text color + intensity via palette
+    {
+        QPalette pal = qApp->palette();
+        QColor guiTextColor = blendIntensity(m_settings.textColor, m_settings.bgColor, m_settings.guiFontIntensity);
+        for (auto role : {QPalette::WindowText, QPalette::ButtonText, QPalette::Text}) {
+            pal.setColor(QPalette::Active, role, guiTextColor);
+            pal.setColor(QPalette::Inactive, role, guiTextColor);
+        }
+        qApp->setPalette(pal);
+    }
     m_tabWidget->setFont(guiFont);
     m_tabWidget->tabBar()->setFont(guiFont);
     m_bottomTabWidget->setFont(guiFont);
@@ -988,16 +1019,31 @@ void MainWindow::applySettings()
     m_bottomTerminal->terminal()->setColorScheme(m_settings.terminalColorScheme);
     m_bottomTerminal2->terminal()->setTerminalFont(termFont);
     m_bottomTerminal2->terminal()->setColorScheme(m_settings.terminalColorScheme);
+    // Terminal font intensity: setTerminalOpacity affects background, not text.
+    // QTermWidget doesn't expose per-color overrides, so we apply opacity to the widget.
+    if (m_settings.termFontIntensity < 0.99) {
+        qreal op = m_settings.termFontIntensity;
+        m_terminal->terminal()->setTerminalOpacity(op);
+        m_bottomTerminal->terminal()->setTerminalOpacity(op);
+        m_bottomTerminal2->terminal()->setTerminalOpacity(op);
+    } else {
+        m_terminal->terminal()->setTerminalOpacity(1.0);
+        m_bottomTerminal->terminal()->setTerminalOpacity(1.0);
+        m_bottomTerminal2->terminal()->setTerminalOpacity(1.0);
+    }
 
     QFont promptFont(m_settings.promptFontFamily, m_settings.promptFontSize);
     promptFont.setWeight(static_cast<QFont::Weight>(m_settings.promptFontWeight));
     m_editor->setFont(promptFont);
-    m_editor->setStyleSheet(
-        QString("QPlainTextEdit { background-color: %1; color: %2; font-family: '%3'; font-size: %4pt; }")
-            .arg(m_settings.bgColor.name())
-            .arg(m_settings.textColor.name())
-            .arg(m_settings.promptFontFamily)
-            .arg(m_settings.promptFontSize));
+    {
+        QColor promptTextColor = blendIntensity(m_settings.textColor, m_settings.bgColor, m_settings.promptFontIntensity);
+        m_editor->setStyleSheet(
+            QString("#promptEdit { background-color: %1; color: %2; font-family: '%3'; font-size: %4pt; }")
+                .arg(m_settings.bgColor.name())
+                .arg(promptTextColor.name())
+                .arg(m_settings.promptFontFamily)
+                .arg(m_settings.promptFontSize));
+    }
     m_editor->setSendOnEnter(m_settings.promptSendKey == "Enter");
     {
         const ExternalTheme *et = m_settings.findExternalTheme(m_settings.globalTheme);
@@ -1009,7 +1055,11 @@ void MainWindow::applySettings()
     QFont browserFont(m_settings.browserFontFamily, m_settings.browserFontSize);
     browserFont.setWeight(static_cast<QFont::Weight>(m_settings.browserFontWeight));
     m_fileBrowser->setFont(browserFont);
-    m_fileBrowser->setTheme(m_settings.browserTheme, m_settings.bgColor, m_settings.textColor);
+    {
+        QColor browserTextColor = blendIntensity(m_settings.textColor, m_settings.bgColor, m_settings.browserFontIntensity);
+        m_fileBrowser->setTheme(m_settings.browserTheme, m_settings.bgColor, browserTextColor);
+        m_fileBrowser->setDelegateIntensity(m_settings.browserFontIntensity, m_settings.bgColor);
+    }
     {
         const ExternalTheme *et = m_settings.findExternalTheme(m_settings.globalTheme);
         if (et) {
@@ -1022,12 +1072,22 @@ void MainWindow::applySettings()
     m_fileBrowser->setDotGitVisibility(m_settings.dotGitVisibility);
 
     // Diff viewer
-    m_diffViewer->setViewerFont(guiFont);
-    m_diffViewer->setViewerColors(m_settings.bgColor, m_settings.textColor);
+    {
+        QFont diffFont(m_settings.diffFontFamily, m_settings.diffFontSize);
+        diffFont.setWeight(static_cast<QFont::Weight>(m_settings.diffFontWeight));
+        m_diffViewer->setViewerFont(diffFont);
+        QColor diffTextColor = blendIntensity(m_settings.textColor, m_settings.bgColor, m_settings.diffFontIntensity);
+        m_diffViewer->setViewerColors(m_settings.bgColor, diffTextColor);
+    }
 
     // Changes monitor
-    m_changesMonitor->setViewerFont(guiFont);
-    m_changesMonitor->setViewerColors(m_settings.bgColor, m_settings.textColor);
+    {
+        QFont changesFont(m_settings.changesFontFamily, m_settings.changesFontSize);
+        changesFont.setWeight(static_cast<QFont::Weight>(m_settings.changesFontWeight));
+        m_changesMonitor->setViewerFont(changesFont);
+        QColor changesTextColor = blendIntensity(m_settings.textColor, m_settings.bgColor, m_settings.changesFontIntensity);
+        m_changesMonitor->setViewerColors(m_settings.bgColor, changesTextColor);
+    }
 
     // Git graph
     m_gitGraph->setViewerFont(guiFont);
@@ -1878,8 +1938,14 @@ void MainWindow::toggleMarkdownPreview()
         }
     }
 
-    // Create a new preview for this file
-    auto *preview = new MarkdownPreview(this);
+    // Reuse warmup instance for first preview to avoid Chromium init flicker
+    MarkdownPreview *preview;
+    if (m_previewWarmup) {
+        preview = m_previewWarmup;
+        m_previewWarmup = nullptr;
+    } else {
+        preview = new MarkdownPreview(this);
+    }
     preview->setProperty("sourceEditor", QVariant::fromValue<QWidget *>(editor));
 
     bool dark = m_settings.globalTheme.contains("Dark") || m_settings.globalTheme == "Monokai" || m_settings.globalTheme == "Nord";
@@ -2021,13 +2087,40 @@ void MainWindow::setupCommandPalette()
 
 // ── Global Theme ────────────────────────────────────────────────────
 
+void MainWindow::toggleTabMaximize(QTabWidget *tabWidget)
+{
+    if (m_tabMaximized) {
+        // Restore
+        m_fileBrowser->show();
+        if (tabWidget == m_tabWidget)
+            m_bottomTabWidget->show();
+        else
+            m_editorSplitter->show();
+        m_mainSplitter->setSizes(m_savedMainSizes);
+        m_rightSplitter->setSizes(m_savedRightSizes);
+        m_tabMaximized = false;
+    } else {
+        // Save sizes and maximize
+        m_savedMainSizes = m_mainSplitter->sizes();
+        m_savedRightSizes = m_rightSplitter->sizes();
+        m_fileBrowser->hide();
+        if (tabWidget == m_tabWidget)
+            m_bottomTabWidget->hide();
+        else
+            m_editorSplitter->hide();
+        m_tabMaximized = true;
+    }
+}
+
 void MainWindow::applyGlobalTheme()
 {
     const ExternalTheme *et = m_settings.findExternalTheme(m_settings.globalTheme);
     if (!et) return;
 
     bool dark = (et->appearance != "light");
-    QString bgColor = et->bgColor, textColor = et->textColor, altBg = et->altBg;
+    QString bgColor = et->bgColor, altBg = et->altBg;
+    // Apply GUI font intensity to the text color used in global stylesheet
+    QString textColor = blendIntensity(QColor(et->textColor), QColor(et->bgColor), m_settings.guiFontIntensity).name();
     QString borderColor = et->borderColor, hoverBg = et->hoverBg, selectedBg = et->selectedBg;
 
     // Compute accent/focus color from selectedBg
@@ -2037,10 +2130,10 @@ void MainWindow::applyGlobalTheme()
     QString ss = QString(R"(
         /* ── Base ─────────────────────────────────────── */
         QMainWindow { background: %1; }
-        QWidget { background: %1; color: %2; }
+        QWidget { background: %1; }
         QLabel { color: %2; background: transparent; }
-        QPlainTextEdit { background-color: %1; color: %2; border: none; }
-        QTextEdit { background-color: %1; color: %2; border: none; }
+        QPlainTextEdit { background-color: %1; border: none; }
+        QTextEdit { background-color: %1; border: none; }
 
         /* ── Tabs (Zed/VS Code style) ─────────────────── */
         QTabWidget::pane { border: none; background: %1; }

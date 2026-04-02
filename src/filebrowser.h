@@ -52,9 +52,21 @@ public:
 
     void setFileBrowser(FileBrowser *fb) { m_fb = fb; }
     void setThemeColors(const QColor &hover, const QColor &selected, const QColor &lineHL) { m_hoverBg = hover; m_selectedBg = selected; m_lineHighlight = lineHL; }
+    void setIntensity(double intensity, const QColor &bg) { m_intensity = intensity; m_bgColor = bg; }
 
 private:
+    QColor blendColor(const QColor &c) const {
+        if (m_intensity >= 0.99) return c;
+        double t = m_intensity;
+        return QColor::fromRgbF(
+            m_bgColor.redF() + t * (c.redF() - m_bgColor.redF()),
+            m_bgColor.greenF() + t * (c.greenF() - m_bgColor.greenF()),
+            m_bgColor.blueF() + t * (c.blueF() - m_bgColor.blueF()));
+    }
+
     FileBrowser *m_fb = nullptr;
+    double m_intensity = 1.0;
+    QColor m_bgColor;
     QColor m_hoverBg;
     QColor m_selectedBg;
     QColor m_lineHighlight;
@@ -71,6 +83,7 @@ public:
     void setFont(const QFont &font);
     void setTheme(const QString &theme, const QColor &bg = QColor(), const QColor &fg = QColor());
     void setThemeColors(const QColor &hoverBg, const QColor &selectedBg, const QColor &lineHighlight);
+    void setDelegateIntensity(double intensity, const QColor &bg);
     void highlightFile(const QString &filePath);
 
     // SSH mount mapping

@@ -209,6 +209,14 @@ void SyntaxHighlighter::setDarkTheme(bool dark)
     rehighlight();
 }
 
+void SyntaxHighlighter::setIntensity(double intensity, const QColor &bgColor)
+{
+    m_intensity = intensity;
+    m_bgColor = bgColor;
+    buildRules();
+    rehighlight();
+}
+
 void SyntaxHighlighter::setSearchPattern(const QString &text)
 {
     if (m_searchText == text) return;
@@ -220,13 +228,23 @@ void SyntaxHighlighter::buildRules()
 {
     m_rules.clear();
 
-    QColor keywordColor   = m_dark ? QColor("#569cd6") : QColor("#0000ff");
-    QColor typeColor      = m_dark ? QColor("#4ec9b0") : QColor("#267f99");
-    QColor stringColor    = m_dark ? QColor("#ce9178") : QColor("#a31515");
-    QColor commentColor   = m_dark ? QColor("#6a9955") : QColor("#008000");
-    QColor numberColor    = m_dark ? QColor("#b5cea8") : QColor("#098658");
-    QColor preprocessColor= m_dark ? QColor("#c586c0") : QColor("#af00db");
-    QColor funcColor      = m_dark ? QColor("#dcdcaa") : QColor("#795e26");
+    // Blend color towards background when intensity < 1.0
+    auto blend = [this](const QColor &c) -> QColor {
+        if (m_intensity >= 0.99 || !m_bgColor.isValid()) return c;
+        double t = m_intensity;
+        return QColor::fromRgbF(
+            m_bgColor.redF()   + t * (c.redF()   - m_bgColor.redF()),
+            m_bgColor.greenF() + t * (c.greenF() - m_bgColor.greenF()),
+            m_bgColor.blueF()  + t * (c.blueF()  - m_bgColor.blueF()));
+    };
+
+    QColor keywordColor   = blend(m_dark ? QColor("#569cd6") : QColor("#0000ff"));
+    QColor typeColor      = blend(m_dark ? QColor("#4ec9b0") : QColor("#267f99"));
+    QColor stringColor    = blend(m_dark ? QColor("#ce9178") : QColor("#a31515"));
+    QColor commentColor   = blend(m_dark ? QColor("#6a9955") : QColor("#008000"));
+    QColor numberColor    = blend(m_dark ? QColor("#b5cea8") : QColor("#098658"));
+    QColor preprocessColor= blend(m_dark ? QColor("#c586c0") : QColor("#af00db"));
+    QColor funcColor      = blend(m_dark ? QColor("#dcdcaa") : QColor("#795e26"));
 
     QTextCharFormat kwFmt;
     kwFmt.setForeground(keywordColor);
@@ -327,15 +345,15 @@ void SyntaxHighlighter::buildRules()
         m_commentEndExpr = QRegularExpression("\\*/");
     }
     else if (m_language == "md") {
-        QColor headingColor = m_dark ? QColor("#e5c07b") : QColor("#005cc5");
-        QColor boldColor    = m_dark ? QColor("#e06c75") : QColor("#d73a49");
-        QColor italicColor  = m_dark ? QColor("#c678dd") : QColor("#6f42c1");
-        QColor linkColor    = m_dark ? QColor("#61afef") : QColor("#0366d6");
-        QColor codeColor    = m_dark ? QColor("#98c379") : QColor("#22863a");
-        QColor listColor    = m_dark ? QColor("#d19a66") : QColor("#e36209");
-        QColor hrColor      = m_dark ? QColor("#5c6370") : QColor("#959da5");
-        QColor blockqColor  = m_dark ? QColor("#5c6370") : QColor("#6a737d");
-        QColor mathColor    = m_dark ? QColor("#56b6c2") : QColor("#005cc5");
+        QColor headingColor = blend(m_dark ? QColor("#e5c07b") : QColor("#005cc5"));
+        QColor boldColor    = blend(m_dark ? QColor("#e06c75") : QColor("#d73a49"));
+        QColor italicColor  = blend(m_dark ? QColor("#c678dd") : QColor("#6f42c1"));
+        QColor linkColor    = blend(m_dark ? QColor("#61afef") : QColor("#0366d6"));
+        QColor codeColor    = blend(m_dark ? QColor("#98c379") : QColor("#22863a"));
+        QColor listColor    = blend(m_dark ? QColor("#d19a66") : QColor("#e36209"));
+        QColor hrColor      = blend(m_dark ? QColor("#5c6370") : QColor("#959da5"));
+        QColor blockqColor  = blend(m_dark ? QColor("#5c6370") : QColor("#6a737d"));
+        QColor mathColor    = blend(m_dark ? QColor("#56b6c2") : QColor("#005cc5"));
 
         QTextCharFormat headFmt;
         headFmt.setForeground(headingColor);
@@ -672,6 +690,11 @@ void CodeEditor::setEditorColorScheme(const QString &scheme, const QColor &bg, c
     pal.setColor(QPalette::AlternateBase, altBg);
     pal.setColor(QPalette::PlaceholderText, placeholderFg);
     setPalette(pal);
+
+    // Override global stylesheet so that per-editor text color is respected
+    setStyleSheet(
+        QString("CodeEditor { background-color: %1; color: %2; }")
+            .arg(baseBg.name(), baseFg.name()));
 
     // Override global stylesheet for line number area
     m_lineNumberArea->setStyleSheet(
