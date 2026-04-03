@@ -9,7 +9,7 @@ Vibe Coder is a Qt6 C++ IDE-like application designed for AI-assisted developmen
 - **Language:** C++17
 - **UI Framework:** Qt6 Widgets
 - **Web Engine:** Qt6 WebEngineWidgets (markdown preview, mermaid rendering, PDF export)
-- **PDF:** Qt6 PdfWidgets (QPdfDocument for page counting/rendering, QPdfWriter for output)
+- **PDF:** Qt6 PdfWidgets (QPdfDocument for page counting/rendering, QPdfWriter for output, QPdfView for built-in PDF viewer)
 - **Terminal:** QTermWidget (libqtermwidget6)
 - **Markdown:** cmark-gfm (GitHub Flavored Markdown, statically linked via CMake FetchContent)
 - **Diagrams:** mermaid.js (bundled as Qt resource, ~3MB)
@@ -71,7 +71,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - Right panel: vertical splitter (editor splitter | bottom tab widget)
 - Editor splitter: wraps main tab widget, supports horizontal/vertical split view for side-by-side editing
 - Tab widget: AI-terminal (tab 0, non-closable) + editor tabs
-- Bottom tab widget: Prompt tab + Terminal tab + Notifications tab + Diff Viewer tab + Changes tab + Git Graph tab + Search tab + Blame tab
+- Bottom tab widget: Prompt tab + Terminal tab + Notifications tab + Diff Viewer tab + Changes tab + Git Graph tab + Search tab + Blame tab + Build tab (LaTeX, conditional) + View tab (LaTeX, conditional)
 - Hamburger menu (top-right): Create/Edit Project, SSH Connect/Disconnect/Tunnels/Upload/Download, Split Horizontal/Vertical/Unsplit, Settings
 - Command palette (Ctrl+Shift+P): fuzzy-searchable list of all registered commands (split, focus, theme switching, diff refresh)
 - **Unified global theme system:** All themes loaded from `~/.config/vibe-coder/themes/` (native JSON, Zed, VS Code formats). Ships with 8 themes. Single global stylesheet cascades to all widgets including title bar, menus, dialogs, tabs, splitters, status bar
@@ -341,6 +341,18 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - Unread count with `unreadChanged` signal for badge updates
 - Clear button to reset the log
 
+### Built-in PDF Viewer
+- PDF files detected by `.pdf` extension in `onFileOpened()` — opens QPdfView tab instead of CodeEditor
+- `QPdfView` with `QPdfDocument`, multi-page mode, initial fit-to-width zoom
+- Zoom: Ctrl+Plus/Minus (keyboard), Ctrl+mouse scroll (viewport event filter), Ctrl+0 resets to fit-to-width
+- Event filter installed on both QPdfView (key events) and its `viewport()` (wheel events). Viewport→parent link via dynamic property `pdfViewParent`. Ctrl+scroll fully consumed to prevent simultaneous scroll+zoom
+
+### LaTeX Workflow
+- **Build tab** — bottom tab widget, visible only when `.tex`/`.latex`/`.sty`/`.cls`/`.bib` file is active. Contains "Build" button + read-only QPlainTextEdit for output. Runs configured LaTeX command (`pdflatex`/`xelatex`/`lualatex`/custom) via QProcess with merged stdout/stderr. Auto-saves current file before build
+- **View tab** — bottom tab widget, visible alongside Build tab. Opens output file (`.pdf`/`.dvi`) via built-in QPdfView (if "built-in") or external viewer (`QProcess::startDetached`)
+- **Settings** — LaTeX tab with editable combos for build command, view command, and output format. Persisted as `latex/buildCmd`, `latex/viewCmd`, `latex/outputExt`
+- Tab visibility controlled by `updateLatexToolbar()`, called on `m_tabWidget::currentChanged`
+
 ### Settings
 - AppSettings struct with load/save via QSettings("vibe-coder", "vibe-coder")
 - **Global theme:** unified system — one theme controls all UI components
@@ -349,7 +361,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - **Widget style:** configurable Qt widget style via `QStyleFactory::create()`. Available styles auto-detected from installed Qt6 plugins (Fusion, Windows always built-in; Breeze, Adwaita, Oxygen, Kvantum available via system packages). Applied at startup in `main.cpp` before widget creation, and live-switchable via `qApp->setStyle()` in `applySettings()`
 - **Theme cascade:** `applyGlobalTheme()` sets comprehensive QSS stylesheet with modern rounded design (border-radius: 6px on inputs/buttons/combos, 8px on menus/group boxes). Covers QWidget, QLabel, QPlainTextEdit, QTextEdit, QLineEdit, QSpinBox, QComboBox (with custom drop-down), QCheckBox (custom indicator), QPushButton (hover/pressed/disabled states), QToolButton, QListWidget (rounded items), QTableWidget, QHeaderView, QMenu (rounded with padded items), QDialog, QGroupBox, QScrollBar (thin, rounded, hover), QProgressBar, QTabWidget (flat borderless pane), QTabBar (accent underline), QFontComboBox, QDialogButtonBox, QToolTip, QScrollArea
 - **Live theme switching:** theme changes apply immediately without restart
-- Tabbed SettingsDialog: Global Theme (top, populated from `~/.config/vibe-coder/themes/`), GUI (widget style + font), Terminal (theme override + font), Editor (font, line spacing, word wrap, line numbers, syntax highlighting, highlight current line), File Browser, Prompt, Diff Viewer, Changes Monitor, Visibility, PDF tabs
+- Tabbed SettingsDialog: Global Theme (top, populated from `~/.config/vibe-coder/themes/`), GUI (widget style + font), Terminal (theme override + font), Editor (font, line spacing, word wrap, line numbers, syntax highlighting, highlight current line), File Browser, Prompt, Diff Viewer, Changes Monitor, Visibility, PDF, LaTeX (build command, view command, output format) tabs
 - **Terminal theme override:** "Auto" (follows global theme) or explicit: Linux, BlackOnWhite, DarkPastels, Solarized, SolarizedLight
 - SettingsDialog preserves externalThemes list through `result()` method
 - **Font size clamping:** all font sizes clamped to 6–72 range after loading to prevent invalid values from corrupted settings
@@ -381,6 +393,9 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 20. **Fuzzy File Opener:** Ctrl+P -> FileOpener.show() -> scan project files (cached) -> fuzzy filter on keystroke -> Enter opens file via onFileOpened()
 21. **Workspace Search:** Ctrl+Shift+F -> WorkspaceSearch.focusSearch() -> Enter triggers grep process -> results parsed (file:line:text) -> click shows context preview -> double-click emits fileRequested(path, line) -> MainWindow opens file and jumps to line
 22. **Git Blame:** Blame tab activated (or Command Palette) -> blameCurrentFile() -> GitBlame.blameFile(workDir, filePath) -> async `git blame --porcelain` -> parse output -> BlameView.setBlameData() -> gutter paint with annotations
+23. **LaTeX Build:** Build button (or Command Palette) -> latexBuild() -> saveCurrentFile() -> QProcess(latexBuildCmd, {filename}) in file's directory -> merged output to Build tab QPlainTextEdit -> exit code notification
+24. **LaTeX View:** View button (or Command Palette) -> latexView() -> check output file exists -> built-in: onFileOpened(outputPath) opens QPdfView tab; external: QProcess::startDetached(viewCmd, {outputPath})
+25. **PDF Open:** onFileOpened() detects `.pdf` suffix -> QPdfDocument.load() -> QPdfView tab with event filter for Ctrl+scroll/Ctrl+±/Ctrl+0 zoom
 
 ## Session Persistence
 

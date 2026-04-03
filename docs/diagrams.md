@@ -34,6 +34,8 @@ graph TB
                     GG[Git Graph Tab: Commit/Fetch/Pull/Push/User/Remotes]
                     WS[Search Tab: Workspace Search]
                     GB[Blame Tab: Git Blame]
+                    LB["Build Tab: LaTeX Build (conditional)"]
+                    LV["View Tab: LaTeX View (conditional)"]
                 end
             end
         end
@@ -152,9 +154,15 @@ classDiagram
         +splitEditorVertical()
         +unsplitEditor()
         +blameCurrentFile()
+        +latexBuild()
+        +latexView()
+        +updateLatexToolbar()
         -FileOpener* m_fileOpener
         -WorkspaceSearch* m_workspaceSearch
         -GitBlame* m_gitBlame
+        -QWidget* m_latexBuildTab
+        -QWidget* m_latexViewTab
+        -QPlainTextEdit* m_latexBuildOutput
     }
 
     class FileBrowser {

@@ -108,6 +108,7 @@ private:
 protected:
     void closeEvent(QCloseEvent *event) override;
     bool event(QEvent *event) override;
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
     // SSH
     SshManager *m_sshManager;
@@ -178,6 +179,16 @@ protected:
     // Git blame
     GitBlame *m_gitBlame;
     void blameCurrentFile();
+
+    // LaTeX tabs (shown when .tex file is active)
+    QWidget *m_latexBuildTab = nullptr;
+    QWidget *m_latexViewTab = nullptr;
+    QPlainTextEdit *m_latexBuildOutput = nullptr;
+    int m_latexBuildTabIndex = -1;
+    int m_latexViewTabIndex = -1;
+    void updateLatexToolbar();
+    void latexBuild();
+    void latexView();
 
     // AI-terminal activity indicator
     QLabel *m_aiActivityLabel = nullptr;

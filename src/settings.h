@@ -76,6 +76,11 @@ struct AppSettings {
     QString pdfOrientation = "portrait";
     bool pdfPageBorder = false;
 
+    // LaTeX
+    QString latexBuildCmd = "pdflatex";       // pdflatex, xelatex, lualatex
+    QString latexViewCmd = "built-in";        // "built-in", "evince", "okular", custom
+    QString latexOutputExt = "pdf";           // pdf, dvi
+
     // GUI (tabs, buttons, status bar, menus)
     QString guiFontFamily = "Noto Sans";
     int guiFontSize = 11;
@@ -180,4 +185,9 @@ private:
     QComboBox *m_pdfPageNumberingCombo;
     QComboBox *m_pdfOrientationCombo;
     QCheckBox *m_pdfPageBorderCheck;
+
+    // LaTeX
+    QComboBox *m_latexBuildCmdCombo;
+    QComboBox *m_latexViewCmdCombo;
+    QComboBox *m_latexOutputExtCombo;
 };

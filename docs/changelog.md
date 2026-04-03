@@ -2,6 +2,14 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.24.0] - 2026-04-03
+
+### Added
+- **LaTeX Settings tab** — new "LaTeX" tab in Settings with configurable build command (pdflatex, xelatex, lualatex, latex — editable), view command (built-in, evince, okular, xdg-open, zathura — editable), and output format (pdf, dvi). Persisted as `latex/buildCmd`, `latex/viewCmd`, `latex/outputExt`
+- **LaTeX Build/View bottom tabs** — when a `.tex`, `.latex`, `.sty`, `.cls`, or `.bib` file is the active editor tab, "Build" and "View" tabs appear in the bottom tab widget (next to Search and Blame). Build tab runs the configured LaTeX command via QProcess with output displayed in a read-only text area. View tab opens the output file (built-in QPdfView or external viewer per settings). Tabs auto-hide when switching to a non-LaTeX file
+- **Built-in PDF viewer** — PDF files open in a native QPdfView tab (multi-page, fit-to-width) instead of as unreadable binary text. Zoom via Ctrl+Plus/Ctrl+Minus, Ctrl+mouse scroll, and Ctrl+0 to reset to fit-to-width. Event filter on QPdfView viewport for smooth Ctrl+scroll zoom without scroll interference
+- **LaTeX commands in Command Palette** — "LaTeX Build" and "LaTeX View" available via Ctrl+Shift+P
+
 ## [0.23.0] - 2026-04-03
 
 ### Added

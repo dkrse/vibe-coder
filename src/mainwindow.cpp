@@ -5,6 +5,8 @@
 #include <QCryptographicHash>
 
 #include <QStyleFactory>
+#include <QPdfDocument>
+#include <QPdfView>
 #include <QSplitter>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -325,6 +327,36 @@ MainWindow::MainWindow(QWidget *parent)
     m_gitBlame = new GitBlame;
     m_bottomTabWidget->addTab(m_gitBlame, "Blame");
 
+    // LaTeX Build tab (hidden by default, shown when .tex file is active)
+    m_latexBuildTab = new QWidget;
+    {
+        auto *lay = new QVBoxLayout(m_latexBuildTab);
+        lay->setContentsMargins(4, 4, 4, 4);
+        auto *buildBtn = new QPushButton("Build");
+        buildBtn->setToolTip("Run LaTeX build command on current file");
+        connect(buildBtn, &QPushButton::clicked, this, &MainWindow::latexBuild);
+        lay->addWidget(buildBtn);
+        m_latexBuildOutput = new QPlainTextEdit;
+        m_latexBuildOutput->setReadOnly(true);
+        lay->addWidget(m_latexBuildOutput, 1);
+    }
+    m_latexBuildTabIndex = m_bottomTabWidget->addTab(m_latexBuildTab, "Build");
+    m_bottomTabWidget->setTabVisible(m_latexBuildTabIndex, false);
+
+    // LaTeX View tab (hidden by default, shown when .tex file is active)
+    m_latexViewTab = new QWidget;
+    {
+        auto *lay = new QVBoxLayout(m_latexViewTab);
+        lay->setContentsMargins(4, 4, 4, 4);
+        auto *viewBtn = new QPushButton("View Output");
+        viewBtn->setToolTip("Open the built PDF/DVI");
+        connect(viewBtn, &QPushButton::clicked, this, &MainWindow::latexView);
+        lay->addWidget(viewBtn);
+        lay->addStretch(1);
+    }
+    m_latexViewTabIndex = m_bottomTabWidget->addTab(m_latexViewTab, "View");
+    m_bottomTabWidget->setTabVisible(m_latexViewTabIndex, false);
+
     connect(m_gitGraph, &GitGraph::outputMessage, this, [this](const QString &msg, int level) {
         notify(msg, level);
     });
@@ -495,6 +527,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_tabWidget, &QTabWidget::currentChanged, this, [this](int idx) {
         updateStatusBar();
+        updateLatexToolbar();
         // Highlight the current file in the file browser
         QString filePath = (idx > 0) ? m_tabWidget->tabToolTip(idx) : QString();
         m_fileBrowser->highlightFile(filePath);
@@ -1195,6 +1228,28 @@ void MainWindow::onFileOpened(const QString &filePath)
         if (reply != ThemedMessageBox::Yes) return;
     }
 
+    // PDF files — open with QPdfView instead of text editor
+    if (info.suffix().toLower() == "pdf") {
+        auto *pdfDoc = new QPdfDocument(this);
+        pdfDoc->load(filePath);
+        auto *pdfView = new QPdfView(this);
+        pdfView->setDocument(pdfDoc);
+        pdfView->setPageMode(QPdfView::PageMode::MultiPage);
+        pdfView->setZoomMode(QPdfView::ZoomMode::FitToWidth);
+        pdfView->setProperty("pdfZoom", 1.0);
+
+        // Zoom via Ctrl+Plus/Minus/0 and Ctrl+scroll
+        pdfView->viewport()->installEventFilter(this);
+        pdfView->viewport()->setProperty("pdfViewParent", QVariant::fromValue<QObject *>(pdfView));
+        pdfView->installEventFilter(this);
+
+        int idx = m_tabWidget->addTab(pdfView, info.fileName());
+        m_tabWidget->setTabToolTip(idx, filePath);
+        m_tabWidget->setCurrentIndex(idx);
+        updateStatusBar();
+        return;
+    }
+
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
         return;
@@ -1502,6 +1557,55 @@ bool MainWindow::event(QEvent *event)
         }
     }
     return QMainWindow::event(event);
+}
+
+bool MainWindow::eventFilter(QObject *obj, QEvent *ev)
+{
+    // Resolve QPdfView — obj may be the viewport or the view itself
+    auto *pdfView = qobject_cast<QPdfView *>(obj);
+    if (!pdfView) {
+        QObject *parent = obj->property("pdfViewParent").value<QObject *>();
+        pdfView = qobject_cast<QPdfView *>(parent);
+    }
+    if (!pdfView)
+        return QMainWindow::eventFilter(obj, ev);
+
+    auto applyZoom = [pdfView](double factor) {
+        double zoom = pdfView->property("pdfZoom").toDouble();
+        zoom = qBound(0.1, zoom * factor, 10.0);
+        pdfView->setProperty("pdfZoom", zoom);
+        pdfView->setZoomMode(QPdfView::ZoomMode::Custom);
+        pdfView->setZoomFactor(zoom);
+    };
+
+    if (ev->type() == QEvent::Wheel) {
+        auto *we = static_cast<QWheelEvent *>(ev);
+        if (we->modifiers() & Qt::ControlModifier) {
+            int delta = we->angleDelta().y();
+            if (delta != 0)
+                applyZoom(delta > 0 ? 1.15 : 1.0 / 1.15);
+            return true; // consume the event completely
+        }
+    }
+    if (ev->type() == QEvent::KeyPress) {
+        auto *ke = static_cast<QKeyEvent *>(ev);
+        if (ke->modifiers() & Qt::ControlModifier) {
+            if (ke->key() == Qt::Key_Plus || ke->key() == Qt::Key_Equal) {
+                applyZoom(1.15);
+                return true;
+            }
+            if (ke->key() == Qt::Key_Minus) {
+                applyZoom(1.0 / 1.15);
+                return true;
+            }
+            if (ke->key() == Qt::Key_0) {
+                pdfView->setProperty("pdfZoom", 1.0);
+                pdfView->setZoomMode(QPdfView::ZoomMode::FitToWidth);
+                return true;
+            }
+        }
+    }
+    return QMainWindow::eventFilter(obj, ev);
 }
 
 void MainWindow::closeTab(QTabWidget *tabWidget, int index)
@@ -2099,6 +2203,8 @@ void MainWindow::setupCommandPalette()
     m_commandPalette->addCommand("Unsplit Editor", "", [this]() { unsplitEditor(); });
     m_commandPalette->addCommand("Markdown Preview", "Ctrl+M", [this]() { toggleMarkdownPreview(); });
     m_commandPalette->addCommand("Export Preview to PDF", "", [this]() { exportMarkdownToPdf(); });
+    m_commandPalette->addCommand("LaTeX Build", "", [this]() { latexBuild(); });
+    m_commandPalette->addCommand("LaTeX View", "", [this]() { latexView(); });
     m_commandPalette->addCommand("Show Diff", "", [this]() {
         m_diffViewer->refresh(m_fileBrowser->rootPath());
         m_bottomTabWidget->setCurrentWidget(m_diffViewer);
@@ -2546,4 +2652,70 @@ void MainWindow::blameCurrentFile()
 
     // Don't re-blame the same file
     m_gitBlame->blameFile(m_fileBrowser->rootPath(), filePath);
+}
+
+// ── LaTeX Toolbar ──────────────────────────────────────────────────
+
+void MainWindow::updateLatexToolbar()
+{
+    QString filePath = m_tabWidget->tabToolTip(m_tabWidget->currentIndex());
+    QString suffix = QFileInfo(filePath).suffix().toLower();
+    bool isTex = (suffix == "tex" || suffix == "latex" || suffix == "sty" || suffix == "cls" || suffix == "bib");
+    m_bottomTabWidget->setTabVisible(m_latexBuildTabIndex, isTex);
+    m_bottomTabWidget->setTabVisible(m_latexViewTabIndex, isTex);
+}
+
+void MainWindow::latexBuild()
+{
+    QString filePath = m_tabWidget->tabToolTip(m_tabWidget->currentIndex());
+    if (filePath.isEmpty()) return;
+
+    saveCurrentFile();
+
+    QString cmd = m_settings.latexBuildCmd;
+    QString dir = QFileInfo(filePath).absolutePath();
+    QString file = QFileInfo(filePath).fileName();
+
+    m_latexBuildOutput->clear();
+    m_latexBuildOutput->appendPlainText("$ " + cmd + " " + file + "\n");
+    m_bottomTabWidget->setCurrentWidget(m_latexBuildTab);
+
+    auto *proc = new QProcess(this);
+    proc->setWorkingDirectory(dir);
+    proc->setProcessChannelMode(QProcess::MergedChannels);
+    connect(proc, &QProcess::readyReadStandardOutput, this, [this, proc]() {
+        m_latexBuildOutput->appendPlainText(QString::fromLocal8Bit(proc->readAll()));
+    });
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc, file](int exitCode, QProcess::ExitStatus) {
+        if (exitCode == 0)
+            m_latexBuildOutput->appendPlainText("\n--- Build OK ---");
+        else
+            m_latexBuildOutput->appendPlainText(QString("\n--- Build FAILED (exit %1) ---").arg(exitCode));
+        notify(exitCode == 0 ? "LaTeX build OK: " + file : "LaTeX build FAILED: " + file,
+               exitCode == 0 ? 3 : 2);
+        proc->deleteLater();
+    });
+    proc->start(cmd, {file});
+}
+
+void MainWindow::latexView()
+{
+    QString filePath = m_tabWidget->tabToolTip(m_tabWidget->currentIndex());
+    if (filePath.isEmpty()) return;
+
+    QFileInfo fi(filePath);
+    QString outputPath = fi.absolutePath() + "/" + fi.completeBaseName() + "." + m_settings.latexOutputExt;
+
+    if (!QFile::exists(outputPath)) {
+        notify("Output not found: " + outputPath + " — build first", 1);
+        return;
+    }
+
+    if (m_settings.latexViewCmd == "built-in") {
+        onFileOpened(outputPath);
+    } else {
+        QProcess::startDetached(m_settings.latexViewCmd, {outputPath});
+        notify("Viewing: " + QFileInfo(outputPath).fileName(), 0);
+    }
 }

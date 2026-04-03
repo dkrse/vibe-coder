@@ -100,6 +100,9 @@ void AppSettings::load()
     changesFontIntensity = s.value("changes/fontIntensity", changesFontIntensity).toDouble();
     termFontIntensity = s.value("terminal/fontIntensity", termFontIntensity).toDouble();
     promptStayOnTab = s.value("prompt/stayOnTab", promptStayOnTab).toBool();
+    latexBuildCmd = s.value("latex/buildCmd", latexBuildCmd).toString();
+    latexViewCmd = s.value("latex/viewCmd", latexViewCmd).toString();
+    latexOutputExt = s.value("latex/outputExt", latexOutputExt).toString();
 
     // Clamp font sizes to valid range
     auto clampSize = [](int &size) { if (size < 6) size = 6; if (size > 72) size = 72; };
@@ -235,6 +238,9 @@ void AppSettings::save()
     s.setValue("changes/fontIntensity", changesFontIntensity);
     s.setValue("terminal/fontIntensity", termFontIntensity);
     s.setValue("prompt/stayOnTab", promptStayOnTab);
+    s.setValue("latex/buildCmd", latexBuildCmd);
+    s.setValue("latex/viewCmd", latexViewCmd);
+    s.setValue("latex/outputExt", latexOutputExt);
 }
 
 // --- SettingsDialog ---
@@ -510,6 +516,29 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     pdfLayout->addRow(m_pdfPageBorderCheck);
     tabs->addTab(pdfPage, "PDF");
 
+    // ── LaTeX tab ──────────────────────────────────────────────────
+    auto *latexPage = new QWidget;
+    auto *latexLayout = new QFormLayout(latexPage);
+
+    m_latexBuildCmdCombo = new QComboBox;
+    m_latexBuildCmdCombo->setEditable(true);
+    m_latexBuildCmdCombo->addItems({"pdflatex", "xelatex", "lualatex", "latex"});
+    m_latexBuildCmdCombo->setCurrentText(current.latexBuildCmd);
+
+    m_latexViewCmdCombo = new QComboBox;
+    m_latexViewCmdCombo->setEditable(true);
+    m_latexViewCmdCombo->addItems({"built-in", "evince", "okular", "xdg-open", "zathura"});
+    m_latexViewCmdCombo->setCurrentText(current.latexViewCmd);
+
+    m_latexOutputExtCombo = new QComboBox;
+    m_latexOutputExtCombo->addItems({"pdf", "dvi"});
+    m_latexOutputExtCombo->setCurrentText(current.latexOutputExt);
+
+    latexLayout->addRow("Build command:", m_latexBuildCmdCombo);
+    latexLayout->addRow("View command:", m_latexViewCmdCombo);
+    latexLayout->addRow("Output format:", m_latexOutputExtCombo);
+    tabs->addTab(latexPage, "LaTeX");
+
     mainLayout->addWidget(tabs, 1);
 
     // Buttons
@@ -572,6 +601,9 @@ AppSettings SettingsDialog::result()
     s.changesFontIntensity = intensityFromSpin(m_changesFontIntensitySpin);
     s.termFontIntensity = intensityFromSpin(m_termFontIntensitySpin);
     s.promptStayOnTab = m_promptStayOnTabCheck->isChecked();
+    s.latexBuildCmd = m_latexBuildCmdCombo->currentText();
+    s.latexViewCmd = m_latexViewCmdCombo->currentText();
+    s.latexOutputExt = m_latexOutputExtCombo->currentText();
     s.externalThemes = m_externalThemes;
     s.applyThemeDefaults();
     return s;
