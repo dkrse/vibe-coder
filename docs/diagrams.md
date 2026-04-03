@@ -71,6 +71,7 @@ classDiagram
     QDialog <|-- ThemedMessageBox
     QObject <|-- SshManager
     QWidget <|-- MarkdownPreview
+    QWidget <|-- ImagePreview
     QTreeView <|-- FileBrowserTreeView
     QWidget <|-- FileOpener
     QWidget <|-- WorkspaceSearch
@@ -92,6 +93,7 @@ classDiagram
     MainWindow --> DiffViewer
     MainWindow --> GitGraph
     MainWindow --> MarkdownPreview : m_mdPreviews list
+    MainWindow --> ImagePreview : via tab toggle
     MainWindow --> FileOpener
     MainWindow --> WorkspaceSearch
     MainWindow --> GitBlame
@@ -262,6 +264,17 @@ classDiagram
         -injectPrintCss(function)
         -removePrintCss()
         -postProcessPdf(QByteArray, QString, QPageLayout, QString, bool)
+    }
+
+    class ImagePreview {
+        -QPixmap m_pixmap
+        -double m_zoom
+        -QPointF m_offset
+        -bool m_dragging
+        +zoomIn()
+        +zoomOut()
+        +zoomReset()
+        +zoomFactor() double
     }
 
     class ExternalThemeLoader {
@@ -616,6 +629,7 @@ sequenceDiagram
     MainWindow->>CodeEditor: setLanguage() then setEditorColorScheme()
     Note over CodeEditor: Single rehighlight pass
     MainWindow->>FileWatcher: addPath(filePath)
+    Note over MainWindow: Image files get 👁 preview button (opens ImagePreview tab)
     Note over MainWindow: No terminal cd (only on dialog open)
 ```
 
@@ -632,7 +646,7 @@ flowchart LR
     SS --> ALL[All Widgets + TitleBar]
     B -->|applySettings| WS["Widget Style (QStyleFactory)"]
     B -->|applySettings| D[Terminal font/scheme]
-    B -->|applySettings| E[Editor font/scheme/lineNumbers/highlightLine/wordWrap]
+    B -->|applySettings| E[Editor font/scheme/lineNumbers/highlightLine/wordWrap/showWhitespace]
     B -->|applySettings| VIS[FileBrowser visibility filtering]
     B -->|applySettings| F[FileBrowser font/theme/colors]
     B -->|applySettings| G[PromptEdit font/colors/sendKey/highlightLine]

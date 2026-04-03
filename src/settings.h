@@ -32,6 +32,7 @@ struct AppSettings {
     bool syntaxHighlighting = true;
     bool editorHighlightLine = true;
     bool editorWordWrap = true;
+    bool editorShowWhitespace = false;
     double editorFontIntensity = 1.0; // 0.3 .. 1.0 (text alpha)
 
     // File browser
@@ -138,6 +139,7 @@ private:
     QCheckBox *m_syntaxHighlightCheck;
     QCheckBox *m_editorHighlightLineCheck;
     QCheckBox *m_editorWordWrapCheck;
+    QCheckBox *m_editorShowWhitespaceCheck;
     QSpinBox *m_editorFontIntensitySpin;
 
     // File browser

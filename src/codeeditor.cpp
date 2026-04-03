@@ -344,6 +344,111 @@ void SyntaxHighlighter::buildRules()
         m_commentStartExpr = QRegularExpression("/\\*");
         m_commentEndExpr = QRegularExpression("\\*/");
     }
+    else if (m_language == "json") {
+        QColor keyColor    = blend(m_dark ? QColor("#9cdcfe") : QColor("#0451a5"));
+        QColor valueStrCol = blend(m_dark ? QColor("#ce9178") : QColor("#a31515"));
+        QColor boolNullCol = blend(m_dark ? QColor("#569cd6") : QColor("#0000ff"));
+        QColor bracketCol  = blend(m_dark ? QColor("#d4d4d4") : QColor("#333333"));
+
+        QTextCharFormat keyFmt;
+        keyFmt.setForeground(keyColor);
+        QTextCharFormat valStrFmt;
+        valStrFmt.setForeground(valueStrCol);
+        QTextCharFormat boolFmt;
+        boolFmt.setForeground(boolNullCol);
+        boolFmt.setFontWeight(QFont::Bold);
+        QTextCharFormat bracketFmt;
+        bracketFmt.setForeground(bracketCol);
+        bracketFmt.setFontWeight(QFont::Bold);
+
+        // Keys: "key":  (string followed by colon)
+        m_rules.append({QRegularExpression("\"[^\"]*\"\\s*(?=:)"), keyFmt});
+        // String values (strings not followed by colon)
+        m_rules.append({QRegularExpression(":\\s*\"[^\"]*\""), valStrFmt});
+        // Standalone strings in arrays
+        m_rules.append({QRegularExpression("(?<=[\\[,])\\s*\"[^\"]*\"\\s*(?=[,\\]])"), valStrFmt});
+        // true, false, null
+        m_rules.append({QRegularExpression("\\b(true|false|null)\\b"), boolFmt});
+        // Numbers
+        m_rules.append({QRegularExpression(":\\s*-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?"), numFmt});
+        // Brackets and braces
+        m_rules.append({QRegularExpression("[\\[\\]{}]"), bracketFmt});
+
+        m_commentStartExpr = QRegularExpression();
+        m_commentEndExpr = QRegularExpression();
+    }
+    else if (m_language == "gitignore") {
+        QColor patternColor = blend(m_dark ? QColor("#ce9178") : QColor("#a31515"));
+        QColor negateColor  = blend(m_dark ? QColor("#4ec9b0") : QColor("#267f99"));
+        QColor globColor    = blend(m_dark ? QColor("#d19a66") : QColor("#e36209"));
+
+        QTextCharFormat patFmt;
+        patFmt.setForeground(patternColor);
+        QTextCharFormat negFmt;
+        negFmt.setForeground(negateColor);
+        negFmt.setFontWeight(QFont::Bold);
+        QTextCharFormat globFmt;
+        globFmt.setForeground(globColor);
+        globFmt.setFontWeight(QFont::Bold);
+
+        // Comments
+        m_rules.append({QRegularExpression("^\\s*#.*"), commentFmt});
+        // Negated patterns (!)
+        m_rules.append({QRegularExpression("^\\s*!.*"), negFmt});
+        // Glob wildcards *, **, ?
+        m_rules.append({QRegularExpression("\\*\\*|[*?]"), globFmt});
+        // Directory indicator /
+        m_rules.append({QRegularExpression("/"), globFmt});
+
+        m_commentStartExpr = QRegularExpression();
+        m_commentEndExpr = QRegularExpression();
+    }
+    else if (m_language == "tex") {
+        QColor commandColor  = blend(m_dark ? QColor("#569cd6") : QColor("#0000ff"));
+        QColor mathColor     = blend(m_dark ? QColor("#56b6c2") : QColor("#005cc5"));
+        QColor envColor      = blend(m_dark ? QColor("#4ec9b0") : QColor("#267f99"));
+        QColor bracketColor  = blend(m_dark ? QColor("#d19a66") : QColor("#e36209"));
+        QColor optionColor   = blend(m_dark ? QColor("#ce9178") : QColor("#a31515"));
+        QColor sectionColor  = blend(m_dark ? QColor("#e5c07b") : QColor("#d73a49"));
+
+        QTextCharFormat cmdFmt;
+        cmdFmt.setForeground(commandColor);
+        QTextCharFormat mathFmt;
+        mathFmt.setForeground(mathColor);
+        QTextCharFormat envFmt;
+        envFmt.setForeground(envColor);
+        envFmt.setFontWeight(QFont::Bold);
+        QTextCharFormat bracketFmt;
+        bracketFmt.setForeground(bracketColor);
+        QTextCharFormat optFmt;
+        optFmt.setForeground(optionColor);
+        QTextCharFormat secFmt;
+        secFmt.setForeground(sectionColor);
+        secFmt.setFontWeight(QFont::Bold);
+
+        // Section commands
+        m_rules.append({QRegularExpression("\\\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\\b"), secFmt});
+        // \begin{...} and \end{...}
+        m_rules.append({QRegularExpression("\\\\(begin|end)\\{[^}]*\\}"), envFmt});
+        // General commands \cmd
+        m_rules.append({QRegularExpression("\\\\[a-zA-Z@]+"), cmdFmt});
+        // Curly braces
+        m_rules.append({QRegularExpression("[{}]"), bracketFmt});
+        // Optional arguments [...]
+        m_rules.append({QRegularExpression("\\[[^\\]]*\\]"), optFmt});
+        // Inline math $...$
+        m_rules.append({QRegularExpression("(?<!\\$)\\$(?!\\s)[^$]+(?<!\\s)\\$(?!\\$)"), mathFmt});
+        // Display math $$...$$
+        m_rules.append({QRegularExpression("\\$\\$[^$]+\\$\\$"), mathFmt});
+        // Math environments \(...\) and \[...\]
+        m_rules.append({QRegularExpression("\\\\\\([^)]*\\\\\\)"), mathFmt});
+        m_rules.append({QRegularExpression("\\\\\\[[^]]*\\\\\\]"), mathFmt});
+        // Comments
+        m_rules.append({QRegularExpression("%[^\n]*"), commentFmt});
+
+        m_commentStartExpr = QRegularExpression();
+        m_commentEndExpr = QRegularExpression();
+    }
     else if (m_language == "md") {
         QColor headingColor = blend(m_dark ? QColor("#e5c07b") : QColor("#005cc5"));
         QColor boldColor    = blend(m_dark ? QColor("#e06c75") : QColor("#d73a49"));

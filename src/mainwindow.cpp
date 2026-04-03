@@ -47,7 +47,7 @@ static QColor blendIntensity(const QColor &text, const QColor &bg, double intens
         bg.blueF()  + t * (text.blueF()  - bg.blueF()));
 }
 
-static QString langFromSuffix(const QString &suffix)
+static QString langFromSuffix(const QString &suffix, const QString &fileName = QString())
 {
     QString s = suffix.toLower();
     if (s == "cpp" || s == "cxx" || s == "cc") return "cpp";
@@ -60,6 +60,11 @@ static QString langFromSuffix(const QString &suffix)
     if (s == "tsx") return "tsx";
     if (s == "rs") return "rs";
     if (s == "md" || s == "markdown" || s == "mkd" || s == "mdx") return "md";
+    if (s == "tex" || s == "latex" || s == "sty" || s == "cls" || s == "bib") return "tex";
+    if (s == "json" || s == "jsonc") return "json";
+    // Detect by filename
+    QString fn = fileName.toLower();
+    if (fn == ".gitignore" || fn == ".dockerignore" || fn == ".hgignore") return "gitignore";
     return "";
 }
 
@@ -101,6 +106,12 @@ MainWindow::MainWindow(QWidget *parent)
             m_tabWidget->removeTab(index);
             m_mdPreviews.removeOne(mdp);
             mdp->deleteLater();
+            return;
+        }
+        // Handle image preview tab — delete it
+        if (auto *img = qobject_cast<ImagePreview *>(w)) {
+            m_tabWidget->removeTab(index);
+            img->deleteLater();
             return;
         }
         if (!maybeSaveTab(m_tabWidget, index)) return;
@@ -931,6 +942,14 @@ void MainWindow::applySettingsToEditor(CodeEditor *editor, const QString &lang)
     editor->setWordWrapMode(m_settings.editorWordWrap
         ? QTextOption::WrapAtWordBoundaryOrAnywhere
         : QTextOption::NoWrap);
+    {
+        QTextOption opt = editor->document()->defaultTextOption();
+        if (m_settings.editorShowWhitespace)
+            opt.setFlags(opt.flags() | QTextOption::ShowTabsAndSpaces);
+        else
+            opt.setFlags(opt.flags() & ~QTextOption::ShowTabsAndSpaces);
+        editor->document()->setDefaultTextOption(opt);
+    }
 }
 
 void MainWindow::updateStatusBar()
@@ -1117,7 +1136,7 @@ void MainWindow::applySettings()
         auto *editor = qobject_cast<CodeEditor *>(m_tabWidget->widget(i));
         if (editor) {
             QString filePath = m_tabWidget->tabToolTip(i);
-            QString lang = langFromSuffix(QFileInfo(filePath).suffix());
+            QString lang = langFromSuffix(QFileInfo(filePath).suffix(), QFileInfo(filePath).fileName());
             applySettingsToEditor(editor, lang);
         }
     }
@@ -1126,7 +1145,7 @@ void MainWindow::applySettings()
             auto *editor = qobject_cast<CodeEditor *>(m_splitTabWidget->widget(i));
             if (editor) {
                 QString filePath = m_splitTabWidget->tabToolTip(i);
-                QString lang = langFromSuffix(QFileInfo(filePath).suffix());
+                QString lang = langFromSuffix(QFileInfo(filePath).suffix(), QFileInfo(filePath).fileName());
                 applySettingsToEditor(editor, lang);
             }
         }
@@ -1183,7 +1202,7 @@ void MainWindow::onFileOpened(const QString &filePath)
     QTextStream in(&file);
     QString content = in.readAll();
 
-    QString lang = langFromSuffix(info.suffix());
+    QString lang = langFromSuffix(info.suffix(), info.fileName());
 
     auto *editor = new CodeEditor;
     // Disable syntax highlighting for large files (>1MB) for performance
@@ -1216,6 +1235,48 @@ void MainWindow::onFileOpened(const QString &filePath)
             toggleMarkdownPreview();
         });
         m_tabWidget->tabBar()->setTabButton(idx, QTabBar::LeftSide, previewBtn);
+    }
+
+    // Add preview button for image files
+    {
+        static const QStringList imgExts = {"png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico", "tiff", "tif"};
+        if (imgExts.contains(sfx)) {
+            auto *previewBtn = new QToolButton;
+            previewBtn->setText("\xF0\x9F\x91\x81");  // 👁 eye emoji
+            previewBtn->setToolTip("Image Preview");
+            previewBtn->setAutoRaise(true);
+            previewBtn->setFixedSize(20, 20);
+            previewBtn->setStyleSheet("QToolButton { border: none; padding: 0; font-size: 12px; }");
+            connect(previewBtn, &QToolButton::clicked, this, [this, editor, filePath]() {
+                // Toggle: if preview already open, close it
+                for (int i = 0; i < m_tabWidget->count(); ++i) {
+                    auto *img = qobject_cast<ImagePreview *>(m_tabWidget->widget(i));
+                    if (img && img->property("sourceEditor").value<QWidget *>() == editor) {
+                        m_tabWidget->removeTab(i);
+                        img->deleteLater();
+                        return;
+                    }
+                }
+                // Open preview tab
+                auto *preview = new ImagePreview(filePath, this);
+                preview->setProperty("sourceEditor", QVariant::fromValue<QWidget *>(editor));
+                QString tabName = "Preview: " + QFileInfo(filePath).fileName();
+                int pidx = m_tabWidget->addTab(preview, tabName);
+                m_tabWidget->setCurrentIndex(pidx);
+
+                // Clean up if source editor is destroyed
+                connect(editor, &QObject::destroyed, preview, [this, preview]() {
+                    for (int i = 0; i < m_tabWidget->count(); ++i) {
+                        if (m_tabWidget->widget(i) == preview) {
+                            m_tabWidget->removeTab(i);
+                            break;
+                        }
+                    }
+                    preview->deleteLater();
+                });
+            });
+            m_tabWidget->tabBar()->setTabButton(idx, QTabBar::LeftSide, previewBtn);
+        }
     }
 
     m_fileWatcher->addPath(filePath);
@@ -1847,7 +1908,7 @@ void MainWindow::splitEditorHorizontal()
             QFile file(filePath);
             if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
                 QTextStream in(&file);
-                QString lang = langFromSuffix(QFileInfo(filePath).suffix());
+                QString lang = langFromSuffix(QFileInfo(filePath).suffix(), QFileInfo(filePath).fileName());
                 auto *editor = new CodeEditor;
                 editor->setPlainText(in.readAll());
                 applySettingsToEditor(editor, lang);
@@ -1888,7 +1949,7 @@ void MainWindow::splitEditorVertical()
             QFile file(filePath);
             if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
                 QTextStream in(&file);
-                QString lang = langFromSuffix(QFileInfo(filePath).suffix());
+                QString lang = langFromSuffix(QFileInfo(filePath).suffix(), QFileInfo(filePath).fileName());
                 auto *editor = new CodeEditor;
                 editor->setPlainText(in.readAll());
                 applySettingsToEditor(editor, lang);
@@ -2162,7 +2223,7 @@ void MainWindow::applyGlobalTheme()
         QDialogButtonBox QPushButton { min-width: 80px; }
 
         /* ── Splitter ─────────────────────────────────── */
-        QSplitter::handle { background: %4; width: 1px; height: 1px; }
+        QSplitter::handle { background: transparent; width: 1px; height: 1px; }
 
         /* ── Status bar ───────────────────────────────── */
         QStatusBar { background: %3; color: %2; border: none; padding: 2px 4px; }
@@ -2331,8 +2392,8 @@ void MainWindow::applyGlobalTheme()
 
     // Title bar specific styling
     m_titleBar->setStyleSheet(
-        QString("TitleBar { background: %1; border-bottom: 1px solid %2; }")
-            .arg(altBg, borderColor));
+        QString("TitleBar { background: %1; border-bottom: none; }")
+            .arg(altBg));
 
     // Set window title bar to match theme (Qt 6.5+)
     auto *hints = QGuiApplication::styleHints();

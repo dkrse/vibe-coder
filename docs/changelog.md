@@ -2,6 +2,19 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.23.0] - 2026-04-03
+
+### Added
+- **LaTeX syntax highlighting** — syntax highlighting for `.tex`, `.latex`, `.sty`, `.cls`, `.bib` files. Highlights section commands (bold), `\begin{}`/`\end{}` environments (bold teal), general `\commands`, `{curly braces}`, `[optional args]`, inline/display math (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`), and `% comments` (italic)
+- **JSON syntax highlighting** — syntax highlighting for `.json` and `.jsonc` files. Highlights keys (blue), string values (red/brown), `true`/`false`/`null` (bold blue), numbers, and brackets/braces (bold)
+- **Gitignore syntax highlighting** — syntax highlighting for `.gitignore`, `.dockerignore`, `.hgignore` files (detected by filename). Highlights comments (green italic), negated patterns `!` (bold teal), glob wildcards `*`, `**`, `?` (bold orange), and path separators
+- **Show whitespace** — new "Show whitespace" checkbox in Settings > Editor. Renders spaces as dots and tabs as arrows using `QTextOption::ShowTabsAndSpaces`. Persisted as `editor/showWhitespace`
+- **Image preview** — image files (PNG, JPG, JPEG, GIF, BMP, SVG, WebP, ICO, TIFF) open as text in the editor with a 👁 preview button on the tab (same pattern as markdown preview). Preview tab supports zoom in/out (Ctrl+=/Ctrl+-/Ctrl+0/mouse scroll toward cursor position), pan (mouse drag with hand cursor), and displays a checkerboard background for transparency visualization. Toggle on/off by clicking the preview button. Preview auto-closes when source editor tab is closed
+
+### Changed
+- **Seamless splitter handles** — splitter dividers between panels changed from visible border color to transparent for a cleaner, borderless look
+- **Title bar border removed** — removed the 1px bottom border from the custom title bar
+
 ## [0.22.0] - 2026-04-02
 
 ### Added

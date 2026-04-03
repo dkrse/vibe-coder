@@ -27,6 +27,7 @@
 #include "changesmonitor.h"
 #include "gitgraph.h"
 #include "markdownpreview.h"
+#include "imagepreview.h"
 #include "fileopener.h"
 #include "workspacesearch.h"
 #include "gitblame.h"

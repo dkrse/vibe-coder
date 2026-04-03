@@ -46,6 +46,7 @@ src/
 ├── zedthemeloader.h/cpp  External theme loader (native/Zed/VS Code JSON formats)
 Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no source files in tree)
 ├── markdownpreview.h/cpp Markdown preview with QWebEngineView + mermaid.js + highlight.js + KaTeX
+├── imagepreview.h/cpp    Image preview with zoom, pan, and checkerboard transparency
 ├── fileopener.h/cpp      Fuzzy file opener popup (Ctrl+P)
 ├── workspacesearch.h/cpp Full-text workspace search (Ctrl+Shift+F)
 ├── gitblame.h/cpp        Git blame viewer with gutter annotations
@@ -88,7 +89,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - Tab close properly deletes CodeEditor widget (no memory leak)
 - **Tab close icons** — dynamically generated PNG with theme-colored cross (✕), applied via stylesheet `image: url()` — automatically updates on theme change
 - **Active tab accent border** — `QTabBar::tab:selected` styled with 2px bottom border in theme accent color for clear tab identification across all themes
-- **Minimal splitter handles** — `QSplitter::handle` width/height set to 1px via global stylesheet
+- **Seamless splitter handles** — `QSplitter::handle` width/height set to 1px with transparent background via global stylesheet
 - Async git commit via chained QProcess callbacks with `std::shared_ptr<QString>` (no leak on error)
 - Notification system: centralized logging with unread badge count
 - Changes monitor integration: tracks file changes per project, badge count on tab
@@ -140,7 +141,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 
 ### CodeEditor
 - QPlainTextEdit subclass with LineNumberArea widget and SpacedDocumentLayout for configurable line spacing. Extra bottom viewport margin added when spacing > 1.0 to prevent last line from being clipped
-- SyntaxHighlighter: C/C++, Python, JavaScript/TypeScript, Rust + search pattern overlay. Multi-line comment handling uses block state tracking with correct search offset (0 when continuing from previous block, +2 when starting from new `/*`)
+- SyntaxHighlighter: C/C++, Python, JavaScript/TypeScript, Rust, LaTeX, JSON, gitignore/dockerignore, Markdown + search pattern overlay. Multi-line comment handling uses block state tracking with correct search offset (0 when continuing from previous block, +2 when starting from new `/*`)
 - Dark/Light color scheme with matching syntax colors via `setEditorColorScheme(scheme, bg, fg)`
 - QPalette-based coloring: Base, Text, AlternateBase, PlaceholderText derived from theme colors
 - **Line number area:** explicit stylesheet override (`background-color` + `color`) to prevent global stylesheet from overriding QPalette colors
@@ -160,6 +161,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - **Large file mode** — files >1MB disable syntax highlighting and line wrapping for performance
 - **O(1) match navigation** — `onFindNext()`/`onFindPrev()` use counter increment instead of O(n) document scan
 - **Word wrap** — configurable via Settings > Editor. Uses `QTextOption::WrapAtWordBoundaryOrAnywhere` when enabled, `NoWrap` when disabled. Large file mode force-disables wrapping
+- **Show whitespace** — configurable via Settings > Editor. Uses `QTextOption::ShowTabsAndSpaces` to render spaces as dots and tabs as arrows
 - **Optimized line number painting** — reuses QString via `setNum()`, caches font metrics and area width. Uses floating-point (`qreal`) block position accumulation to prevent rounding drift at non-1.0 line spacing
 - **Bracket matching** — highlights matching `()`, `{}`, `[]` pairs at cursor position via extra selections. Searches forward for opening brackets, backward for closing. Depth-tracked for nested brackets
 - **Auto-close brackets** — typing `(`, `{`, `[`, `"`, `'` inserts closing pair and positions cursor between them. Typing a closing bracket skips over existing one. Backspace between a pair deletes both characters
@@ -277,6 +279,15 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
   2. `printToPdf()` with callback generates base PDF as QByteArray
   3. `postProcessPdf()` opens PDF via `QPdfDocument`, renders each page to QImage at 300 DPI
   4. `QPdfWriter` + `QPainter` creates final PDF: draws page image, white margin overlays (3px overlap to cover edge artifacts), optional page border, and centered page numbers
+
+### ImagePreview
+- Custom QWidget for image file preview, opened as editor tab via 👁 tab button (same toggle pattern as MarkdownPreview)
+- Supports PNG, JPG, JPEG, GIF, BMP, SVG, WebP, ICO, TIFF
+- **Zoom** — Ctrl+=/Ctrl+-/Ctrl+0 keyboard shortcuts, mouse scroll wheel with zoom-toward-cursor (fixed-point transform). Range: 0.05x–50x
+- **Pan** — left-click drag with open/closed hand cursor. Offset clamped to prevent infinite scrolling
+- **Checkerboard background** — alternating 12px gray/white squares for transparency visualization (PNG alpha)
+- **Auto-centering** — image centered in viewport when smaller than the widget
+- Source editor tracked via `QObject::property("sourceEditor")`. Closing source editor auto-closes preview via `QObject::destroyed` signal
   - Configurable: left/right margins, portrait/landscape, page numbering (none/page/page+total), page border
 
 ### GitGraph

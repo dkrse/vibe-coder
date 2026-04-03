@@ -9,7 +9,7 @@ A Qt6 C++ IDE for AI-assisted development workflows. Combines a Zed-style file b
 ## Features
 
 - **File Browser** — Zed editor-style tree view with git status colors (modified, untracked, added, ignored), context menu (new file/dir, rename, delete), drag & drop file moving, animated refresh button. Configurable visibility for gitignored files and .git directory (visible/grayed/hidden). Instant git status updates via single `git status --porcelain --ignored` command with cached git root, `--no-optional-locks`, QFileSystemWatcher on `.git/` directory and `.gitignore` + adaptive polling (10s → 60s). SSH git operations run directly on remote server via SSH (not on slow sshfs mount) with ControlMaster connection multiplexing
-- **Code Editor** — Tabbed editor with syntax highlighting for C/C++, Python, JavaScript/TypeScript, Rust. Line numbers, Ctrl+S save. Split view (horizontal/vertical). Find & Replace (Ctrl+F/Ctrl+H) with yellow match highlighting and scrollbar markers. Undo/Redo. Unsaved changes tracking with `●` tab marker. Configurable current line highlighting. Configurable word wrap. **Bracket matching** — highlights matching `()`, `{}`, `[]` pairs at cursor. **Auto-close brackets** — typing `(`, `{`, `[`, `"`, `'` auto-inserts the closing pair; Backspace between a pair deletes both; typing a closing bracket skips over it if already present
+- **Code Editor** — Tabbed editor with syntax highlighting for C/C++, Python, JavaScript/TypeScript, Rust, LaTeX, JSON, Markdown, and gitignore/dockerignore. Line numbers, Ctrl+S save. Split view (horizontal/vertical). Find & Replace (Ctrl+F/Ctrl+H) with yellow match highlighting and scrollbar markers. Undo/Redo. Unsaved changes tracking with `●` tab marker. Configurable current line highlighting. Configurable word wrap. **Show whitespace** — optional display of spaces (dots) and tabs (arrows), configurable in Settings > Editor. **Bracket matching** — highlights matching `()`, `{}`, `[]` pairs at cursor. **Auto-close brackets** — typing `(`, `{`, `[`, `"`, `'` auto-inserts the closing pair; Backspace between a pair deletes both; typing a closing bracket skips over it if already present
 - **Dual Terminals** — AI-terminal (top, sends prompts) + general Terminal (bottom tab). Both support SSH. Terminals change directory only when opening a directory via the Open Directory dialog (not when navigating subdirectories or opening files in the file browser). Stop button sends configurable stop sequence (default: Ctrl+C). **AI-terminal activity indicator** — animated spinner in prompt area shows when AI-terminal content is changing; stops when terminal is idle. Works even when terminal tab is hidden (screen snapshot comparison via `QWidget::grab()` + MD5 hash)
 - **Prompt System** — Prompt input with configurable send key (Enter / Ctrl+Enter). Shift modifier = send + save. Saved/recurring prompts per project. Quick "AI-terminal" button to switch to terminal tab
 - **Project Management** — `.LLM/instructions.json` stores project metadata, numbered prompt history, and saved prompt IDs. Auto-creates `.gitignore`
@@ -31,7 +31,8 @@ A Qt6 C++ IDE for AI-assisted development workflows. Combines a Zed-style file b
 - **Workspace Search** — Ctrl+Shift+F for full-text search across the entire project. Case-sensitive and regex options, result preview with context, double-click to open file at line
 - **Command Palette** — Ctrl+Shift+P for fuzzy-searchable commands (split view, focus, themes, diff refresh, blame, search)
 - **Notifications** — Centralized log with Info/Warning/Error/Success levels and unread badge
-- **Minimal Splitter Handles** — 1px thin separator lines between panels for maximum screen utilization
+- **Image Preview** — Open image files (PNG, JPG, GIF, BMP, SVG, WebP, ICO, TIFF) as text tabs with 👁 preview button. Preview supports zoom (Ctrl+/Ctrl-/Ctrl+0/mouse scroll toward cursor) and pan (mouse drag). Checkerboard background for transparency visualization
+- **Seamless Splitter Handles** — transparent 1px separator lines between panels for maximum screen utilization
 - **Active Tab Indicator** — selected tab highlighted with accent color bottom border for clear visibility across all themes
 - **Modern UI** — Zed/VS Code-inspired design with rounded buttons, inputs, menus, and scrollbars. Flat borderless tabs with accent underline. Custom checkbox indicators. Borderless status bar with dynamic SSH info sizing
 - **Custom Title Bar** — VS Code/Zed-style frameless window (CSD) with themed minimize/maximize/close buttons. All dialogs use themed title bars
@@ -39,7 +40,7 @@ A Qt6 C++ IDE for AI-assisted development workflows. Combines a Zed-style file b
 - **Widget Styles** — Configurable Qt widget style (Fusion, Windows, Breeze, Adwaita, Oxygen, Kvantum). Auto-detects installed Qt6 style plugins. Affects button shapes, scrollbars, checkboxes, and other GUI component rendering
 - **Font Intensity** — Per-component text opacity control (30%–100%) for editor, file browser, prompt, diff viewer, changes monitor, terminal, and GUI. Blends text color towards background for reduced visual weight. Affects syntax highlighting, file type colors, git status colors, and all UI text
 - **Tab Maximize** — Double-click any tab bar to maximize that panel to the full window (hides file browser and the other panel). Double-click again to restore
-- **Settings** — Tabbed dialog with configurable fonts, sizes, font intensity, line spacing, word wrap, global theme, and widget style for all components (terminal, editor, file browser, prompt, diff, changes, GUI). GUI font applies globally to all tabs, dialogs, buttons, labels, and status bar via `qApp->setFont()`
+- **Settings** — Tabbed dialog with configurable fonts, sizes, font intensity, line spacing, word wrap, show whitespace, global theme, and widget style for all components (terminal, editor, file browser, prompt, diff, changes, GUI). GUI font applies globally to all tabs, dialogs, buttons, labels, and status bar via `qApp->setFont()`
 - **Session Persistence** — Remembers window size, splitter positions, open files, active tab, cursor positions, scroll positions, and active bottom tab. Multi-monitor aware. Fast startup with pre-initialized WebEngine and deferred terminal initialization
 - **Fully Offline** — cmark-gfm statically linked, all resources (mermaid.js, KaTeX, highlight.js, fonts) bundled with integrity verification on startup. No network requests or runtime library dependencies. WebEngine remote URL access explicitly disabled
 
@@ -141,9 +142,10 @@ cp ../themes/*.json ~/.config/vibe-coder/themes/
 17. **Settings** — Hamburger menu (☰) → Settings. Tabbed dialog for fonts, themes, and behavior
 18. **Custom Themes** — Place `.json` theme files in `~/.config/vibe-coder/themes/`. Supports native, Zed, and VS Code formats
 19. **Markdown Preview** — Open a `.md` file and press Ctrl+M (or click the 👁 icon on the tab). Multiple previews can be open at once. Press Ctrl+M again to close the current preview
-20. **Export to PDF** — With preview open, use Command Palette (Ctrl+Shift+P) → "Export Preview to PDF". Configure margins, orientation, page numbering, and border in Settings > PDF
-21. **Git User** — Click "User" in Git tab to view/edit git global name and email
-22. **Zoom** — Ctrl+= / Ctrl+- zooms only the focused component (editor, prompt, file browser, or markdown preview)
+20. **Image Preview** — Open an image file, then click the 👁 icon on the tab to open a preview. Zoom with Ctrl+=/Ctrl+-/mouse scroll, pan by dragging, Ctrl+0 to reset
+21. **Export to PDF** — With preview open, use Command Palette (Ctrl+Shift+P) → "Export Preview to PDF". Configure margins, orientation, page numbering, and border in Settings > PDF
+22. **Git User** — Click "User" in Git tab to view/edit git global name and email
+23. **Zoom** — Ctrl+= / Ctrl+- zooms only the focused component (editor, prompt, file browser, or markdown preview)
 
 ## Documentation
 

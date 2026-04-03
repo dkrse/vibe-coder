@@ -66,6 +66,7 @@ void AppSettings::load()
     syntaxHighlighting = s.value("editor/syntaxHighlighting", syntaxHighlighting).toBool();
     editorHighlightLine = s.value("editor/highlightLine", editorHighlightLine).toBool();
     editorWordWrap = s.value("editor/wordWrap", editorWordWrap).toBool();
+    editorShowWhitespace = s.value("editor/showWhitespace", editorShowWhitespace).toBool();
     browserFontFamily = s.value("browser/fontFamily", browserFontFamily).toString();
     browserFontSize = s.value("browser/fontSize", browserFontSize).toInt();
     browserFontWeight = s.value("browser/fontWeight", browserFontWeight).toInt();
@@ -200,6 +201,7 @@ void AppSettings::save()
     s.setValue("editor/syntaxHighlighting", syntaxHighlighting);
     s.setValue("editor/highlightLine", editorHighlightLine);
     s.setValue("editor/wordWrap", editorWordWrap);
+    s.setValue("editor/showWhitespace", editorShowWhitespace);
     s.setValue("browser/fontFamily", browserFontFamily);
     s.setValue("browser/fontSize", browserFontSize);
     s.setValue("browser/fontWeight", browserFontWeight);
@@ -347,6 +349,9 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     m_editorWordWrapCheck = new QCheckBox("Word wrap");
     m_editorWordWrapCheck->setChecked(current.editorWordWrap);
 
+    m_editorShowWhitespaceCheck = new QCheckBox("Show whitespace");
+    m_editorShowWhitespaceCheck->setChecked(current.editorShowWhitespace);
+
     editorLayout->addRow("Font family:", m_editorFontCombo);
     editorLayout->addRow("Font size:", m_editorFontSizeSpin);
     editorLayout->addRow("Font weight:", m_editorFontWeightCombo);
@@ -357,6 +362,7 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
     editorLayout->addRow(m_syntaxHighlightCheck);
     editorLayout->addRow(m_editorHighlightLineCheck);
     editorLayout->addRow(m_editorWordWrapCheck);
+    editorLayout->addRow(m_editorShowWhitespaceCheck);
     tabs->addTab(editorPage, "Editor");
 
     // ── File Browser tab ────────────────────────────────────────────
@@ -531,6 +537,7 @@ AppSettings SettingsDialog::result()
     s.syntaxHighlighting = m_syntaxHighlightCheck->isChecked();
     s.editorHighlightLine = m_editorHighlightLineCheck->isChecked();
     s.editorWordWrap = m_editorWordWrapCheck->isChecked();
+    s.editorShowWhitespace = m_editorShowWhitespaceCheck->isChecked();
     s.browserFontFamily = m_browserFontCombo->currentFont().family();
     s.browserFontSize = m_browserFontSizeSpin->value();
     s.browserFontWeight = weightFromCombo(m_browserFontWeightCombo);

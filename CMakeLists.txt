@@ -63,6 +63,8 @@ add_executable(vibe-coder
     src/themeddialog.h
     src/markdownpreview.cpp
     src/markdownpreview.h
+    src/imagepreview.cpp
+    src/imagepreview.h
     src/fileopener.cpp
     src/fileopener.h
     src/workspacesearch.cpp
