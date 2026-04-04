@@ -187,7 +187,7 @@ protected:
     int m_latexBuildTabIndex = -1;
     int m_latexViewTabIndex = -1;
     void updateLatexToolbar();
-    void latexBuild();
+    void latexBuild(bool viewAfter = false);
     void latexView();
 
     // AI-terminal activity indicator

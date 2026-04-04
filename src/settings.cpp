@@ -250,7 +250,8 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
 {
     m_externalThemes = current.externalThemes;
     setWindowTitle("Settings");
-    setMinimumSize(460, 480);
+    setMinimumSize(560, 580);
+    setFont(parent->font());
 
     auto *mainLayout = new QVBoxLayout(this);
 
@@ -522,7 +523,7 @@ SettingsDialog::SettingsDialog(const AppSettings &current, QWidget *parent)
 
     m_latexBuildCmdCombo = new QComboBox;
     m_latexBuildCmdCombo->setEditable(true);
-    m_latexBuildCmdCombo->addItems({"pdflatex", "xelatex", "lualatex", "latex"});
+    m_latexBuildCmdCombo->addItems({"pdflatex", "xelatex", "lualatex", "latexmk", "latex"});
     m_latexBuildCmdCombo->setCurrentText(current.latexBuildCmd);
 
     m_latexViewCmdCombo = new QComboBox;

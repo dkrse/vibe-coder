@@ -2,6 +2,22 @@
 
 All notable changes to Vibe Coder are documented in this file.
 
+## [0.25.0] - 2026-04-04
+
+### Added
+- **LaTeX full build cycle** — Build now automatically runs the full compile → bibtex → compile → compile cycle for pdflatex/xelatex/lualatex, resolving citations and cross-references in a single click. bibtex failure (no .bib) is non-fatal
+- **latexmk support** — `latexmk` added as a build command option in Settings > LaTeX. Automatically determines the number of passes needed and runs bibtex/biber as required
+- **Build & View button** — Build tab now has "Build & View" (compile + auto-open PDF) and "Compile" (compile only) buttons, left-aligned as normal-sized buttons instead of full-width
+- **ComboBox dropdown arrows** — all combo boxes now display a visible CSS down-arrow indicator, making it clear they are dropdowns (previously hidden on some themes due to custom stylesheet)
+
+### Changed
+- **Title bar font** — main window and dialog title bars now inherit the GUI font from Settings instead of using hardcoded 13px font size
+- **Settings dialog size** — increased from 460×480 to 560×580
+- **Notifications tab font** — now uses Terminal font from Settings instead of GUI font
+- **Diff tab font** — now uses Terminal font from Settings instead of hardcoded Monospace 10pt. Font applied to the full widget (combo box, buttons) and document level to persist across content refreshes
+- **LaTeX Build output font** — now uses Terminal font from Settings
+- **View tab layout** — "View Output" button left-aligned as normal-sized button instead of full-width
+
 ## [0.24.0] - 2026-04-03
 
 ### Added

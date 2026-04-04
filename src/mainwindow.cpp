@@ -332,10 +332,18 @@ MainWindow::MainWindow(QWidget *parent)
     {
         auto *lay = new QVBoxLayout(m_latexBuildTab);
         lay->setContentsMargins(4, 4, 4, 4);
-        auto *buildBtn = new QPushButton("Build");
-        buildBtn->setToolTip("Run LaTeX build command on current file");
-        connect(buildBtn, &QPushButton::clicked, this, &MainWindow::latexBuild);
-        lay->addWidget(buildBtn);
+        auto *btnLay = new QHBoxLayout;
+        btnLay->setContentsMargins(0, 0, 0, 0);
+        auto *buildViewBtn = new QPushButton("Build && View");
+        buildViewBtn->setToolTip("Build and open the resulting PDF/DVI");
+        connect(buildViewBtn, &QPushButton::clicked, this, [this]() { latexBuild(true); });
+        btnLay->addWidget(buildViewBtn);
+        auto *compileBtn = new QPushButton("Compile");
+        compileBtn->setToolTip("Run LaTeX build command without opening viewer");
+        connect(compileBtn, &QPushButton::clicked, this, [this]() { latexBuild(false); });
+        btnLay->addWidget(compileBtn);
+        btnLay->addStretch(1);
+        lay->addLayout(btnLay);
         m_latexBuildOutput = new QPlainTextEdit;
         m_latexBuildOutput->setReadOnly(true);
         lay->addWidget(m_latexBuildOutput, 1);
@@ -348,10 +356,14 @@ MainWindow::MainWindow(QWidget *parent)
     {
         auto *lay = new QVBoxLayout(m_latexViewTab);
         lay->setContentsMargins(4, 4, 4, 4);
+        auto *btnLay = new QHBoxLayout;
+        btnLay->setContentsMargins(0, 0, 0, 0);
         auto *viewBtn = new QPushButton("View Output");
         viewBtn->setToolTip("Open the built PDF/DVI");
         connect(viewBtn, &QPushButton::clicked, this, &MainWindow::latexView);
-        lay->addWidget(viewBtn);
+        btnLay->addWidget(viewBtn);
+        btnLay->addStretch(1);
+        lay->addLayout(btnLay);
         lay->addStretch(1);
     }
     m_latexViewTabIndex = m_bottomTabWidget->addTab(m_latexViewTab, "View");
@@ -1074,6 +1086,8 @@ void MainWindow::applySettings()
     m_bottomTerminal->terminal()->setColorScheme(m_settings.terminalColorScheme);
     m_bottomTerminal2->terminal()->setTerminalFont(termFont);
     m_bottomTerminal2->terminal()->setColorScheme(m_settings.terminalColorScheme);
+    m_latexBuildOutput->setFont(termFont);
+    m_notificationPanel->setFont(termFont);
     // Terminal font intensity: setTerminalOpacity affects background, not text.
     // QTermWidget doesn't expose per-color overrides, so we apply opacity to the widget.
     if (m_settings.termFontIntensity < 0.99) {
@@ -1128,9 +1142,7 @@ void MainWindow::applySettings()
 
     // Diff viewer
     {
-        QFont diffFont(m_settings.diffFontFamily, m_settings.diffFontSize);
-        diffFont.setWeight(static_cast<QFont::Weight>(m_settings.diffFontWeight));
-        m_diffViewer->setViewerFont(diffFont);
+        m_diffViewer->setViewerFont(termFont);
         QColor diffTextColor = blendIntensity(m_settings.textColor, m_settings.bgColor, m_settings.diffFontIntensity);
         m_diffViewer->setViewerColors(m_settings.bgColor, diffTextColor);
     }
@@ -1156,8 +1168,8 @@ void MainWindow::applySettings()
     m_gitBlame->setViewerFont(guiFont);
     m_gitBlame->setViewerColors(m_settings.bgColor, m_settings.textColor);
 
-    // Notification panel
-    m_notificationPanel->setFont(guiFont);
+    // Notification panel — use terminal font
+    m_notificationPanel->setFont(termFont);
 
     // Markdown previews — update font
     for (auto *mdp : m_mdPreviews) {
@@ -2361,6 +2373,13 @@ void MainWindow::applyGlobalTheme()
             border: none;
             width: 20px;
         }
+        QComboBox::down-arrow {
+            image: none;
+            width: 0; height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 6px solid %2;
+        }
         QComboBox QAbstractItemView {
             background: %1; color: %2;
             selection-background-color: %6;
@@ -2665,7 +2684,7 @@ void MainWindow::updateLatexToolbar()
     m_bottomTabWidget->setTabVisible(m_latexViewTabIndex, isTex);
 }
 
-void MainWindow::latexBuild()
+void MainWindow::latexBuild(bool viewAfter)
 {
     QString filePath = m_tabWidget->tabToolTip(m_tabWidget->currentIndex());
     if (filePath.isEmpty()) return;
@@ -2677,26 +2696,105 @@ void MainWindow::latexBuild()
     QString file = QFileInfo(filePath).fileName();
 
     m_latexBuildOutput->clear();
-    m_latexBuildOutput->appendPlainText("$ " + cmd + " " + file + "\n");
     m_bottomTabWidget->setCurrentWidget(m_latexBuildTab);
 
-    auto *proc = new QProcess(this);
-    proc->setWorkingDirectory(dir);
-    proc->setProcessChannelMode(QProcess::MergedChannels);
-    connect(proc, &QProcess::readyReadStandardOutput, this, [this, proc]() {
-        m_latexBuildOutput->appendPlainText(QString::fromLocal8Bit(proc->readAll()));
-    });
-    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, [this, proc, file](int exitCode, QProcess::ExitStatus) {
-        if (exitCode == 0)
-            m_latexBuildOutput->appendPlainText("\n--- Build OK ---");
-        else
-            m_latexBuildOutput->appendPlainText(QString("\n--- Build FAILED (exit %1) ---").arg(exitCode));
-        notify(exitCode == 0 ? "LaTeX build OK: " + file : "LaTeX build FAILED: " + file,
-               exitCode == 0 ? 3 : 2);
-        proc->deleteLater();
-    });
-    proc->start(cmd, {file});
+    // latexmk handles multiple passes automatically
+    if (cmd == "latexmk") {
+        QString engFlag = "-pdf";
+        if (m_settings.latexOutputExt == "dvi") engFlag = "-dvi";
+        m_latexBuildOutput->appendPlainText("$ latexmk " + engFlag + " " + file + "\n");
+
+        auto *proc = new QProcess(this);
+        proc->setWorkingDirectory(dir);
+        proc->setProcessChannelMode(QProcess::MergedChannels);
+        connect(proc, &QProcess::readyReadStandardOutput, this, [this, proc]() {
+            m_latexBuildOutput->appendPlainText(QString::fromLocal8Bit(proc->readAll()));
+        });
+        connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                this, [this, proc, file, viewAfter](int exitCode, QProcess::ExitStatus) {
+            if (exitCode == 0) {
+                m_latexBuildOutput->appendPlainText("\n--- Build OK ---");
+                if (viewAfter) latexView();
+            } else
+                m_latexBuildOutput->appendPlainText(QString("\n--- Build FAILED (exit %1) ---").arg(exitCode));
+            notify(exitCode == 0 ? "LaTeX build OK: " + file : "LaTeX build FAILED: " + file,
+                   exitCode == 0 ? 3 : 2);
+            proc->deleteLater();
+        });
+        proc->start("latexmk", {engFlag, "-interaction=nonstopmode", file});
+        return;
+    }
+
+    // For pdflatex/xelatex/lualatex: run full cycle (compile -> bibtex -> compile -> compile)
+    // to resolve citations and cross-references in a single Build click
+    QString baseName = QFileInfo(file).completeBaseName();
+    QStringList steps;
+    steps << cmd + " -interaction=nonstopmode " + file
+          << "bibtex " + baseName
+          << cmd + " -interaction=nonstopmode " + file
+          << cmd + " -interaction=nonstopmode " + file;
+
+    auto *stepIdx = new int(0);
+    auto runStep = [this, steps, stepIdx, dir, file]() {
+        // intentionally capturing this lambda itself is not possible directly,
+        // so we use a shared function pointer
+    };
+    Q_UNUSED(runStep)
+
+    // Use a sequential process runner
+    struct StepRunner : public QObject {
+        QStringList steps;
+        QString dir;
+        QString file;
+        int idx = 0;
+        bool viewAfter = false;
+        MainWindow *mw;
+
+        void runNext() {
+            if (idx >= steps.size()) {
+                mw->m_latexBuildOutput->appendPlainText("\n--- Build OK ---");
+                mw->notify("LaTeX build OK: " + file, 3);
+                if (viewAfter) mw->latexView();
+                deleteLater();
+                return;
+            }
+            QString step = steps[idx];
+            mw->m_latexBuildOutput->appendPlainText("\n$ " + step);
+            QStringList parts = step.split(' ', Qt::SkipEmptyParts);
+            QString program = parts.takeFirst();
+            auto *proc = new QProcess(this);
+            proc->setWorkingDirectory(dir);
+            proc->setProcessChannelMode(QProcess::MergedChannels);
+            connect(proc, &QProcess::readyReadStandardOutput, this, [this, proc]() {
+                mw->m_latexBuildOutput->appendPlainText(QString::fromLocal8Bit(proc->readAll()));
+            });
+            connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                    this, [this, proc](int exitCode, QProcess::ExitStatus) {
+                proc->deleteLater();
+                // bibtex (idx==1) may return non-zero if no .bib — that's OK, continue
+                if (exitCode != 0 && idx != 1) {
+                    mw->m_latexBuildOutput->appendPlainText(
+                        QString("\n--- Build FAILED at step %1 (exit %2) ---").arg(idx + 1).arg(exitCode));
+                    mw->notify("LaTeX build FAILED: " + file, 2);
+                    deleteLater();
+                    return;
+                }
+                idx++;
+                runNext();
+            });
+            proc->start(program, parts);
+        }
+    };
+
+    delete stepIdx;
+
+    auto *runner = new StepRunner;
+    runner->steps = steps;
+    runner->dir = dir;
+    runner->file = file;
+    runner->viewAfter = viewAfter;
+    runner->mw = this;
+    runner->runNext();
 }
 
 void MainWindow::latexView()

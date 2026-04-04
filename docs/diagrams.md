@@ -154,7 +154,7 @@ classDiagram
         +splitEditorVertical()
         +unsplitEditor()
         +blameCurrentFile()
-        +latexBuild()
+        +latexBuild(bool viewAfter)
         +latexView()
         +updateLatexToolbar()
         -FileOpener* m_fileOpener

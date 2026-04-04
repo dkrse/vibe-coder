@@ -33,11 +33,11 @@ A Qt6 C++ IDE for AI-assisted development workflows. Combines a Zed-style file b
 - **Notifications** — Centralized log with Info/Warning/Error/Success levels and unread badge
 - **Image Preview** — Open image files (PNG, JPG, GIF, BMP, SVG, WebP, ICO, TIFF) as text tabs with 👁 preview button. Preview supports zoom (Ctrl+/Ctrl-/Ctrl+0/mouse scroll toward cursor) and pan (mouse drag). Checkerboard background for transparency visualization
 - **Built-in PDF Viewer** — PDF files open as rendered pages (QPdfView) instead of raw text. Multi-page view with fit-to-width. Zoom via Ctrl+Plus/Minus, Ctrl+mouse scroll, Ctrl+0 to reset
-- **LaTeX Workflow** — When a `.tex` file is active, "Build" and "View" tabs appear in the bottom panel. Build runs the configured LaTeX command (pdflatex/xelatex/lualatex) with output log. View opens the resulting PDF in the built-in viewer or an external viewer. Configurable in Settings > LaTeX
+- **LaTeX Workflow** — When a `.tex` file is active, "Build" and "View" tabs appear in the bottom panel. Build tab has "Build & View" (compile + auto-open PDF) and "Compile" buttons. Automatically runs the full compile → bibtex → compile → compile cycle to resolve citations and cross-references in a single click. Supports `latexmk` for automatic pass management. Output log uses Terminal font. View tab opens the resulting PDF in the built-in viewer or an external viewer. Configurable in Settings > LaTeX
 - **Seamless Splitter Handles** — transparent 1px separator lines between panels for maximum screen utilization
 - **Active Tab Indicator** — selected tab highlighted with accent color bottom border for clear visibility across all themes
 - **Modern UI** — Zed/VS Code-inspired design with rounded buttons, inputs, menus, and scrollbars. Flat borderless tabs with accent underline. Custom checkbox indicators. Borderless status bar with dynamic SSH info sizing
-- **Custom Title Bar** — VS Code/Zed-style frameless window (CSD) with themed minimize/maximize/close buttons. All dialogs use themed title bars
+- **Custom Title Bar** — VS Code/Zed-style frameless window (CSD) with themed minimize/maximize/close buttons. All dialogs use themed title bars. Title bar labels inherit GUI font from Settings
 - **Global Themes** — External theme system loading from `~/.config/vibe-coder/themes/`. Ships with 8 themes (Dark, Dark Soft, Dark Warm, Light, Monokai, Solarized Dark, Solarized Light, Nord). Supports native JSON, Zed, and VS Code theme formats. Live switching without restart. Theme colors control editor line highlight, file browser selection, and all UI elements
 - **Widget Styles** — Configurable Qt widget style (Fusion, Windows, Breeze, Adwaita, Oxygen, Kvantum). Auto-detects installed Qt6 style plugins. Affects button shapes, scrollbars, checkboxes, and other GUI component rendering
 - **Font Intensity** — Per-component text opacity control (30%–100%) for editor, file browser, prompt, diff viewer, changes monitor, terminal, and GUI. Blends text color towards background for reduced visual weight. Affects syntax highlighting, file type colors, git status colors, and all UI text
@@ -148,8 +148,8 @@ cp ../themes/*.json ~/.config/vibe-coder/themes/
 21. **Export to PDF** — With preview open, use Command Palette (Ctrl+Shift+P) → "Export Preview to PDF". Configure margins, orientation, page numbering, and border in Settings > PDF
 22. **Git User** — Click "User" in Git tab to view/edit git global name and email
 23. **Zoom** — Ctrl+= / Ctrl+- zooms only the focused component (editor, prompt, file browser, or markdown preview)
-24. **LaTeX Build** — Open a `.tex` file, then click "Build" in the bottom tabs (or Command Palette → "LaTeX Build"). Output appears in the Build tab. Configure the build command in Settings > LaTeX
-25. **LaTeX View** — After building, click "View" in the bottom tabs (or Command Palette → "LaTeX View") to open the PDF. Uses built-in PDF viewer by default (configurable in Settings > LaTeX)
+24. **LaTeX Build & View** — Open a `.tex` file, then click "Build & View" to compile and auto-open the PDF, or "Compile" for compile-only. Automatically runs full citation resolution cycle (compile → bibtex → compile → compile). Output appears in the Build tab. Configure the build command (pdflatex, xelatex, lualatex, latexmk) in Settings > LaTeX
+25. **LaTeX View** — Click "View Output" in the View tab (or Command Palette → "LaTeX View") to open the PDF. Uses built-in PDF viewer by default (configurable in Settings > LaTeX)
 26. **PDF Viewer** — Open any `.pdf` file to view it as rendered pages. Zoom with Ctrl+=/Ctrl+-/Ctrl+scroll, Ctrl+0 to reset
 
 ## Documentation

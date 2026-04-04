@@ -12,7 +12,7 @@ DialogTitleBar::DialogTitleBar(const QString &title, QWidget *parent)
     layout->setSpacing(0);
 
     m_titleLabel = new QLabel(title);
-    m_titleLabel->setStyleSheet("font-size: 13px; font-weight: 500;");
+    m_titleLabel->setStyleSheet("font-weight: 500;");
     layout->addWidget(m_titleLabel);
 
     layout->addStretch();

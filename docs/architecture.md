@@ -348,9 +348,9 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - Event filter installed on both QPdfView (key events) and its `viewport()` (wheel events). Viewport→parent link via dynamic property `pdfViewParent`. Ctrl+scroll fully consumed to prevent simultaneous scroll+zoom
 
 ### LaTeX Workflow
-- **Build tab** — bottom tab widget, visible only when `.tex`/`.latex`/`.sty`/`.cls`/`.bib` file is active. Contains "Build" button + read-only QPlainTextEdit for output. Runs configured LaTeX command (`pdflatex`/`xelatex`/`lualatex`/custom) via QProcess with merged stdout/stderr. Auto-saves current file before build
-- **View tab** — bottom tab widget, visible alongside Build tab. Opens output file (`.pdf`/`.dvi`) via built-in QPdfView (if "built-in") or external viewer (`QProcess::startDetached`)
-- **Settings** — LaTeX tab with editable combos for build command, view command, and output format. Persisted as `latex/buildCmd`, `latex/viewCmd`, `latex/outputExt`
+- **Build tab** — bottom tab widget, visible only when `.tex`/`.latex`/`.sty`/`.cls`/`.bib` file is active. Contains two left-aligned buttons: "Build & View" (compile + auto-open PDF) and "Compile" (compile only) + read-only QPlainTextEdit for output (uses Terminal font). For `pdflatex`/`xelatex`/`lualatex`: runs full cycle (compile → bibtex → compile → compile) via sequential QProcess `StepRunner` to resolve citations and cross-references in one click. bibtex failure is non-fatal (continues to next step). For `latexmk`: runs with `-pdf`/`-dvi` flag and `-interaction=nonstopmode`, handles passes automatically. Auto-saves current file before build
+- **View tab** — bottom tab widget, visible alongside Build tab. Left-aligned "View Output" button. Opens output file (`.pdf`/`.dvi`) via built-in QPdfView (if "built-in") or external viewer (`QProcess::startDetached`)
+- **Settings** — LaTeX tab with editable combos for build command (pdflatex, xelatex, lualatex, latexmk, latex), view command, and output format. Persisted as `latex/buildCmd`, `latex/viewCmd`, `latex/outputExt`
 - Tab visibility controlled by `updateLatexToolbar()`, called on `m_tabWidget::currentChanged`
 
 ### Settings
@@ -366,7 +366,7 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 - SettingsDialog preserves externalThemes list through `result()` method
 - **Font size clamping:** all font sizes clamped to 6–72 range after loading to prevent invalid values from corrupted settings
 - **Font intensity:** per-component opacity (0.3–1.0), clamped on load. `blendIntensity()` mixes text color towards background by factor. GUI intensity baked into global stylesheet `%2` textColor. Editor intensity applied via `SyntaxHighlighter::setIntensity()` (rebuilds highlighting rules with blended colors) + `CodeEditor` stylesheet. File browser intensity via `FileItemDelegate::setIntensity()` + `blendColor()` on all hardcoded per-filetype/git-status colors. Prompt/diff/changes via `objectName` + ID selectors in per-widget stylesheets. Terminal via `QTermWidget::setTerminalOpacity()`. `intensityFromSpin()` calls `interpretText()` to commit typed values before reading
-- **Application-wide GUI font:** `qApp->setFont(guiFont)` sets default font for all widgets and dialogs. `applySettings()` additionally sets GUI font on tab bars, all buttons/labels/combos/checkboxes in bottom tabs (Notifications, Diff, Changes, Git, Search, Blame) via `findChildren<>()` loop. Notification list items inherit font at creation. No hardcoded font sizes in any widget
+- **Application-wide GUI font:** `qApp->setFont(guiFont)` sets default font for all widgets and dialogs. `applySettings()` additionally sets GUI font on tab bars, all buttons/labels/combos/checkboxes in bottom tabs (Notifications, Diff, Changes, Git, Search, Blame) via `findChildren<>()` loop. Notification list items inherit font at creation. Title bar labels (main window + dialogs) inherit GUI font (no hardcoded font sizes). Notifications panel, Diff viewer, and LaTeX Build output use Terminal font. Diff viewer font set at widget, textEdit, and document level to persist across content refreshes
 
 ## Data Flow
 
@@ -393,8 +393,8 @@ Note: cmark-gfm is fetched and statically linked via CMake FetchContent (no sour
 20. **Fuzzy File Opener:** Ctrl+P -> FileOpener.show() -> scan project files (cached) -> fuzzy filter on keystroke -> Enter opens file via onFileOpened()
 21. **Workspace Search:** Ctrl+Shift+F -> WorkspaceSearch.focusSearch() -> Enter triggers grep process -> results parsed (file:line:text) -> click shows context preview -> double-click emits fileRequested(path, line) -> MainWindow opens file and jumps to line
 22. **Git Blame:** Blame tab activated (or Command Palette) -> blameCurrentFile() -> GitBlame.blameFile(workDir, filePath) -> async `git blame --porcelain` -> parse output -> BlameView.setBlameData() -> gutter paint with annotations
-23. **LaTeX Build:** Build button (or Command Palette) -> latexBuild() -> saveCurrentFile() -> QProcess(latexBuildCmd, {filename}) in file's directory -> merged output to Build tab QPlainTextEdit -> exit code notification
-24. **LaTeX View:** View button (or Command Palette) -> latexView() -> check output file exists -> built-in: onFileOpened(outputPath) opens QPdfView tab; external: QProcess::startDetached(viewCmd, {outputPath})
+23. **LaTeX Build:** "Build & View" or "Compile" button (or Command Palette) -> latexBuild(viewAfter) -> saveCurrentFile() -> latexmk: single QProcess with -pdf/-dvi flag; pdflatex/xelatex/lualatex: StepRunner sequential QProcess chain (compile → bibtex → compile → compile) -> merged output to Build tab QPlainTextEdit -> exit code notification -> if viewAfter: latexView()
+24. **LaTeX View:** "View Output" button (or Command Palette) -> latexView() -> check output file exists -> built-in: onFileOpened(outputPath) opens QPdfView tab; external: QProcess::startDetached(viewCmd, {outputPath})
 25. **PDF Open:** onFileOpened() detects `.pdf` suffix -> QPdfDocument.load() -> QPdfView tab with event filter for Ctrl+scroll/Ctrl+±/Ctrl+0 zoom
 
 ## Session Persistence
